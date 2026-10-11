@@ -36,7 +36,7 @@ const NOT_WINE = new RegExp(
     'brandy', 'liqueur', '\\bbeer\\b', '\\bipa\\b', '\\blager\\b', '\\bale\\b', '\\bcider\\b', 'hard seltzer',
     '\\bsake\\b', 'soju', 'cocktail', 'mixer', 'bitters', 'non[\\s-]?alcoholic', 'dealcoholi[sz]ed',
     'gourmet', 'chocolate', 'cheese', 'candle', 'book\\b', 'scotch', 'single malt', '\\brye\\b', 'amaro', 'fernet',
-    'grappa', 'pisco', 'absinthe', 'shochu', 'baijiu', 'eau de vie', 'calvados', 'aperitivo', 'campari', 'aperol',
+    'grappa', 'pisco', '\\bbitter\\b', 'limoncello', 'sambuca', 'ouzo', 'arak', 'absinthe', 'shochu', 'baijiu', 'eau de vie', 'calvados', 'aperitivo', 'campari', 'aperol',
   ].join('|'),
   'i'
 );

@@ -39,4 +39,6 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Chateau Montelena Estate Cabernet Sauvignon Calistoga Reserve 2018', expect: null },
   { q: 'Ridge Monte Bello Chardonnay 2019', expect: null },
   { q: 'Veuve Clicquot Extra Brut Extra Old', expect: null },
+  { q: '2018 Jean-Paul & Benoit Droin - Chablis Clos', expect: null },
+  { q: 'Droin Chablis 2022', expect: 'droin-chablis' },
 ];

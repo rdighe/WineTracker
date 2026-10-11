@@ -46,7 +46,7 @@ export const STOPWORDS = new Set([
   'the', 'and', 'of', 'de', 'di', 'du', 'da', 'do', 'del', 'della', 'dei', 'des', 'la', 'le', 'les', 'lo',
   'el', 'los', 'las', 'y', 'e', 'et', 'en', 'von', 'van', 'der', 'den', 'a', 'al', 'au', 'aux', 'il',
   'wine', 'wines', 'winery', 'vineyard', 'vineyards', 'cellars', 'cellar', 'estate', 'estates', 'family',
-  'chateau', 'domaine', 'bodega', 'bodegas', 'cantina', 'tenuta', 'weingut', 'maison', 'quinta', 'clos',
+  'chateau', 'domaine', 'bodega', 'bodegas', 'cantina', 'tenuta', 'weingut', 'maison', 'quinta',
   'azienda', 'agricola', 'societa', 'company', 'co', 'inc', 'ltd', 'llc', 'vigneti', 'vins', 'vin', 'vino',
 ]);
 

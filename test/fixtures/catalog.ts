@@ -29,5 +29,6 @@ export const CATALOG: Array<NewWine & { key: string }> = [
   { key: 'tignanello', producer: 'Marchesi Antinori', name: 'Tignanello', region: 'Tuscany', country: 'Italy', colour: 'red', source: 'lwin' },
   { key: 'solaia', producer: 'Marchesi Antinori', name: 'Solaia', region: 'Tuscany', country: 'Italy', colour: 'red', source: 'lwin' },
   { key: 'sassicaia', producer: 'Tenuta San Guido', name: 'Sassicaia', region: 'Tuscany', sub_region: 'Bolgheri', country: 'Italy', colour: 'red', source: 'lwin' },
+  { key: 'droin-chablis', producer: 'Jean-Paul & Benoit Droin', name: 'Chablis', region: 'Burgundy', country: 'France', colour: 'white', source: 'crawl' },
   { key: 'whispering-angel', producer: "Chateau d'Esclans", name: 'Whispering Angel Rose', region: 'Provence', country: 'France', colour: 'rose', source: 'lwin' },
 ];
