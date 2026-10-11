@@ -30,3 +30,19 @@ export function findGrape(normText: string): string {
   for (const g of GRAPES) if (s.includes(` ${g} `)) return g;
   return '';
 }
+
+const WHITE = ['chardonnay', 'riesling', 'sauvignon blanc', 'chenin blanc', 'viognier', 'pinot grigio', 'pinot gris',
+  'pinot blanc', 'albarino', 'alvarinho', 'gewurztraminer', 'gruner veltliner', 'semillon', 'vermentino', 'marsanne',
+  'roussanne', 'torrontes', 'furmint', 'assyrtiko', 'garganega', 'trebbiano', 'fiano', 'falanghina', 'greco', 'cortese',
+  'arneis', 'muscadet', 'verdejo', 'godello', 'grenache blanc', 'moscato', 'muscat'];
+const RED = ['cabernet sauvignon', 'cabernet franc', 'pinot noir', 'merlot', 'syrah', 'shiraz', 'malbec', 'zinfandel',
+  'nebbiolo', 'sangiovese', 'tempranillo', 'grenache', 'garnacha', 'mourvedre', 'barbera', 'dolcetto', 'aglianico',
+  'gamay', 'pinotage', 'carmenere', 'petite sirah', 'tannat', 'mencia', 'primitivo', 'touriga nacional'];
+
+/** Colour implied by a grape named in normalized text ('' if none or ambiguous). */
+export function colourFromGrape(normText: string): string {
+  const s = ` ${normText} `;
+  const w = WHITE.some((g) => s.includes(` ${g} `));
+  const r = RED.some((g) => s.includes(` ${g} `));
+  return w === r ? '' : w ? 'white' : 'red';
+}

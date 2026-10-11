@@ -1,6 +1,6 @@
-node_modules/
-.env
-data/raw/
-data/crawl-cache/
 *.log
+.env
+data/crawl-cache/
 data/logs/
+data/raw/
+node_modules/

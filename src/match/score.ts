@@ -11,7 +11,7 @@
  *   3. Is everything in the query explained by the candidate? (penalizes
  *      picking the producer's flagship when the bottle says "Reserve")
  */
-import { isGrapeToken } from '../lib/grapes.js';
+import { colourFromGrape, isGrapeToken } from '../lib/grapes.js';
 import { identityTokens, normalize, tokensMatch } from '../lib/normalize.js';
 
 export interface MatchQuery {
@@ -60,7 +60,7 @@ function colourOf(text: string): string {
   if (/ (rose|rosado|rosato) /.test(s)) return 'rose';
   if (/ (blanc|bianco|blanco|white|weiss) /.test(s)) return 'white';
   if (/ (rouge|rosso|tinto|red) /.test(s)) return 'red';
-  return '';
+  return colourFromGrape(s.trim());
 }
 
 function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: string, via: 'catalog' | 'alias'): ScoredCandidate {
@@ -79,7 +79,8 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   const placeTokens = identityTokens(`${c.region} ${c.sub_region} ${c.country}`);
   const brand = nameTokens.filter((t) => !isGrapeToken(t) && !placeTokens.includes(t));
   const distinctive = brand.length >= 2 || (brand.length === 1 && brand[0]!.length >= 6);
-  if (producer < 0.5 && name === 1 && distinctive) producer = Math.max(producer, 0.75);
+  const brandLed = producer < 0.5 && name === 1 && distinctive;
+  if (brandLed) producer = Math.max(producer, 0.75);
 
   // Everything the candidate can account for: identity + place + grape words.
   const explainers = withJoins([
@@ -88,7 +89,9 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
     ...identityTokens(c.display_name),
     ...identityTokens(`${c.region} ${c.sub_region} ${c.country} ${c.grape} ${c.classification}`),
   ]);
-  const explained = qTokens.length ? coverage(qTokens, explainers) : 1;
+  // Grape words in the query are neutral when the catalog doesn't record a grape.
+  const judged = c.grape ? qTokens : qTokens.filter((t) => !isGrapeToken(t));
+  const explained = judged.length ? coverage(judged, explainers) : 1;
 
   const qColour = q.colour || colourOf(q.text);
   const cColour = c.colour || colourOf(`${c.display_name} ${c.name}`);
@@ -96,6 +99,14 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
 
   let score = 0.4 * producer + 0.3 * name + 0.3 * explained;
   if (producer === 0) score = Math.min(score, 0.35);   // never trust a match without the producer
+  // Auto-matching needs complete two-way agreement: every identity word of the
+  // wine is in the query and every word of the query is explained by the wine.
+  // "Chevillon NSG Les Cailles" vs "Chevillon NSG Perrieres" differs both ways
+  // (a sibling wine); "Colin Chassagne 1er Cru Les Chaumees" vs "Colin
+  // Chassagne" differs one way (a more specific wine). Neither may auto-match.
+  const complete = name === 1 && (producer === 1 || brandLed);
+  if (explained < 1 && !complete) score = Math.min(score, 0.6);
+  else if (explained < 1 || !complete) score = Math.min(score, THRESHOLDS.auto - 0.01);
   if (colourConflict) score -= 0.3;
   return { wine: c, score: Math.max(0, Math.min(1, score)), detail: { producer, name, explained, colourConflict, via } };
 }

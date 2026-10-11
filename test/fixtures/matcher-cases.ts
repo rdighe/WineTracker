@@ -35,4 +35,8 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Caymus Zinfandel 2020', expect: null },
   { q: 'Silver Oak Alexander Valley Cabernet 2019', expect: null },
   { q: 'Antinori Guado al Tasso 2019', expect: null },
+  // Sibling / more specific wines must not auto-match (from real crawl errors)
+  { q: 'Chateau Montelena Estate Cabernet Sauvignon Calistoga Reserve 2018', expect: null },
+  { q: 'Ridge Monte Bello Chardonnay 2019', expect: null },
+  { q: 'Veuve Clicquot Extra Brut Extra Old', expect: null },
 ];

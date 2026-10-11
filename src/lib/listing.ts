@@ -90,6 +90,9 @@ export function parseTitle(title: string, now = new Date()): ParsedTitle {
     }
   }
 
+  // Named size words left over when a numeric size was also given ("MAGNUM (1.5L)").
+  for (const [re] of NAMED_SIZES) rest = rest.replace(re, ' ');
+
   // ── Vintage ──────────────────────────────────────────────────────────────
   let vintageKey: string | null = null;
   if (/\b(n\.?\s?v\.?|non[\s-]?vintage)(?=[\s,)]|$)/i.test(rest)) {
@@ -118,6 +121,7 @@ export function parseTitle(title: string, now = new Date()): ParsedTitle {
   }
 
   const isWine = !NOT_WINE.test(title);
+  rest = stripMarketing(rest);
   rest = rest.replace(/\s*[|,–—-]\s*$/g, ' ').replace(/\(\s*\)/g, ' ').replace(/\s+/g, ' ').trim();
   return { vintageKey, bottleMl, packSize, isWine, rest };
 }
@@ -126,4 +130,19 @@ export function parseTitle(title: string, now = new Date()): ParsedTitle {
 export function per750(priceCents: number, bottleMl: number | null, packSize: number): number {
   const ml = bottleMl ?? 750;
   return Math.max(1, Math.round((priceCents / Math.max(1, packSize)) * (750 / ml)));
+}
+
+/**
+ * Remove retailer notes that aren't part of the wine's name: bracketed notes
+ * ("(Arrives 11/26)", "[Bordeaux Future ETA 2028]"), medal/score blurbs,
+ * and shipping/condition notes.
+ */
+export function stripMarketing(text: string): string {
+  return text
+    .replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, ' ')
+    .replace(/\s[-–—|:]\s.*\b(medal|winner|points?|pts|rated|award|award-winning|best buy|top \d+|sale|special|limited)\b.*$/i, ' ')
+    .replace(/\b\d{2,3}\s*(pts|points)\b|\b(ws|wa|rp|js|jd|ag|wе|ve|we|wine spectator|wine advocate)\s*\d{2,3}\b/gi, ' ')
+    .replace(/\b(pre[-\s]?arrival|futures?|en primeur|owc|oc|original wooden case|in stock|on sale|sale|new arrival|free shipping|ships? (?:now|in)\b.*)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

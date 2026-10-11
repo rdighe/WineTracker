@@ -46,3 +46,12 @@ describe('per750', () => {
     expect(per750(2500, null, 1)).toBe(2500);
   });
 });
+
+describe('marketing notes', () => {
+  it('are stripped from the identity text', () => {
+    expect(p('Conterno Giacomo 1989 Barolo (Arrives 11/26)').rest).toBe('Conterno Giacomo Barolo');
+    expect(p('2025 Chateau Figeac - St. Emilion MAGNUM [Bordeaux Future ETA 2028] (1.5L)')).toMatchObject({ rest: 'Chateau Figeac - St. Emilion', bottleMl: 1500 });
+    expect(p('2025 Martin Ray Sonoma Coast Chardonnay - Double Gold Medal Winner!').rest).toBe('Martin Ray Sonoma Coast Chardonnay');
+    expect(p('Caymus Cabernet 2021 95 pts').rest).toBe('Caymus Cabernet');
+  });
+});
