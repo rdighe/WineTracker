@@ -53,6 +53,17 @@ describe('ingestOffer', () => {
     expect(r2).toMatchObject({ wineId: r.wineId, created: false });
   });
 
+  it('uses the vendor as producer when the title is only a grape', async () => {
+    const m = await ensureMerchant(db, 'shop.test', 'Shop');
+    const a = await ingestOffer(db, { merchantId: m, merchantName: 'Shop', url: 'https://shop.test/a', offer: offer('Pinot Noir 2022', 4000, { brand: 'Rhys Vineyards' }) }, { createWines: true });
+    const b = await ingestOffer(db, { merchantId: m, merchantName: 'Shop', url: 'https://shop.test/b', offer: offer('Pinot Noir 2022', 3000, { brand: 'Sunu' }) }, { createWines: true });
+    const c = await ingestOffer(db, { merchantId: m, merchantName: 'Shop', url: 'https://shop.test/c', offer: offer('Pinot Noir 2021', 4200, { brand: 'Rhys Vineyards' }) }, { createWines: true });
+    expect(a.wineId).not.toBe(b.wineId);
+    expect(c.wineId).toBe(a.wineId);
+    const { rows } = await db.query('SELECT producer, display_name FROM wines WHERE wine_id = $1', [a.wineId]);
+    expect(rows[0]).toEqual({ producer: 'Rhys Vineyards', display_name: 'Rhys Vineyards Pinot Noir' });
+  });
+
   it('skips non-wine and non-USD offers', async () => {
     const m = await ensureMerchant(db, 'shop.test');
     expect((await ingestOffer(db, { merchantId: m, merchantName: 's', url: 'https://shop.test/g', offer: offer('Riedel Wine Glasses Set of 2', 5000) }, { createWines: true })).status).toBe('not_wine');

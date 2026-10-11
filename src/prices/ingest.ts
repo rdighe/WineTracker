@@ -4,11 +4,32 @@
  */
 import type { Db } from '../db/pool.js';
 import { createWine, type NewWine } from '../catalog/wines.js';
-import { findGrape } from '../lib/grapes.js';
+import { findGrape, isGrapeToken } from '../lib/grapes.js';
+import { isBroadPlaceToken } from '../lib/places.js';
 import { parseTitle, per750, type ParsedTitle } from '../lib/listing.js';
-import { normalize } from '../lib/normalize.js';
+import { identityTokens, normalize } from '../lib/normalize.js';
 import { matchWine } from '../match/matcher.js';
 import type { ExtractedOffer } from './extract.js';
+
+/** True when a title names no producer or cuvee - only grapes, places and descriptors ("Pinot Noir"). */
+export function isGenericTitle(rest: string): boolean {
+  return identityTokens(rest).every((t) => isGrapeToken(t) || isBroadPlaceToken(t));
+}
+
+/**
+ * Text that identifies the wine. Shops (Shopify especially) often keep the
+ * producer in the vendor field and title the product just "Pinot Noir"; then
+ * the vendor is the only thing that tells two such wines apart.
+ */
+export function identityText(offer: ExtractedOffer, parsed: ParsedTitle, merchantName: string): { text: string; vendorProducer: string } {
+  const vendor = offer.brand.trim();
+  const nv = normalize(vendor);
+  const isShop = !nv || nv === normalize(merchantName) || /^(red |white |rose |sparkling )?wines?$/.test(nv);
+  if (!isShop && vendor.length <= 80 && isGenericTitle(parsed.rest) && !` ${normalize(parsed.rest)} `.includes(` ${normalize(vendor)} `)) {
+    return { text: `${vendor} ${parsed.rest}`, vendorProducer: vendor };
+  }
+  return { text: parsed.rest, vendorProducer: '' };
+}
 
 const NON_WINE_CATEGORY =
   /spirit|whisk|bourbon|scotch|vodka|gin\b|tequila|mezcal|rum\b|brandy|cognac|liqueur|cordial|beer|cider|seltzer|sake|soju|accessor|glassware|gift card|food|snack|merch|apparel|cigar|mixer|non-?alcoholic|tobacco|event|ticket|class/i;
@@ -53,11 +74,14 @@ const ATTR = (a: Record<string, string>, ...keys: string[]) => {
 
 /** Build a catalog entry from a retailer listing when nothing in the catalog matches. */
 export function wineFromListing(offer: ExtractedOffer, parsed: ParsedTitle, merchantName: string): NewWine {
-  const brand = usableBrand(offer.brand, merchantName, offer.title);
+  const { vendorProducer } = identityText(offer, parsed, merchantName);
+  const brand = vendorProducer || usableBrand(offer.brand, merchantName, offer.title);
   const restNorm = normalize(parsed.rest);
   let producer = '';
   let name = parsed.rest;
-  if (brand && restNorm.includes(normalize(brand))) {
+  if (vendorProducer) {
+    producer = vendorProducer;
+  } else if (brand && restNorm.includes(normalize(brand))) {
     producer = brand;
     const re = new RegExp(brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     name = parsed.rest.replace(re, '').replace(/^[\s,:–—-]+|[\s,:–—-]+$/g, '').trim();
@@ -68,7 +92,7 @@ export function wineFromListing(offer: ExtractedOffer, parsed: ParsedTitle, merc
   return {
     producer,
     name,
-    display_name: parsed.rest,
+    display_name: vendorProducer ? `${vendorProducer} ${parsed.rest}` : parsed.rest,
     country: ATTR(a, 'country'),
     region: ATTR(a, 'region', 'appellation'),
     grape: ATTR(a, 'varietal', 'grape', 'variety') || findGrape(normalize(parsed.rest)),
@@ -127,8 +151,9 @@ export async function ingestOffer(
   let wineId: number | null = listing.wine_id;
   let created = false;
   if (!wineId && listing.match_status !== 'review') {
-    const brand = usableBrand(offer.brand, merchantName, offer.title);
-    const result = await matchWine(db, { text: parsed.rest, producer: brand || undefined });
+    const { text, vendorProducer } = identityText(offer, parsed, merchantName);
+    const brand = vendorProducer || usableBrand(offer.brand, merchantName, offer.title);
+    const result = await matchWine(db, { text, producer: brand || undefined });
     const top = result.candidates.slice(0, 5).map((c) => ({ wine_id: c.wine.wine_id, display_name: c.wine.display_name, score: Number(c.score.toFixed(3)) }));
     let status: string;
     if (result.outcome === 'auto') {

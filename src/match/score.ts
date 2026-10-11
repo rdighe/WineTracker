@@ -12,6 +12,7 @@
  *      picking the producer's flagship when the bottle says "Reserve")
  */
 import { colourFromGrape, isGrapeToken } from '../lib/grapes.js';
+import { isBroadPlaceToken } from '../lib/places.js';
 import { identityTokens, normalize, tokensMatch } from '../lib/normalize.js';
 
 export interface MatchQuery {
@@ -66,7 +67,8 @@ function colourOf(text: string): string {
 function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: string, via: 'catalog' | 'alias'): ScoredCandidate {
   const qHay = withJoins(qTokens);
   const prodTokens = identityTokens(c.producer);
-  const nameTokens = identityTokens(nameText).filter((t) => !prodTokens.includes(t));
+  // Broad places ("Santa Cruz Mountains", "Wairarapa") are description, not identity.
+  const nameTokens = identityTokens(nameText).filter((t) => !prodTokens.includes(t) && !isBroadPlaceToken(t));
 
   // Producer: if the catalog producer is all stopwords ("Chateau Latour" ->
   // ["latour"] is fine; "Domaine" alone -> []), fall back to the display name.
@@ -90,7 +92,7 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
     ...identityTokens(`${c.region} ${c.sub_region} ${c.country} ${c.grape} ${c.classification}`),
   ]);
   // Grape words in the query are neutral when the catalog doesn't record a grape.
-  const judged = c.grape ? qTokens : qTokens.filter((t) => !isGrapeToken(t));
+  const judged = qTokens.filter((t) => !isBroadPlaceToken(t) && (c.grape || !isGrapeToken(t)));
   const explained = judged.length ? coverage(judged, explainers) : 1;
 
   const qColour = q.colour || colourOf(q.text);

@@ -4,6 +4,7 @@
  *
  *   tsx scripts/duplicates.ts export [out.jsonl]   # likely pairs, for review
  *   tsx scripts/duplicates.ts apply decisions.jsonl
+ *   tsx scripts/duplicates.ts auto-merge [log.jsonl]  # merge pairs the matcher is sure about
  *
  * Export lists, for every crawl/llm-created wine, the closest other wine when
  * its score is in the "plausible but not certain" band. Review each line and
@@ -39,6 +40,38 @@ if (mode === 'export') {
   }
   writeFileSync(out, lines.join('\n') + '\n');
   console.log(`${lines.length} candidate pairs from ${rows.length} wines -> ${out}`);
+} else if (mode === 'auto-merge') {
+  // A crawl/llm wine whose own name auto-matches another wine (complete
+  // two-way agreement, clear margin) is that wine under another shop's title.
+  // Merge into the wine with more listings (ties: the older one).
+  const log = file ?? 'data/review/auto-merged.jsonl';
+  const { rows } = await db.query(
+    `SELECT w.wine_id, w.display_name, w.producer FROM wines w WHERE w.source IN ('crawl', 'llm') ORDER BY w.wine_id`
+  );
+  const gone = new Set<number>();
+  const touched = new Set<number>();
+  const lines: string[] = [];
+  for (const w of rows) {
+    if (gone.has(w.wine_id)) continue;
+    const r = await matchWine(db, { text: w.display_name, producer: w.producer || undefined }, { excludeWineId: w.wine_id });
+    if (r.outcome !== 'auto') continue;
+    const other = r.candidates[0]!.wine;
+    const counts = await db.query(
+      `SELECT wine_id, (SELECT COUNT(*) FROM listings l WHERE l.wine_id = w.wine_id)::int AS n FROM wines w WHERE wine_id = ANY($1)`,
+      [[w.wine_id, other.wine_id]]
+    );
+    const n = new Map(counts.rows.map((x) => [x.wine_id, x.n]));
+    const [from, to] = (n.get(w.wine_id) ?? 0) > (n.get(other.wine_id) ?? 0) ? [other.wine_id, w.wine_id] : [w.wine_id, other.wine_id];
+    await withTransaction(db, (c) => mergeWines(c, from, to));
+    gone.add(from);
+    touched.add(to);
+    lines.push(JSON.stringify({ from, fromName: from === w.wine_id ? w.display_name : other.display_name, to, toName: to === w.wine_id ? w.display_name : other.display_name, score: Number(r.candidates[0]!.score.toFixed(3)) }));
+  }
+  writeFileSync(log, lines.join('\n') + '\n');
+  for (const id of gone) touched.delete(id);
+  const ids = [...touched];
+  for (let i = 0; i < ids.length; i += 500) await aggregateWines(db, ids.slice(i, i + 500));
+  console.log(`auto-merged ${lines.length} duplicate wines -> ${log}`);
 } else if (mode === 'apply' && file) {
   const decisions = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { from: number; to: number });
   const touched = new Set<number>();

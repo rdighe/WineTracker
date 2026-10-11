@@ -17,6 +17,9 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Chateau Montelena Estate Cabernet Sauvignon 2018', expect: 'montelena-cab' },
   { q: 'Ridge Monte Bello 2018 1.5L', expect: 'ridge-mb' },
   { q: 'Ridge Geyserville Zinfandel 2021', expect: 'ridge-geyserville' },
+  // Broad region words are description, not identity
+  { q: 'Ridge - Red Blend Monte Bello Santa Cruz Mt. 2019', expect: 'ridge-mb' },
+  { q: 'Cloudy Bay Sauvignon Blanc New Zealand 2024', expect: 'cloudy-sb' },
   { q: 'Veuve Clicquot Yellow Label Brut NV', expect: 'veuve-yellow' },
   { q: 'Veuve Clicquot Brut Rosé', expect: 'veuve-rose' },
   { q: 'Veuve Clicquot La Grande Dame 2015', expect: 'veuve-gd' },

@@ -48,6 +48,7 @@ export const STOPWORDS = new Set([
   'wine', 'wines', 'winery', 'vineyard', 'vineyards', 'cellars', 'cellar', 'estate', 'estates', 'family',
   'chateau', 'domaine', 'bodega', 'bodegas', 'cantina', 'tenuta', 'weingut', 'maison', 'quinta',
   'azienda', 'agricola', 'societa', 'company', 'co', 'inc', 'ltd', 'llc', 'vigneti', 'vins', 'vin', 'vino',
+  'figli', 'figlio', 'fils', 'freres', 'sons', 'brothers', 'famille', 'hijos', 'erben', 'sohne',
 ]);
 
 /**

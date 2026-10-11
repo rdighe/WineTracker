@@ -109,16 +109,17 @@ export async function aggregateWines(db: Db, wineIds: number[]): Promise<void> {
         GROUP BY wine_id, v, day`,
       [wineId]
     );
+    await db.query('UPDATE wines SET prices_computed_at = NOW() WHERE wine_id = $1', [wineId]);
   }
 }
 
 /** Wines with observations newer than their aggregate (for batch runs). */
 export async function staleWineIds(db: Db): Promise<number[]> {
   const { rows } = await db.query(
-    `SELECT o.wine_id FROM price_observations o
-       LEFT JOIN wine_prices p ON p.wine_id = o.wine_id AND p.vintage_key = '*'
-      GROUP BY o.wine_id, p.computed_at
-     HAVING p.computed_at IS NULL OR MAX(o.observed_at) > p.computed_at`
+    `SELECT w.wine_id FROM wines w
+      WHERE EXISTS (SELECT 1 FROM price_observations o
+                     WHERE o.wine_id = w.wine_id
+                       AND (w.prices_computed_at IS NULL OR o.observed_at > w.prices_computed_at))`
   );
   return rows.map((r) => r.wine_id);
 }

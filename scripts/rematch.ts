@@ -5,19 +5,21 @@
  *
  *   tsx scripts/rematch.ts "l.title ~* '\\mclos\\M'"
  *   tsx scripts/rematch.ts --changed-only "l.match_status = 'auto'"
+ *   tsx scripts/rematch.ts --generic-wines "true"   # listings on wines named only by grape/place
  *
  * --changed-only first re-scores each selected listing against the current
  * catalog and only re-matches those whose current wine is no longer the
  * confident match (cheap way to apply a matcher fix to the whole crawl).
  */
 import { createPool } from '../src/db/pool.js';
-import { ingestOffer } from '../src/prices/ingest.js';
+import { ingestOffer, isGenericTitle } from '../src/prices/ingest.js';
 import { parseTitle } from '../src/lib/listing.js';
 import { normalize } from '../src/lib/normalize.js';
 import { scoreCandidates, THRESHOLDS } from '../src/match/score.js';
 import { aggregateWines, staleWineIds } from '../src/prices/aggregate.js';
 
 const changedOnly = process.argv.includes('--changed-only');
+const genericWines = process.argv.includes('--generic-wines');
 const where = process.argv.slice(2).find((a) => !a.startsWith('--'));
 if (!where) {
   console.error('usage: tsx scripts/rematch.ts "<SQL condition on listings l>"');
@@ -29,6 +31,11 @@ const { rows: selected } = await db.query(
     WHERE l.last_price_cents IS NOT NULL AND (${where})`
 );
 let rows = selected;
+if (genericWines) {
+  const { rows: w } = await db.query('SELECT wine_id, display_name FROM wines');
+  const generic = new Set(w.filter((x) => isGenericTitle(x.display_name)).map((x) => x.wine_id));
+  rows = rows.filter((l) => generic.has(l.wine_id));
+}
 if (changedOnly) {
   // Score each listing against its current wine only. Below the auto
   // threshold means the fixed matcher would no longer attach it. (Ties with
@@ -37,8 +44,9 @@ if (changedOnly) {
     `SELECT w.*, COALESCE((SELECT array_agg(alias_norm) FROM wine_aliases a WHERE a.wine_id = w.wine_id), '{}') AS aliases FROM wines w`
   );
   const byId = new Map(wines.map((w) => [w.wine_id, w]));
+  const pool = rows;
   rows = [];
-  for (const l of selected) {
+  for (const l of pool) {
     const wine = byId.get(l.wine_id);
     if (!wine) continue;
     const brandOk = l.brand && ` ${normalize(l.title)} `.includes(` ${normalize(l.brand)} `);
