@@ -10,6 +10,15 @@ import { normalize } from '../lib/normalize.js';
 import { matchWine } from '../match/matcher.js';
 import type { ExtractedOffer } from './extract.js';
 
+const NON_WINE_CATEGORY =
+  /spirit|whisk|bourbon|scotch|vodka|gin\b|tequila|mezcal|rum\b|brandy|cognac|liqueur|cordial|beer|cider|seltzer|sake|soju|accessor|glassware|gift card|food|snack|merch|apparel|cigar|mixer|non-?alcoholic|tobacco|event|ticket|class/i;
+
+/** Shop category says this isn't wine (when the shop provides one). */
+export function nonWineCategory(attributes: Record<string, string>): boolean {
+  const c = attributes.category ?? '';
+  return Boolean(c) && NON_WINE_CATEGORY.test(c) && !/wine|champagne|sparkling|port|sherry|madeira/i.test(c);
+}
+
 export async function ensureMerchant(db: Db, domain: string, name?: string): Promise<number> {
   const d = domain.toLowerCase().replace(/^www\./, '');
   const { rows } = await db.query(
@@ -44,7 +53,7 @@ const ATTR = (a: Record<string, string>, ...keys: string[]) => {
 
 /** Build a catalog entry from a retailer listing when nothing in the catalog matches. */
 export function wineFromListing(offer: ExtractedOffer, parsed: ParsedTitle, merchantName: string): NewWine {
-  const brand = usableBrand(offer.brand, merchantName);
+  const brand = usableBrand(offer.brand, merchantName, offer.title);
   const restNorm = normalize(parsed.rest);
   let producer = '';
   let name = parsed.rest;
@@ -69,11 +78,16 @@ export function wineFromListing(offer: ExtractedOffer, parsed: ParsedTitle, merc
   };
 }
 
-function usableBrand(brand: string, merchantName: string): string {
+/**
+ * The page's brand/vendor, only if it looks like the producer: shops often
+ * put their own name or the importer there, so it must appear in the title.
+ */
+function usableBrand(brand: string, merchantName: string, title: string): string {
   const b = brand.trim();
   if (!b || b.length > 80) return '';
-  if (normalize(b) === normalize(merchantName) || /wine\.com|total wine|^n\/?a$/i.test(b)) return '';
-  return b;
+  const nb = normalize(b);
+  if (!nb || nb === normalize(merchantName) || /^(wine|wines|n a|na|default)$/.test(nb)) return '';
+  return ` ${normalize(title)} `.includes(` ${nb} `) ? b : '';
 }
 
 export async function ingestOffer(
@@ -104,7 +118,7 @@ export async function ingestOffer(
   const listing = rows[0];
   const listingId: number = listing.listing_id;
 
-  if (!parsed.isWine) {
+  if (!parsed.isWine || nonWineCategory(offer.attributes)) {
     await db.query(`UPDATE listings SET match_status = 'not_wine', wine_id = NULL WHERE listing_id = $1`, [listingId]);
     return { listingId, wineId: null, status: 'not_wine', created: false };
   }
@@ -113,14 +127,18 @@ export async function ingestOffer(
   let wineId: number | null = listing.wine_id;
   let created = false;
   if (!wineId && listing.match_status !== 'review') {
-    const brand = usableBrand(offer.brand, merchantName);
+    const brand = usableBrand(offer.brand, merchantName, offer.title);
     const result = await matchWine(db, { text: parsed.rest, producer: brand || undefined });
     const top = result.candidates.slice(0, 5).map((c) => ({ wine_id: c.wine.wine_id, display_name: c.wine.display_name, score: Number(c.score.toFixed(3)) }));
     let status: string;
     if (result.outcome === 'auto') {
       wineId = result.candidates[0]!.wine.wine_id;
       status = 'auto';
-    } else if (result.outcome === 'new' && opts.createWines) {
+    } else if (opts.createWines) {
+      // Bulk crawl: an uncertain match is nearly always a sibling wine (other
+      // vineyard/cuvee of the same producer or appellation). A duplicate wine
+      // is cheaper than mixing two wines' prices, and candidates are kept on
+      // the listing for a later dedupe pass.
       wineId = await createWine(db, wineFromListing(offer, parsed, merchantName));
       created = true;
       status = 'auto';

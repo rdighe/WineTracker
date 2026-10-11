@@ -129,7 +129,9 @@ export class PoliteFetcher {
   async sitemaps(origin: string): Promise<string[]> {
     const s = this.state(new URL(origin).host);
     await this.loadRobots(new URL(origin).origin, s);
-    return s.robots && typeof s.robots === 'object' ? s.robots.getSitemaps() : [];
+    if (!s.robots || typeof s.robots !== 'object') return [];
+    // Some sites list relative sitemap paths ("/sitemap.xml").
+    return [...new Set(s.robots.getSitemaps().map((u) => new URL(u, origin).toString()))];
   }
 
   private delayFor(host: string): number {
