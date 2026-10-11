@@ -24,7 +24,9 @@ describe('identityTokens', () => {
 describe('tokensMatch', () => {
   it('tolerates a single typo on longer words only', () => {
     expect(tokensMatch('montelena', 'montelana')).toBe(true);
-    expect(tokensMatch('rioja', 'riojas')).toBe(true);
+    expect(tokensMatch('chardonay', 'chardonnay')).toBe(true);
+    expect(tokensMatch('justin', 'austin')).toBe(false);
+    expect(tokensMatch('rioja', 'riojas')).toBe(false);
     expect(tokensMatch('cos', 'cas')).toBe(false);
     expect(editDistance('kitten', 'sitting', 3)).toBe(3);
   });

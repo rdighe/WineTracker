@@ -96,12 +96,12 @@ export function editDistance(a: string, b: string, max = 2): number {
   return prev[b.length]!;
 }
 
-/**
- * Token equality tolerant of one OCR/typo error on longer words
- * ("montelena" vs "montelana"), and of joined words handled by the caller.
- */
+/** Token equality tolerant of one OCR/typo error on longer words. */
 export function tokensMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  if (a.length >= 5 && b.length >= 5) return editDistance(a, b, 1) <= 1;
+  // One typo, on words long enough that one letter can't change the name:
+  // "montelena"/"montelana" yes, "justin"/"austin" no.
+  const len = Math.min(a.length, b.length);
+  if (len >= 8 || (len >= 6 && a[0] === b[0])) return editDistance(a, b, 1) <= 1;
   return false;
 }

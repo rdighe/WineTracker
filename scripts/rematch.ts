@@ -4,22 +4,49 @@
  * latest offer; crawl-created wines left with no listings are deleted.
  *
  *   tsx scripts/rematch.ts "l.title ~* '\\mclos\\M'"
+ *   tsx scripts/rematch.ts --changed-only "l.match_status = 'auto'"
+ *
+ * --changed-only first re-scores each selected listing against the current
+ * catalog and only re-matches those whose current wine is no longer the
+ * confident match (cheap way to apply a matcher fix to the whole crawl).
  */
 import { createPool } from '../src/db/pool.js';
 import { ingestOffer } from '../src/prices/ingest.js';
+import { parseTitle } from '../src/lib/listing.js';
+import { normalize } from '../src/lib/normalize.js';
+import { scoreCandidates, THRESHOLDS } from '../src/match/score.js';
 import { aggregateWines, staleWineIds } from '../src/prices/aggregate.js';
 
-const where = process.argv[2];
+const changedOnly = process.argv.includes('--changed-only');
+const where = process.argv.slice(2).find((a) => !a.startsWith('--'));
 if (!where) {
   console.error('usage: tsx scripts/rematch.ts "<SQL condition on listings l>"');
   process.exit(1);
 }
 const db = createPool();
-const { rows } = await db.query(
+const { rows: selected } = await db.query(
   `SELECT l.*, m.name AS merchant_name FROM listings l JOIN merchants m USING (merchant_id)
     WHERE l.last_price_cents IS NOT NULL AND (${where})`
 );
-console.log(`re-matching ${rows.length} listings`);
+let rows = selected;
+if (changedOnly) {
+  // Score each listing against its current wine only. Below the auto
+  // threshold means the fixed matcher would no longer attach it. (Ties with
+  // a duplicate wine don't count - re-matching those would just fragment.)
+  const { rows: wines } = await db.query(
+    `SELECT w.*, COALESCE((SELECT array_agg(alias_norm) FROM wine_aliases a WHERE a.wine_id = w.wine_id), '{}') AS aliases FROM wines w`
+  );
+  const byId = new Map(wines.map((w) => [w.wine_id, w]));
+  rows = [];
+  for (const l of selected) {
+    const wine = byId.get(l.wine_id);
+    if (!wine) continue;
+    const brandOk = l.brand && ` ${normalize(l.title)} `.includes(` ${normalize(l.brand)} `);
+    const [scored] = scoreCandidates({ text: parseTitle(l.title).rest, producer: brandOk ? l.brand : undefined }, [wine]);
+    if ((scored?.score ?? 0) < THRESHOLDS.auto) rows.push(l);
+  }
+}
+console.log(`re-matching ${rows.length} of ${selected.length} listings`);
 const oldWines = new Set<number>();
 let changed = 0;
 for (const l of rows) {
