@@ -4,5 +4,6 @@ data/crawl-cache/
 data/dumps/
 data/logs/
 data/raw/
+data/review/
 data/screenshots/
 node_modules/
