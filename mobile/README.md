@@ -20,9 +20,12 @@ build). Without Supabase settings the app uses development sign-in: any name wor
 
 ## Sign-in with Supabase
 
-Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` here, and `SUPABASE_JWT_SECRET` (or
-`SUPABASE_JWKS_URL`) on the API. Users sign in with an emailed one-time code; the app sends the Supabase access token
-to the API.
+Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` here, and `SUPABASE_JWKS_URL`
+(`https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json`) on the API. Users sign in with an emailed
+one-time code; the app sends the Supabase access token to the API.
+
+For the code to appear in the email, the Supabase **Magic Link** email template (Authentication → Emails) must
+include `{{ .Token }}`. Supabase's built-in email sender is heavily rate limited; set up custom SMTP before launch.
 
 ## Checks
 

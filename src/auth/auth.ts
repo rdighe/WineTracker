@@ -36,9 +36,13 @@ export function createAuthenticator(db: Db, opts: AuthOptions) {
   const secret = opts.jwtSecret ? new TextEncoder().encode(opts.jwtSecret) : null;
   const jwks = opts.jwksUrl ? createRemoteJWKSet(new URL(opts.jwksUrl)) : null;
 
+  // Supabase user tokens: issuer is the project's auth URL, audience "authenticated".
+  // (The anon/service keys are also JWTs but carry no user and fail these checks.)
+  const issuer = opts.jwksUrl ? opts.jwksUrl.replace(/\/\.well-known\/jwks\.json$/, '') : undefined;
+
   async function verify(token: string): Promise<JWTPayload> {
-    if (jwks) return (await jwtVerify(token, jwks)).payload;
-    if (secret) return (await jwtVerify(token, secret, { algorithms: ['HS256'] })).payload;
+    if (jwks) return (await jwtVerify(token, jwks, { issuer, audience: 'authenticated' })).payload;
+    if (secret) return (await jwtVerify(token, secret, { algorithms: ['HS256'], audience: 'authenticated' })).payload;
     throw new AuthError('authentication is not configured');
   }
 

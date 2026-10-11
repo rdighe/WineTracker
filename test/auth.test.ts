@@ -13,7 +13,7 @@ afterAll(closeDb);
 
 const SECRET = 'test-secret-with-enough-length-0123456789';
 const token = (sub: string, secret = SECRET, exp = '1h') =>
-  new SignJWT({ email: `${sub}@example.com` }).setProtectedHeader({ alg: 'HS256' }).setSubject(sub).setIssuedAt().setExpirationTime(exp).sign(new TextEncoder().encode(secret));
+  new SignJWT({ email: `${sub}@example.com` }).setProtectedHeader({ alg: 'HS256' }).setSubject(sub).setAudience('authenticated').setIssuedAt().setExpirationTime(exp).sign(new TextEncoder().encode(secret));
 
 describe('authenticator', () => {
   it('accepts a valid Supabase-style HS256 token and creates the user once', async () => {
