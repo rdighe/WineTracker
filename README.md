@@ -1,7 +1,10 @@
-# WineTracker backend
+# WineTracker
 
-Backend for the WineTracker mobile app: a wine catalog with a fuzzy matcher, label scanning, and US retail price
-tracking (bulk crawl + on-demand refresh). TypeScript / Node / Express / Postgres.
+Track the wines you taste, what they cost then and now, and get recommendations.
+
+- **Backend** (this directory): wine catalog with a fuzzy matcher, label scanning, US retail price tracking (bulk
+  crawl + on-demand refresh), user tastings, and recommendations. TypeScript / Node / Express / Postgres.
+- **Mobile app** (`mobile/`): Expo / React Native. See [mobile/README.md](mobile/README.md).
 
 Builds on lessons from the GSB Wine Circle app (rule-based fallbacks whenever an LLM call fails, a model fallback list
 for Gemini, strict matching because a wrong answer is worse than none, normalized tags).
@@ -24,6 +27,9 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/prices/aggregate.ts` | Market price per wine+vintage: one vote per offer, MAD outlier filter, median/p10/p90, daily history |
 | `src/prices/refresh.ts` | On-demand refresh: re-check known shop pages + LLM web search, verifying each hit on the shop's own page |
 | `src/prices/sites.ts` | Retailers for the bulk crawl, with each site's terms-of-service status |
+| `src/auth/auth.ts` | Supabase JWT verification (HS256 secret or JWKS); dev sign-in for local use |
+| `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
+| `src/recs/` | Taste profile from ratings (grape, appellation, region, producer, style, price range) and recommendations |
 | `src/api/app.ts` | REST API |
 
 ## Data model (short)
@@ -111,9 +117,16 @@ differ only in a region word ("DeLoach RRV Zinfandel" vs "DeLoach California Zin
 | GET | `/api/wines/:id/prices?vintage=2019` | | summary, daily history, current offers |
 | POST | `/api/wines/:id/prices/refresh` | `{vintage}` | on-demand refresh, throttled to once per 12 h per wine+vintage |
 | POST | `/api/wines/:id/prices/report` | `{price, vintage, bottleMl, context: retail\|restaurant, merchant, observedAt}` | price at tasting |
+| GET | `/api/me` | | signed-in user, counts (auth) |
+| GET/POST | `/api/tastings` | `{wineId, vintage, rating (0.5–5), notes, tags, pricePaid, priceContext, tastedOn, scanId}` | auth; list includes paid vs market now |
+| PATCH/DELETE | `/api/tastings/:id` | partial tasting | auth, own tastings only |
+| GET, PUT/DELETE | `/api/saved`, `/api/saved/:wineId` | | watch list (auth) |
+| GET | `/api/recommendations?bestValue=&colour=&maxPrice=&limit=` | | auth; popular wines until 3 ratings, then personal |
 
 Scan outcomes: `auto` (confident, attach directly), `choose` (show the candidates), `new` (offer to create the wine).
-Auth is not wired yet; put the API behind a private network or add auth (Supabase Auth is the plan) before exposing it.
+User routes need `Authorization: Bearer <Supabase access token>` (set `SUPABASE_JWT_SECRET` or `SUPABASE_JWKS_URL`).
+For local development, `ALLOW_DEV_AUTH=true` also accepts `Authorization: Dev <name>`; it is ignored when
+`NODE_ENV=production`. Browser origins (Expo web) must be listed in `ALLOWED_ORIGINS`.
 
 ## Matcher quality
 

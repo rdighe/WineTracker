@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "WineTracker",
+    "slug": "winetracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.winetracker.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.winetracker.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "WineTracker uses the camera to read wine labels.",
+          "photosPermission": "WineTracker reads wine labels from photos you choose.",
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "scheme": "winetracker",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

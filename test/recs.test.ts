@@ -18,6 +18,8 @@ describe('taste profile', () => {
   it('infers features from the title when fields are missing', () => {
     expect(sb).toMatchObject({ grape: 'sauvignon blanc', colour: 'white', style: 'still', country: 'new zealand' });
     expect(f({ display_name: 'Pol Roger Brut Reserve' }).style).toBe('sparkling');
+    expect(f({ display_name: 'Vietti, Barolo', sub_region: 'Barolo', colour: 'red' }).grape).toBe('nebbiolo');
+    expect(f({ display_name: 'Raveneau, Chablis Premier Cru', sub_region: 'Chablis', colour: 'white' }).grape).toBe('chardonnay');
   });
 
   it('scores liked features up, disliked down, and explains', () => {
@@ -32,7 +34,8 @@ describe('taste profile', () => {
     const b = scoreWine(p, otherSb, 3000);
     expect(a.score).toBeGreaterThan(0);
     expect(b.score).toBeLessThan(0);
-    expect(explain(a.contributions)[0]).toMatch(/You rated 2 Nebbiolo wines highly|You rated 1 Barolo wine highly/);
+    expect(explain(a.contributions)[0]).toMatch(/^You rated (2 Nebbiolo wines|1 Barolo wine|2 Piedmont wines) highly$/);
+    expect(explain([{ kind: 'country', value: 'italy', amount: 1, liked: 2 }])).toEqual(['You rated 2 wines from Italy highly']);
     // Way above the usual price range costs points
     expect(scoreWine(p, other, 60000).score).toBeLessThan(a.score);
   });

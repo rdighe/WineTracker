@@ -15,6 +15,7 @@ createApp({
   provider,
   fetcher,
   auth: { jwtSecret: config.supabaseJwtSecret, jwksUrl: config.supabaseJwksUrl, allowDev: config.allowDevAuth },
+  allowedOrigins: config.allowedOrigins,
 }).listen(config.port, () => {
   console.log(`WineTracker API on :${config.port} (LLM provider: ${provider.name})`);
 });

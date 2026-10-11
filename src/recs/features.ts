@@ -23,17 +23,42 @@ export interface WineRow {
 
 export type Features = Partial<Record<FeatureKind, string>>;
 
+// Classic appellations name the place, not the grape. When a wine records
+// no grape, its appellation tells us (for profiles only, not matching).
+const APPELLATION_GRAPES: Array<[RegExp, string]> = [
+  [/\b(barolo|barbaresco|gattinara|ghemme|roero|langhe nebbiolo|nebbiolo d ?alba|valtellina|sforzato)\b/, 'nebbiolo'],
+  [/\b(brunello di montalcino|rosso di montalcino|chianti|vino nobile|morellino)\b/, 'sangiovese'],
+  [/\b(chablis|meursault|puligny montrachet|chassagne montrachet|corton charlemagne|pouilly fuisse|saint aubin|macon)\b/, 'chardonnay'],
+  [/\b(sancerre|pouilly fume|quincy|menetou salon)\b/, 'sauvignon blanc'],
+  [/\b(vouvray|savennieres|montlouis)\b/, 'chenin blanc'],
+  [/\b(cote rotie|hermitage|crozes hermitage|cornas|saint joseph)\b/, 'syrah'],
+  [/\b(gevrey chambertin|vosne romanee|chambolle musigny|nuits saint georges|pommard|volnay|morey saint denis|clos de vougeot|echezeaux|richebourg|chambertin|bonnes mares|clos de la roche|santenay|marsannay)\b/, 'pinot noir'],
+  [/\b(rioja|ribera del duero|toro)\b/, 'tempranillo'],
+  [/\b(amarone|valpolicella)\b/, 'corvina'],
+  [/\b(beaujolais|morgon|fleurie|moulin a vent|chiroubles|julienas|brouilly|chenas|regnie|saint amour)\b/, 'gamay'],
+  [/\b(pauillac|margaux|saint julien|saint estephe|pessac leognan|haut medoc|medoc)\b/, 'cabernet sauvignon'],
+  [/\b(pomerol|saint emilion|lalande de pomerol)\b/, 'merlot'],
+  [/\b(chateauneuf du pape|gigondas|vacqueyras|cotes du rhone)\b/, 'grenache'],
+];
+
+function grapeFromAppellation(text: string, colour: string): string {
+  if (colour === 'white' && !/chablis|meursault|montrachet|charlemagne|fuisse|aubin|macon|sancerre|pouilly fume|quincy|menetou|vouvray|savennieres|montlouis/.test(text)) return '';
+  for (const [re, grape] of APPELLATION_GRAPES) if (re.test(text)) return grape;
+  return '';
+}
+
 const COUNTRY_ALIASES: Record<string, string> = { 'united states': 'usa', us: 'usa', 'united states of america': 'usa', italia: 'italy', espana: 'spain' };
 
 export function wineFeatures(w: WineRow): Features {
   const text = normalize(`${w.display_name} ${w.grape}`);
-  const grape = normalize(w.grape) || findGrape(text);
   const s = ` ${text} `;
+  const place = normalize(`${w.sub_region} ${w.display_name}`);
   const style = w.wine_type && w.wine_type !== 'still' ? w.wine_type
     : / (brut|champagne|sparkling|cremant|prosecco|cava|spumante|sekt) /.test(s) ? 'sparkling'
     : / (port|sherry|madeira|marsala) /.test(s) ? 'fortified'
     : / (sauternes|tokaji|late harvest|ice wine|eiswein|beerenauslese) /.test(s) ? 'dessert' : 'still';
   const colour = w.colour || (/ (rose|rosado|rosato) /.test(s) ? 'rose' : / (blanc|bianco|white) /.test(s) ? 'white' : colourFromGrape(text));
+  const grape = normalize(w.grape) || findGrape(text) || grapeFromAppellation(place, colour);
   const country = normalize(w.country);
   const f: Features = {
     grape: grape || undefined,

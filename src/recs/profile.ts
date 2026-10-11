@@ -104,16 +104,19 @@ export function scoreWine(p: Profile, f: Features, priceCents: number | null): W
   return { score, contributions };
 }
 
-const LABEL: Record<FeatureKind, string> = {
-  grape: '', appellation: '', region: '', country: 'wines from ', producer: '', colour: '', style: '',
-};
-
 const title = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+const wines = (n: number) => (n === 1 ? 'wine' : 'wines');
 
 /** One-line reasons from the strongest positive contributions. */
 export function explain(contributions: Contribution[]): string[] {
   return contributions
-    .filter((c) => c.amount > 0.05 && c.kind !== 'price' && c.liked > 0 && c.kind !== 'colour' && c.kind !== 'style')
+    .filter((c) => c.amount > 0.05 && c.liked > 0 && (c.kind === 'grape' || c.kind === 'appellation' || c.kind === 'region' || c.kind === 'producer' || c.kind === 'country'))
     .slice(0, 2)
-    .map((c) => `You rated ${c.liked} ${LABEL[c.kind as FeatureKind]}${title(c.value)} ${c.liked === 1 ? 'wine' : 'wines'} highly`);
+    .map((c) =>
+      c.kind === 'country'
+        ? `You rated ${c.liked} ${wines(c.liked)} from ${title(c.value)} highly`
+        : c.kind === 'producer'
+          ? `You rated ${c.liked} ${wines(c.liked)} by ${title(c.value)} highly`
+          : `You rated ${c.liked} ${title(c.value)} ${wines(c.liked)} highly`
+    );
 }

@@ -24,6 +24,7 @@ export interface AppDeps {
   provider: LlmProvider;
   fetcher: PoliteFetcher;
   auth: AuthOptions;
+  allowedOrigins?: string[];
 }
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
@@ -68,8 +69,21 @@ const tastingBody = z.object({
   tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, allowedOrigins = [] }: AppDeps) {
   const app = express();
+  app.disable('x-powered-by');
+  // CORS for listed browser origins only (native apps send no Origin).
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      if (req.method === 'OPTIONS') return void res.status(204).end();
+    }
+    next();
+  });
   const auth = createAuthenticator(db, authOptions);
   app.use(express.json({ limit: '100kb' }));
 
@@ -113,8 +127,19 @@ export function createApp({ db, provider, fetcher, auth: authOptions }: AppDeps)
   app.get('/api/wines/search', wrap(async (req, res) => {
     const q = parse(z.string().trim().min(2).max(200), req.query.q);
     const r = await matchWine(db, { text: q });
+    const top = r.candidates.slice(0, 20);
+    const { rows } = await db.query(
+      `SELECT wine_id, n_merchants FROM wine_prices WHERE vintage_key = '*' AND wine_id = ANY($1)`,
+      [top.map((c) => c.wine.wine_id)]
+    );
+    const shops = new Map<number, number>(rows.map((x) => [x.wine_id, x.n_merchants]));
+    // Near-equal matches: prefer the entry that has a current price.
+    top.sort((a, b) => Math.round((b.score - a.score) * 20) || (shops.get(b.wine.wine_id) ?? 0) - (shops.get(a.wine.wine_id) ?? 0));
     res.json({
-      results: r.candidates.slice(0, 10).map((c) => ({ wineId: c.wine.wine_id, displayName: c.wine.display_name, region: c.wine.region, country: c.wine.country, score: Number(c.score.toFixed(3)) })),
+      results: top.slice(0, 10).map((c) => ({
+        wineId: c.wine.wine_id, displayName: c.wine.display_name, region: c.wine.region, country: c.wine.country,
+        score: Number(c.score.toFixed(3)), shops: shops.get(c.wine.wine_id) ?? 0,
+      })),
     });
   }));
 
