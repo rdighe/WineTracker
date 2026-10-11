@@ -33,6 +33,7 @@ describe('parseTitle', () => {
     expect(p('Holiday Mixed Case Sampler').isWine).toBe(false);
     expect(p('Wine.com Gift Card').isWine).toBe(false);
     expect(p('Carpano Botanic Bitter 1L').isWine).toBe(false);
+    expect(p('Dolin Dry Vermouth de Chambery 750ml').isWine).toBe(false);
   });
   it('keeps the identity text in rest', () => {
     expect(p('Chateau Lynch-Bages 2015 750ml').rest).toBe('Chateau Lynch-Bages');

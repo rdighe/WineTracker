@@ -74,6 +74,30 @@ it and are not crawled.
 in `src/prices/sites.ts`). They are included at the project owner's request. Before shipping publicly, decide per site
 (or run with `--exclude-tos-prohibited`) and prefer affiliate/merchant feeds where possible.
 
+### Data maintenance
+
+```bash
+npm run import:web-prices -- data/seed/web-prices.json  # offers found by web search (LLM or by hand)
+tsx scripts/rematch.ts --changed-only "l.match_status = 'auto'"  # after a matcher fix: re-match listings that no longer fit
+tsx scripts/backfill-tokens.ts --all                    # after changing normalization (stopwords etc.)
+tsx scripts/duplicates.ts auto-merge                    # merge wines created twice under different shop titles
+tsx scripts/duplicates.ts export                        # list uncertain duplicate pairs for review
+```
+
+### Seed database
+
+The first crawl (2026-10-11) is not in the repo, because several sources' terms prohibit scraping and this repo is
+public. It was delivered separately as a `pg_dump` file. To load it:
+
+```bash
+createdb winetracker
+pg_restore --no-owner -d "$DATABASE_URL" winetracker-seed-2026-10-11.dump
+```
+
+It contains about 60k wines, 125k matched listings from 10 shops plus web-search finds, and current prices for about
+38k wines. On hand-checked samples, wrong merges between wines run at roughly 5%. The usual misses are wines that
+differ only in a region word ("DeLoach RRV Zinfandel" vs "DeLoach California Zinfandel").
+
 ## API
 
 | Method | Path | Body / query | Notes |
