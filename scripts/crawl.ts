@@ -27,10 +27,13 @@ const { values } = parseArgs({
     'max-pages': { type: 'string', default: '4000' },
     'exclude-tos-prohibited': { type: 'boolean', default: false },
     'no-create': { type: 'boolean', default: false },
+    // Resume a feed crawl (Shopify/WooCommerce) from this page.
+    'start-page': { type: 'string', default: '1' },
   },
 });
 const maxPages = Number(values['max-pages']);
 const createWines = !values['no-create'];
+const startPage = Number(values['start-page']);
 const sites = SITES.filter(
   (s) => (!values.site?.length || values.site.includes(s.domain)) && !(values['exclude-tos-prohibited'] && s.tos === 'prohibits_scraping')
 );
@@ -56,15 +59,15 @@ const fmt = (c: Counts) => Object.entries(c).filter(([, v]) => v).map(([k, v]) =
 async function* feedOffers(site: SiteConfig): AsyncGenerator<Array<{ url: string; offer: ExtractedOffer }>> {
   const origin = `https://${site.domain}`;
   if (site.kind === 'shopify') {
-    for await (const products of shopifyProducts(fetcher, origin)) yield products.flatMap((p) => offersFromProduct(p, origin));
+    for await (const products of shopifyProducts(fetcher, origin, 400, startPage)) yield products.flatMap((p) => offersFromProduct(p, origin));
   } else {
-    for await (const products of wooProducts(fetcher, origin)) yield products.map(offerFromWoo).filter((o) => o !== null);
+    for await (const products of wooProducts(fetcher, origin, 2000, startPage)) yield products.map(offerFromWoo).filter((o) => o !== null);
   }
 }
 
 async function crawlFeed(site: SiteConfig, merchantId: number): Promise<Counts> {
   const c = newCounts();
-  let page = 0;
+  let page = startPage - 1;
   for await (const offers of feedOffers(site)) {
     page++;
     {

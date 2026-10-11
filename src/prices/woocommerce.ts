@@ -4,7 +4,7 @@
  * storefront uses. 100 products per request.
  */
 import type { ExtractedOffer } from './extract.js';
-import type { PoliteFetcher } from './fetcher.js';
+import { getWithRetry, type PoliteFetcher } from './fetcher.js';
 
 interface WooProduct {
   name: string;
@@ -47,9 +47,9 @@ export function offerFromWoo(p: WooProduct): { url: string; offer: ExtractedOffe
   };
 }
 
-export async function* wooProducts(fetcher: PoliteFetcher, origin: string, maxPages = 2000): AsyncGenerator<WooProduct[]> {
-  for (let page = 1; page <= maxPages; page++) {
-    const r = await fetcher.get(`${origin}/wp-json/wc/store/v1/products?per_page=100&page=${page}&orderby=id&order=asc`, 'application/json');
+export async function* wooProducts(fetcher: PoliteFetcher, origin: string, maxPages = 2000, startPage = 1): AsyncGenerator<WooProduct[]> {
+  for (let page = startPage; page <= maxPages; page++) {
+    const r = await getWithRetry(fetcher, `${origin}/wp-json/wc/store/v1/products?per_page=100&page=${page}&orderby=id&order=asc`, 'application/json');
     if (r.status === 400 && page > 1) return; // past the last page
     if (r.status !== 200) throw new Error(`store api page ${page}: HTTP ${r.status}`);
     const products = JSON.parse(r.body) as WooProduct[];

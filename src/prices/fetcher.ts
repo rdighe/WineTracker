@@ -205,3 +205,20 @@ async function readCapped(r: Response, maxBytes: number): Promise<Buffer> {
   }
   return Buffer.concat(chunks);
 }
+
+/** GET with retries on network errors and 5xx (feeds are long; one blip shouldn't end a crawl). */
+export async function getWithRetry(fetcher: PoliteFetcher, url: string, accept?: string, attempts = 4): Promise<FetchResult> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await fetcher.get(url, accept);
+      if (r.status < 500 || i === attempts - 1) return r;
+      last = new Error(`HTTP ${r.status}`);
+    } catch (err) {
+      if (err instanceof DisallowedError || err instanceof HostBlockedError) throw err;
+      last = err;
+    }
+    await new Promise((res) => setTimeout(res, 5000 * 2 ** i));
+  }
+  throw last;
+}

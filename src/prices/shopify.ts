@@ -3,7 +3,7 @@
  * storefront renders). One request returns up to 250 products, so a whole
  * store costs tens of requests instead of thousands of page loads.
  */
-import type { PoliteFetcher } from './fetcher.js';
+import { getWithRetry, type PoliteFetcher } from './fetcher.js';
 import type { ExtractedOffer } from './extract.js';
 
 interface ShopifyVariant {
@@ -71,9 +71,9 @@ export function offersFromProduct(p: ShopifyProduct, origin: string): Array<{ ur
 }
 
 /** Yield pages of products until the feed runs out (or robots.txt says no). */
-export async function* shopifyProducts(fetcher: PoliteFetcher, origin: string, maxPages = 400): AsyncGenerator<ShopifyProduct[]> {
-  for (let page = 1; page <= maxPages; page++) {
-    const r = await fetcher.get(`${origin}/products.json?limit=250&page=${page}`, 'application/json');
+export async function* shopifyProducts(fetcher: PoliteFetcher, origin: string, maxPages = 400, startPage = 1): AsyncGenerator<ShopifyProduct[]> {
+  for (let page = startPage; page <= maxPages; page++) {
+    const r = await getWithRetry(fetcher, `${origin}/products.json?limit=250&page=${page}`, 'application/json');
     if (r.status !== 200) throw new Error(`products.json page ${page}: HTTP ${r.status}`);
     const products = (JSON.parse(r.body) as { products?: ShopifyProduct[] }).products ?? [];
     if (!products.length) return;
