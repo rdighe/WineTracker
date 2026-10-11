@@ -48,6 +48,18 @@ describe('scan API', () => {
   });
 });
 
+describe('rate limits', () => {
+  it('limits scans per user', async () => {
+    const a = createApp({ db, provider: providerReading({ producer: 'X' }), fetcher, auth: { allowDev: true }, limits: { scansPerHour: 2 } });
+    const scan = () => request(a).post('/api/scans').set('Authorization', 'Dev r').attach('image', jpeg, { filename: 'l.jpg', contentType: 'image/jpeg' });
+    expect((await scan()).status).toBe(201);
+    expect((await scan()).status).toBe(201);
+    expect((await scan()).status).toBe(429);
+    // A different user has their own budget
+    expect((await request(a).post('/api/scans').set('Authorization', 'Dev s').attach('image', jpeg, { filename: 'l.jpg', contentType: 'image/jpeg' })).status).toBe(201);
+  });
+});
+
 describe('wine + price API', () => {
   it('searches, records a user price at tasting without moving the market price', async () => {
     const wineId = await createWine(db, { producer: 'Opus One', name: '', source: 'lwin' });

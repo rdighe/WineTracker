@@ -104,6 +104,23 @@ It contains about 60k wines, 125k matched listings from 10 shops plus web-search
 38k wines. On hand-checked samples, wrong merges between wines run at roughly 5%. The usual misses are wines that
 differ only in a region word ("DeLoach RRV Zinfandel" vs "DeLoach California Zinfandel").
 
+### Background worker
+
+```bash
+npm run worker                     # feeds daily, product pages every 6 h, watched wines daily
+npm run worker -- --once watched   # run one job now (feeds | pages | watched)
+```
+
+`watched` refreshes wines users saved or tasted in the last 90 days, stalest first, up to `REFRESH_PER_NIGHT`
+(default 100). It uses the LLM web search, so each refresh costs roughly a cent with Gemini.
+
+### Deploying
+
+`render.yaml` defines the API (web service) and the worker. Both need `DATABASE_URL` (Supabase Postgres) and
+`GEMINI_API_KEY`; the API also needs `SUPABASE_JWT_SECRET` (or `SUPABASE_JWKS_URL`) and, for a web build,
+`ALLOWED_ORIGINS`. Migrations run on API start. Paid endpoints are rate limited per user (30 scans and 30 price
+refreshes per hour by default).
+
 ## API
 
 | Method | Path | Body / query | Notes |

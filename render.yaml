@@ -1,0 +1,43 @@
+# Render blueprint: the API and the background worker share one Postgres
+# (Supabase, like the Wine Circle app). Secrets are set in the Render
+# dashboard, not here.
+services:
+  - type: web
+    name: winetracker-api
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm run migrate && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+  - type: worker
+    name: winetracker-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: EXCLUDE_TOS_PROHIBITED
+        value: "false"

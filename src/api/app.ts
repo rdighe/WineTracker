@@ -4,6 +4,8 @@
  * routes are public reads. Scans attach to the user when one is signed in.
  */
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
+import helmet from 'helmet';
 import multer from 'multer';
 import { z } from 'zod';
 import type pg from 'pg';
@@ -25,6 +27,10 @@ export interface AppDeps {
   fetcher: PoliteFetcher;
   auth: AuthOptions;
   allowedOrigins?: string[];
+  /** Number of proxies in front of the app (Render: 1), so rate limits see the client IP. */
+  trustProxy?: number;
+  /** Override limits (tests). */
+  limits?: { scansPerHour?: number; refreshesPerHour?: number; requestsPer15Min?: number };
 }
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
@@ -69,9 +75,10 @@ const tastingBody = z.object({
   tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, allowedOrigins = [] }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, allowedOrigins = [], trustProxy = 0, limits = {} }: AppDeps) {
   const app = express();
-  app.disable('x-powered-by');
+  app.set('trust proxy', trustProxy);
+  app.use(helmet());
   // CORS for listed browser origins only (native apps send no Origin).
   app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -85,6 +92,21 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
     next();
   });
   const auth = createAuthenticator(db, authOptions);
+
+  // Rate limits: a general one per IP, and tighter per-user limits on the two
+  // routes that cost money (vision model / web search).
+  const limiter = (windowMs: number, limit: number) =>
+    rateLimit({
+      windowMs,
+      limit,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+      keyGenerator: (req) => (req.user ? `u:${req.user.userId}` : ipKeyGenerator(req.ip ?? '')),
+      message: { error: 'too many requests; try again later' },
+    });
+  app.use('/api', limiter(15 * 60_000, limits.requestsPer15Min ?? 900));
+  const scanLimit = limiter(60 * 60_000, limits.scansPerHour ?? 30);
+  const refreshLimit = limiter(60 * 60_000, limits.refreshesPerHour ?? 30);
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/health', (_req, res) => {
@@ -92,7 +114,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
   });
 
   // ── Label scans ──────────────────────────────────────────────────────────
-  app.post('/api/scans', auth.optionalUser, upload.single('image'), wrap(async (req, res) => {
+  app.post('/api/scans', auth.optionalUser, scanLimit, upload.single('image'), wrap(async (req, res) => {
     const file = req.file;
     if (!file) throw new HttpError(400, 'multipart field "image" is required');
     if (!IMAGE_TYPES.has(file.mimetype)) throw new HttpError(415, `unsupported image type ${file.mimetype}`);
@@ -192,7 +214,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
     });
   }));
 
-  app.post('/api/wines/:id/prices/refresh', wrap(async (req, res) => {
+  app.post('/api/wines/:id/prices/refresh', auth.optionalUser, refreshLimit, wrap(async (req, res) => {
     const wineId = parse(idParam, req.params.id);
     const { vintage } = parse(z.object({ vintage: vintageSchema }), req.body ?? {});
     if (!(await getWine(db, wineId))) throw new HttpError(404, 'wine not found');
