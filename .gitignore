@@ -3,3 +3,4 @@ node_modules/
 data/raw/
 data/crawl-cache/
 *.log
+data/logs/

@@ -92,3 +92,25 @@ export async function getWine(db: Db, wineId: number) {
   const { rows } = await db.query('SELECT * FROM wines WHERE wine_id = $1', [wineId]);
   return rows[0] ?? null;
 }
+
+/**
+ * Fold wine `fromId` into `toId`: listings, observations, aliases, scans and
+ * refreshes move over, the old name becomes an alias, the old row is deleted.
+ * Callers re-aggregate prices for `toId` afterwards.
+ */
+export async function mergeWines(db: Db, fromId: number, toId: number): Promise<void> {
+  if (fromId === toId) return;
+  const from = await getWine(db, fromId);
+  if (!from) return;
+  await db.query('UPDATE listings SET wine_id = $2 WHERE wine_id = $1', [fromId, toId]);
+  await db.query('UPDATE price_observations SET wine_id = $2 WHERE wine_id = $1', [fromId, toId]);
+  await db.query('UPDATE scans SET chosen_wine_id = $2 WHERE chosen_wine_id = $1', [fromId, toId]);
+  await db.query('UPDATE price_refreshes SET wine_id = $2 WHERE wine_id = $1', [fromId, toId]);
+  await db.query(
+    `INSERT INTO wine_aliases (wine_id, alias_norm, source)
+     SELECT $2, alias_norm, source FROM wine_aliases WHERE wine_id = $1 ON CONFLICT DO NOTHING`,
+    [fromId, toId]
+  );
+  await addAlias(db, toId, from.display_name, 'merge');
+  await db.query('DELETE FROM wines WHERE wine_id = $1', [fromId]);
+}

@@ -1,0 +1,101 @@
+# WineTracker backend
+
+Backend for the WineTracker mobile app: a wine catalog with a fuzzy matcher, label scanning, and US retail price
+tracking (bulk crawl + on-demand refresh). TypeScript / Node / Express / Postgres.
+
+Builds on lessons from the GSB Wine Circle app (rule-based fallbacks whenever an LLM call fails, a model fallback list
+for Gemini, strict matching because a wrong answer is worse than none, normalized tags).
+
+## Layout
+
+| Path | What it does |
+|---|---|
+| `src/lib/normalize.ts` | Text normalization shared by everything (accents, `Ch.`→`chateau`, stopwords, typo-tolerant token match) |
+| `src/lib/listing.ts` | Parses a product title: vintage / `NV`, bottle size, pack size, "is this even wine" |
+| `src/match/score.ts` | Pure scorer: does a catalog wine explain this query? producer, name, and "nothing unexplained" |
+| `src/match/matcher.ts` | Trigram candidate search in Postgres + scorer → `auto` / `choose` / `new` |
+| `src/catalog/` | Catalog writes, merges, LWIN row mapping |
+| `src/llm/` | Provider-agnostic LLM interface (`readLabel`, `searchPrices`); Gemini implementation; `NullProvider` |
+| `src/scan/scan.ts` | Label photo → vision read → matcher; confirming a scan teaches the matcher an alias |
+| `src/prices/fetcher.ts` | Polite crawler HTTP: robots.txt + Crawl-delay, honest User-Agent, backs off and stops when refused |
+| `src/prices/extract.ts` | schema.org Product/Offer from JSON-LD → microdata → Open Graph |
+| `src/prices/shopify.ts`, `woocommerce.ts` | Catalog feeds (250 / 100 products per request) |
+| `src/prices/ingest.ts` | Offer → listing → match/create wine → price observation |
+| `src/prices/aggregate.ts` | Market price per wine+vintage: one vote per offer, MAD outlier filter, median/p10/p90, daily history |
+| `src/prices/refresh.ts` | On-demand refresh: re-check known shop pages + LLM web search, verifying each hit on the shop's own page |
+| `src/prices/sites.ts` | Retailers for the bulk crawl, with each site's terms-of-service status |
+| `src/api/app.ts` | REST API |
+
+## Data model (short)
+
+- `wines` – one row per wine (not per vintage); `lwin` when known; `source` = `lwin` / `crawl` / `user` / `llm`.
+- `wine_aliases` – extra names learned from confirmed scans and merges.
+- `merchants`, `listings` – one listing per shop product page/variant, matched to a wine once.
+- `price_observations` – every price seen: per-pack price and per-750 ml price, vintage, stock, source, confidence.
+  User-reported prices (`source_type = 'user'`, e.g. what you paid at a restaurant) are stored but never move the
+  market price.
+- `wine_prices` – current market price per wine + vintage (`'*'` = all vintages); `wine_price_daily` – history.
+
+## Running locally
+
+```bash
+npm install
+cp .env.example .env                     # set DATABASE_URL, GEMINI_API_KEY
+npm run migrate
+npm test                                 # needs TEST_DATABASE_URL (a separate, disposable database)
+npm run dev                              # API on :5000
+```
+
+Behind an HTTP proxy, Node's built-in fetch needs `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
+
+### Catalog
+
+```bash
+npm run import:lwin -- ~/Downloads/LWINdatabase.xlsx
+```
+
+LWIN is free (Creative Commons) from https://www.liv-ex.com/lwin/ but sits behind a browser check, so download it by
+hand. The import upserts by LWIN and then merges crawl-created wines that confidently match an LWIN wine.
+
+### Prices
+
+```bash
+npm run crawl -- --max-pages 5000                 # all sites in src/prices/sites.ts
+npm run crawl -- --site www.wallywine.com         # one site (sitemap crawls resume where they stopped)
+npm run crawl -- --exclude-tos-prohibited         # skip sites whose terms forbid scraping
+npm run aggregate                                 # recompute market prices for changed wines
+```
+
+The crawler obeys robots.txt and Crawl-delay, identifies itself as `CRAWLER_USER_AGENT`, and stops on a host that
+keeps refusing it. It does not try to get past bot protection; wine.com, totalwine.com, klwines.com and others refuse
+it and are not crawled.
+
+**Terms of service.** Several crawled shops' terms forbid automated access or scraping (`tos: 'prohibits_scraping'`
+in `src/prices/sites.ts`). They are included at the project owner's request. Before shipping publicly, decide per site
+(or run with `--exclude-tos-prohibited`) and prefer affiliate/merchant feeds where possible.
+
+## API
+
+| Method | Path | Body / query | Notes |
+|---|---|---|---|
+| GET | `/api/health` | | |
+| POST | `/api/scans` | multipart `image` (jpeg/png/webp/heic, ≤ 8 MB) | → `{scanId, read, outcome, vintage, bottleMl, candidates}` |
+| POST | `/api/scans/:id/confirm` | `{wineId}` or `{newWine: {producer, name, region, …}}` | learns an alias |
+| GET | `/api/wines/search?q=` | | ranked matches |
+| POST | `/api/wines` | `{producer, name, …}` | user-created wine |
+| GET | `/api/wines/:id` | | wine + price summaries per vintage |
+| GET | `/api/wines/:id/prices?vintage=2019` | | summary, daily history, current offers |
+| POST | `/api/wines/:id/prices/refresh` | `{vintage}` | on-demand refresh, throttled to once per 12 h per wine+vintage |
+| POST | `/api/wines/:id/prices/report` | `{price, vintage, bottleMl, context: retail\|restaurant, merchant, observedAt}` | price at tasting |
+
+Scan outcomes: `auto` (confident, attach directly), `choose` (show the candidates), `new` (offer to create the wine).
+Auth is not wired yet; put the API behind a private network or add auth (Supabase Auth is the plan) before exposing it.
+
+## Matcher quality
+
+```bash
+npm run eval:matcher
+```
+
+Runs the labelled cases in `test/fixtures/matcher-cases.ts` and reports top-1 / top-3 accuracy, auto-match rate and
+wrong auto-matches. Add a case whenever a real scan or listing is mismatched.
