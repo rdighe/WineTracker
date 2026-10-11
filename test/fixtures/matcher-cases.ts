@@ -1,0 +1,38 @@
+// Query -> expected catalog key (null = should not auto-match anything).
+// Shared by the matcher test and scripts/eval-matcher.ts.
+export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: string; name?: string }> = [
+  { q: 'Chateau Lynch-Bages 2015 750ml', expect: 'lynch-bages' },
+  { q: 'Ch. Lynch Bages Pauillac 2016', expect: 'lynch-bages' },
+  { q: 'Lynch Bages Blanc 2019', expect: 'lynch-bages-blanc' },
+  { q: "Echo de Lynch Bages 2018 Pauillac", expect: 'echo-lynch-bages' },
+  { q: 'Château Margaux 2010', expect: 'margaux' },
+  { q: 'Pavillon Rouge du Château Margaux 2015', expect: 'pavillon-rouge' },
+  { q: 'Pavillon Blanc du Chateau Margaux 2020', expect: 'pavillon-blanc' },
+  { q: 'Chateau Palmer Margaux 2014', expect: 'palmer' },
+  { q: 'Opus One 2019 Napa Valley Red Wine', expect: 'opus-one' },
+  { q: 'Opus One Overture NV', expect: 'overture' },
+  { q: 'Caymus Cabernet Sauvignon Napa Valley 2021', expect: 'caymus-cab' },
+  { q: 'Caymus Special Selection Cabernet Sauvignon 2019', expect: 'caymus-ss' },
+  { q: 'Chateau Montelena Chardonnay 2021', expect: 'montelena-chard' },
+  { q: 'Chateau Montelena Estate Cabernet Sauvignon 2018', expect: 'montelena-cab' },
+  { q: 'Ridge Monte Bello 2018 1.5L', expect: 'ridge-mb' },
+  { q: 'Ridge Geyserville Zinfandel 2021', expect: 'ridge-geyserville' },
+  { q: 'Veuve Clicquot Yellow Label Brut NV', expect: 'veuve-yellow' },
+  { q: 'Veuve Clicquot Brut Rosé', expect: 'veuve-rose' },
+  { q: 'Veuve Clicquot La Grande Dame 2015', expect: 'veuve-gd' },
+  { q: 'Domaine de la Romanee Conti La Tache 2017', expect: 'drc-tache' },
+  { q: "Chateau d'Yquem Sauternes 2009 375ml", expect: 'yquem' },
+  { q: 'Kim Crawford Sauvignon Blanc 2023', expect: 'kim-sb' },
+  { q: 'Cloudy Bay Sauvignon Blanc Marlborough 2023', expect: 'cloudy-sb' },
+  { q: 'Antinori Tignanello 2020 Toscana IGT', expect: 'tignanello' },
+  { q: 'Tenuta San Guido Sassicaia 2019', expect: 'sassicaia' },
+  { q: 'Whispering Angel Rosé 2023', expect: 'whispering-angel' },
+  // OCR-style typos from a label read
+  { q: 'Chateau Montelana Chardonay Napa Valley 2020', expect: 'montelena-chard' },
+  // Field-wise query from a vision model
+  { q: 'Pauillac 2015 Grand Cru Classe', producer: 'Château Lynch-Bages', expect: 'lynch-bages' },
+  // Not in catalog: must not auto-match a different wine of a known producer or a stranger
+  { q: 'Caymus Zinfandel 2020', expect: null },
+  { q: 'Silver Oak Alexander Valley Cabernet 2019', expect: null },
+  { q: 'Antinori Guado al Tasso 2019', expect: null },
+];
