@@ -14,10 +14,9 @@
 import ExcelJS from 'exceljs';
 import { parseArgs } from 'node:util';
 import { createPool, withTransaction } from '../src/db/pool.js';
-import { mergeWines, upsertLwinWine, type NewWine } from '../src/catalog/wines.js';
+import { upsertLwinWine, type NewWine } from '../src/catalog/wines.js';
+import { mergeCrawlIntoLwin } from '../src/catalog/lwin-merge.js';
 import { cell, lwinRow } from '../src/catalog/lwin.js';
-import { matchWine } from '../src/match/matcher.js';
-import { aggregateWines } from '../src/prices/aggregate.js';
 
 const { positionals, values } = parseArgs({ allowPositionals: true, options: { 'no-merge': { type: 'boolean', default: false } } });
 const file = positionals[0];
@@ -65,18 +64,15 @@ if (batch.length) await flush();
 console.log(`LWIN import done: ${imported} wines upserted, ${skipped} rows skipped`);
 
 if (!values['no-merge']) {
-  const { rows } = await db.query(`SELECT wine_id, producer, name, display_name FROM wines WHERE source = 'crawl'`);
+  console.log('merging crawl-created wines into LWIN entries (continue later with scripts/merge-lwin.ts if interrupted)');
+  let cursor = 0;
   let merged = 0;
-  const touched = new Set<number>();
-  for (const w of rows) {
-    const r = await matchWine(db, { text: w.display_name, producer: w.producer || undefined }, { sources: ['lwin'] });
-    if (r.outcome !== 'auto') continue;
-    const target = r.candidates[0]!.wine.wine_id;
-    await withTransaction(db, (c) => mergeWines(c, w.wine_id, target));
-    touched.add(target);
-    merged++;
+  for (;;) {
+    const r = await mergeCrawlIntoLwin(db, cursor, 500);
+    if (r.cursor === null) break;
+    cursor = r.cursor;
+    merged += r.merged;
   }
-  await aggregateWines(db, [...touched]);
-  console.log(`merged ${merged} of ${rows.length} crawl-created wines into LWIN entries`);
+  console.log(`merged ${merged} crawl-created wines into LWIN entries`);
 }
 await db.end();
