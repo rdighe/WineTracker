@@ -17,6 +17,7 @@ const ABBREVIATIONS: Array<[RegExp, string]> = [
   [/\bmt\.?(?=\s)/g, 'mount'],
   [/\bcab\.?\s+sauv\.?(?=\s|$)/g, 'cabernet sauvignon'],
   [/\bsauv\.?\s+blanc\b/g, 'sauvignon blanc'],
+  [/\b1er\b|\b1st\b/g, 'premier'],
   [/\bn\.\s?v\.?(?=\s|$)/g, 'nv'],
   [/\bnon[\s-]?vintage\b/g, 'nv'],
 ];
