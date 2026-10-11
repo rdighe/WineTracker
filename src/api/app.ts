@@ -1,6 +1,7 @@
 /**
- * REST API. Auth is not wired yet (Supabase Auth is the plan); until then
- * deploy this behind a private network or add an API key middleware.
+ * REST API. User-specific routes (tastings, saved wines, recommendations)
+ * require a Supabase access token (see src/auth/auth.ts); catalog and price
+ * routes are public reads. Scans attach to the user when one is signed in.
  */
 import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -14,11 +15,15 @@ import { confirmScan, scanLabel, ScanError } from '../scan/scan.js';
 import type { PoliteFetcher } from '../prices/fetcher.js';
 import { refreshPrices } from '../prices/refresh.js';
 import { aggregateWines } from '../prices/aggregate.js';
+import { createAuthenticator, type AuthOptions } from '../auth/auth.js';
+import { createTasting, deleteTasting, listTastings, updateTasting } from '../tastings/tastings.js';
+import { recommend } from '../recs/recommend.js';
 
 export interface AppDeps {
   db: pg.Pool;
   provider: LlmProvider;
   fetcher: PoliteFetcher;
+  auth: AuthOptions;
 }
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
@@ -51,8 +56,21 @@ async function priceSummary(db: pg.Pool, wineId: number) {
   return rows;
 }
 
-export function createApp({ db, provider, fetcher }: AppDeps) {
+const tastingBody = z.object({
+  vintage: vintageSchema,
+  rating: z.number().min(0.5).max(5).multipleOf(0.5).nullable().optional(),
+  notes: z.string().max(4000).optional(),
+  tags: z.array(z.string().max(60)).max(30).optional(),
+  pricePaid: z.number().positive().max(100000).nullable().optional(),
+  priceContext: z.enum(['retail', 'restaurant']).nullable().optional(),
+  bottleMl: z.number().int().min(50).max(30000).optional(),
+  location: z.string().max(200).optional(),
+  tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+export function createApp({ db, provider, fetcher, auth: authOptions }: AppDeps) {
   const app = express();
+  const auth = createAuthenticator(db, authOptions);
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/health', (_req, res) => {
@@ -60,11 +78,13 @@ export function createApp({ db, provider, fetcher }: AppDeps) {
   });
 
   // ── Label scans ──────────────────────────────────────────────────────────
-  app.post('/api/scans', upload.single('image'), wrap(async (req, res) => {
+  app.post('/api/scans', auth.optionalUser, upload.single('image'), wrap(async (req, res) => {
     const file = req.file;
     if (!file) throw new HttpError(400, 'multipart field "image" is required');
     if (!IMAGE_TYPES.has(file.mimetype)) throw new HttpError(415, `unsupported image type ${file.mimetype}`);
-    res.status(201).json(await scanLabel(db, provider, file.buffer, file.mimetype));
+    const result = await scanLabel(db, provider, file.buffer, file.mimetype);
+    if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, result.scanId]);
+    res.status(201).json(result);
   }));
 
   app.post('/api/scans/:id/confirm', wrap(async (req, res) => {
@@ -176,8 +196,101 @@ export function createApp({ db, provider, fetcher }: AppDeps) {
        VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, COALESCE($8, NOW())) RETURNING observation_id`,
       [wineId, b.vintage ?? null, b.bottleMl, cents, per750(cents, b.bottleMl, 1), b.context, b.merchant ?? '', b.observedAt ?? null]
     );
-    await aggregateWines(db, [wineId]);
     res.status(201).json({ observationId: rows[0].observation_id });
+  }));
+
+  // ── Me ───────────────────────────────────────────────────────────────────
+  app.get('/api/me', auth.requireUser, wrap(async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT u.user_id, u.email, u.display_name, u.created_at,
+              (SELECT COUNT(*)::int FROM tastings t WHERE t.user_id = u.user_id) AS tastings,
+              (SELECT COUNT(*)::int FROM saved_wines s WHERE s.user_id = u.user_id) AS saved
+         FROM users u WHERE u.user_id = $1`,
+      [req.user!.userId]
+    );
+    res.json(rows[0]);
+  }));
+
+  // ── Tastings ─────────────────────────────────────────────────────────────
+  app.get('/api/tastings', auth.requireUser, wrap(async (req, res) => {
+    const limit = parse(z.coerce.number().int().min(1).max(200).default(50), req.query.limit ?? undefined);
+    const before = req.query.before === undefined ? undefined : parse(idParam, req.query.before);
+    res.json({ tastings: await listTastings(db, req.user!.userId, { limit, before }) });
+  }));
+
+  app.post('/api/tastings', auth.requireUser, wrap(async (req, res) => {
+    const b = parse(tastingBody.extend({ wineId: z.number().int().positive(), scanId: z.number().int().positive().optional() }), req.body);
+    if (!(await getWine(db, b.wineId))) throw new HttpError(404, 'wine not found');
+    if (b.scanId) {
+      const { rows } = await db.query('SELECT user_id FROM scans WHERE scan_id = $1', [b.scanId]);
+      if (!rows[0] || (rows[0].user_id !== null && rows[0].user_id !== req.user!.userId)) throw new HttpError(404, 'scan not found');
+    }
+    // The price paid is stored as a 'user' observation, which never moves the
+    // market price, so there is nothing to re-aggregate.
+    const tastingId = await createTasting(db, req.user!.userId, b);
+    res.status(201).json({ tastingId });
+  }));
+
+  app.patch('/api/tastings/:id', auth.requireUser, wrap(async (req, res) => {
+    const id = parse(idParam, req.params.id);
+    const b = parse(tastingBody.partial(), req.body);
+    if (!(await updateTasting(db, req.user!.userId, id, b))) throw new HttpError(404, 'tasting not found');
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/tastings/:id', auth.requireUser, wrap(async (req, res) => {
+    const id = parse(idParam, req.params.id);
+    if (!(await deleteTasting(db, req.user!.userId, id))) throw new HttpError(404, 'tasting not found');
+    res.status(204).end();
+  }));
+
+  // ── Saved wines (want to try / watch the price) ──────────────────────────
+  app.get('/api/saved', auth.requireUser, wrap(async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT s.wine_id, s.vintage_key, w.display_name, w.region, w.country, p.median_cents, p.n_merchants, s.created_at
+         FROM saved_wines s JOIN wines w USING (wine_id)
+         LEFT JOIN wine_prices p ON p.wine_id = s.wine_id AND p.vintage_key = s.vintage_key AND p.currency = 'USD'
+        WHERE s.user_id = $1 ORDER BY s.created_at DESC`,
+      [req.user!.userId]
+    );
+    res.json({ saved: rows });
+  }));
+
+  app.put('/api/saved/:wineId', auth.requireUser, wrap(async (req, res) => {
+    const wineId = parse(idParam, req.params.wineId);
+    const { vintage } = parse(z.object({ vintage: vintageSchema }), req.body ?? {});
+    if (!(await getWine(db, wineId))) throw new HttpError(404, 'wine not found');
+    await db.query(`INSERT INTO saved_wines (user_id, wine_id, vintage_key) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [
+      req.user!.userId, wineId, vintage ?? '*',
+    ]);
+    res.status(204).end();
+  }));
+
+  app.delete('/api/saved/:wineId', auth.requireUser, wrap(async (req, res) => {
+    const wineId = parse(idParam, req.params.wineId);
+    await db.query('DELETE FROM saved_wines WHERE user_id = $1 AND wine_id = $2', [req.user!.userId, wineId]);
+    res.status(204).end();
+  }));
+
+  // ── Recommendations ──────────────────────────────────────────────────────
+  app.get('/api/recommendations', auth.requireUser, wrap(async (req, res) => {
+    const q = parse(
+      z.object({
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+        colour: z.enum(['red', 'white', 'rose']).optional(),
+        maxPrice: z.coerce.number().positive().max(100000).optional(),
+        bestValue: z.enum(['true', 'false']).optional(),
+      }),
+      req.query
+    );
+    res.json(
+      await recommend(db, req.user!.userId, {
+        limit: q.limit,
+        colour: q.colour,
+        maxPriceCents: q.maxPrice ? Math.round(q.maxPrice * 100) : undefined,
+        bestValue: q.bestValue === 'true',
+      })
+    );
   }));
 
   // ── Errors ───────────────────────────────────────────────────────────────

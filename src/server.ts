@@ -10,6 +10,11 @@ const provider = createProvider();
 // than the bulk crawler - still serialized per host and robots-aware.
 const fetcher = new PoliteFetcher({ userAgent: config.crawlerUserAgent, minDelayMs: 1000, timeoutMs: 12000 });
 
-createApp({ db, provider, fetcher }).listen(config.port, () => {
+createApp({
+  db,
+  provider,
+  fetcher,
+  auth: { jwtSecret: config.supabaseJwtSecret, jwksUrl: config.supabaseJwksUrl, allowDev: config.allowDevAuth },
+}).listen(config.port, () => {
   console.log(`WineTracker API on :${config.port} (LLM provider: ${provider.name})`);
 });

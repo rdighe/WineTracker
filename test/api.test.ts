@@ -19,7 +19,7 @@ const label = (r: Partial<LabelRead>): LabelRead => ({
   producer: '', name: '', vintage: '', region: '', country: '', grape: '', colour: '', bottleMl: null, rawText: '', confidence: 0.9, ...r,
 });
 const fetcher = new PoliteFetcher({ userAgent: 'WineTrackerBot/0.1', fetch: vi.fn(async () => new Response('', { status: 404 })) });
-const app = (provider: LlmProvider) => createApp({ db, provider, fetcher });
+const app = (provider: LlmProvider) => createApp({ db, provider, fetcher, auth: { allowDev: true } });
 const providerReading = (r: Partial<LabelRead>): LlmProvider => ({ name: 'fake', readLabel: vi.fn(async () => label(r)), searchPrices: vi.fn(async () => []) });
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
 
