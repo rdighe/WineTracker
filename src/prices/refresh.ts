@@ -93,20 +93,9 @@ export async function refreshPrices(
       out.searchError = err instanceof ProviderUnavailableError ? 'no LLM provider configured' : (err as Error).message;
     }
     out.webHits = hits.length;
-    const knownUrls = new Set(known.map((k) => k.url));
-    for (const hit of hits) {
-      const host = new URL(hit.url).hostname.replace(/^www\./, '');
-      if (isExcluded(host) || knownUrls.has(hit.url)) continue;
-      if (hit.currency !== 'USD') continue;
-      if (vintageKey && hit.vintage && hit.vintage !== vintageKey) continue;
-      const merchantId = await ensureMerchant(db, host, hit.merchant);
-      if (await recheck(db, fetcher, hit.url, merchantId, hit.merchant, log)) {
-        out.verified++;
-      } else if (titleMatchesWine(hit, wine)) {
-        await insertWebObservation(db, wineId, vintageKey, merchantId, hit);
-        out.unverifiedKept++;
-      }
-    }
+    const applied = await applyWebHits(db, fetcher, wine, vintageKey, hits, new Set(known.map((k) => k.url)), log);
+    out.verified = applied.verified;
+    out.unverifiedKept = applied.unverifiedKept;
 
     await aggregateWines(db, [wineId]);
     await db.query(
@@ -121,6 +110,39 @@ export async function refreshPrices(
     ]);
     throw err;
   }
+}
+
+/**
+ * Record offers found by a web search for one wine. Each hit is verified by
+ * reading the shop's own product page when robots.txt allows; a hit that
+ * can't be verified is kept (at confidence 0.5) only if its title clearly
+ * matches the wine. Used by on-demand refresh and the seed import.
+ */
+export async function applyWebHits(
+  db: Db,
+  fetcher: PoliteFetcher,
+  wine: CandidateWine & { display_name: string },
+  vintageKey: string | null,
+  hits: WebPriceHit[],
+  skipUrls = new Set<string>(),
+  log: (m: string) => void = () => {}
+): Promise<{ verified: number; unverifiedKept: number }> {
+  let verified = 0;
+  let unverifiedKept = 0;
+  for (const hit of hits) {
+    const host = new URL(hit.url).hostname.replace(/^www\./, '');
+    if (isExcluded(host) || skipUrls.has(hit.url)) continue;
+    if (hit.currency !== 'USD') continue;
+    if (vintageKey && hit.vintage && hit.vintage !== vintageKey) continue;
+    const merchantId = await ensureMerchant(db, host, hit.merchant);
+    if (await recheck(db, fetcher, hit.url, merchantId, hit.merchant, log)) {
+      verified++;
+    } else if (titleMatchesWine(hit, wine)) {
+      await insertWebObservation(db, wine.wine_id, vintageKey, merchantId, hit);
+      unverifiedKept++;
+    }
+  }
+  return { verified, unverifiedKept };
 }
 
 /** Fetch a shop page and ingest its structured offer. True if a price was recorded or refreshed. */

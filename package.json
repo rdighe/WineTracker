@@ -11,7 +11,8 @@
     "import:lwin": "tsx scripts/import-lwin.ts",
     "crawl": "tsx scripts/crawl.ts",
     "aggregate": "tsx scripts/aggregate.ts",
-    "eval:matcher": "tsx scripts/eval-matcher.ts"
+    "eval:matcher": "tsx scripts/eval-matcher.ts",
+    "import:web-prices": "tsx scripts/import-web-prices.ts"
   },
   "repository": {
     "type": "git",
