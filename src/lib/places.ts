@@ -28,7 +28,7 @@ const PLACES = [
   'victoria', 'tasmania', 'clare valley', 'eden valley', 'adelaide hills', 'hunter valley', 'coonawarra',
   // South America / South Africa
   'mendoza', 'uco valley', 'patagonia', 'salta', 'maipo', 'maipo valley', 'colchagua', 'casablanca', 'maule',
-  'western cape', 'stellenbosch', 'swartland', 'coastal region',
+  'western cape', 'stellenbosch', 'swartland',
   // large European regions used descriptively
   'toscana', 'tuscany', 'sicilia', 'sicily', 'veneto', 'puglia', 'campania', 'sardegna', 'sardinia', 'piemonte', 'piedmont',
   'provence', 'languedoc', 'roussillon', 'languedoc roussillon', 'pays doc', 'south of france', 'sud ouest',

@@ -65,7 +65,9 @@ export const DESCRIPTOR_WORDS = new Set([
 ]);
 
 const YEAR_RE = /^(1[89]\d\d|20\d\d)$/;
-const SIZE_TOKEN_RE = /^\d+(\.\d+)?(ml|l|cl|oz)?$/;
+// Sizes with units, and bare common bottle sizes. Other numbers are kept:
+// they are often part of a name ("Bin 389", "Ranch 32", "Chapter 24").
+const SIZE_TOKEN_RE = /^\d+(\.\d+)?(ml|l|cl|oz|ltr|lt)$|^(187|375|500|750|1000|1500|3000)$|^\d+\.\d+$/;
 
 /** Identity tokens: normalized words minus stopwords, descriptors, years and sizes. */
 export function identityTokens(input: unknown): string[] {

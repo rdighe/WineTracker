@@ -36,7 +36,7 @@ export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions =
   //     word lookup finds little, i.e. typos/OCR errors; it is the slow path.
   const select = (ids: string) => `
      SELECT w.wine_id, w.producer, w.name, w.display_name, w.region, w.sub_region, w.country,
-            w.colour, w.grape, w.classification,
+            w.colour, w.grape, w.classification, w.source,
             COALESCE((SELECT array_agg(a.alias_norm) FROM wine_aliases a WHERE a.wine_id = w.wine_id), '{}') AS aliases
        FROM (${ids}) ids JOIN wines w USING (wine_id)`;
   const filter = (t = 'wines') => `($4::text[] IS NULL OR ${t}.source = ANY($4)) AND ${t}.wine_id <> $5`;

@@ -30,5 +30,11 @@ export const CATALOG: Array<NewWine & { key: string }> = [
   { key: 'solaia', producer: 'Marchesi Antinori', name: 'Solaia', region: 'Tuscany', country: 'Italy', colour: 'red', source: 'lwin' },
   { key: 'sassicaia', producer: 'Tenuta San Guido', name: 'Sassicaia', region: 'Tuscany', sub_region: 'Bolgheri', country: 'Italy', colour: 'red', source: 'lwin' },
   { key: 'droin-chablis', producer: 'Jean-Paul & Benoit Droin', name: 'Chablis', region: 'Burgundy', country: 'France', colour: 'white', source: 'crawl' },
+  // Shop-titled (crawl) wines, from real auto-merge mistakes
+  { key: 'silver-gate-brut', producer: '', name: 'Silver Gate Brut', source: 'crawl' },
+  { key: 'ranch32-pn', producer: '', name: 'Ranch 32 Pinot Noir', source: 'crawl' },
+  { key: 'perrin-cdr', producer: 'Perrin', name: 'Cotes du Rhone Reserve', source: 'crawl' },
+  { key: 'generic-pn', producer: '', name: 'Pinot Noir', source: 'crawl' },
+  { key: 'flowers-rose', producer: 'Flowers', name: 'Sonoma Coast Rose', source: 'crawl' },
   { key: 'whispering-angel', producer: "Chateau d'Esclans", name: 'Whispering Angel Rose', region: 'Provence', country: 'France', colour: 'rose', source: 'lwin' },
 ];

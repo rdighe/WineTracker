@@ -44,4 +44,12 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Veuve Clicquot Extra Brut Extra Old', expect: null },
   { q: '2018 Jean-Paul & Benoit Droin - Chablis Clos', expect: null },
   { q: 'Droin Chablis 2022', expect: 'droin-chablis' },
+  { q: 'Silver Gate Chardonnay 2022', expect: null },
+  { q: 'Carneros Ranch Pinot Noir 2021', expect: null },
+  { q: 'Famille Perrin Cotes du Rhone Rose Reserve 2023', expect: null },
+  { q: 'Napa Cellars Pinot Noir 2022', expect: null },
+  { q: 'Flowers Sonoma Coast Pinot Noir 2022', expect: null },
+  { q: 'Ranch 32 Pinot Noir 2021', expect: 'ranch32-pn' },
+  { q: 'Perrin Cotes du Rhone Reserve Rouge 2022', expect: 'perrin-cdr' },
+  { q: 'Silver Gate Brut NV', expect: 'silver-gate-brut' },
 ];

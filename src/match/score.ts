@@ -33,6 +33,7 @@ export interface CandidateWine {
   colour: string;
   grape: string;
   classification: string;
+  source?: string;
   aliases?: string[];
 }
 
@@ -64,6 +65,38 @@ function colourOf(text: string): string {
   return colourFromGrape(s.trim());
 }
 
+/** Explicit style words in a title: rosé, white, sparkling. */
+function marks(text: string) {
+  const s = ` ${normalize(text)} `;
+  return {
+    rose: / (rose|rosado|rosato|rosa) /.test(s),
+    white: / (blanc|bianco|blanco|white|weiss|weisser) /.test(s),
+    sparkling: / (brut|sparkling|cremant|spumante|cava|prosecco|champagne|sekt|frizzante|petillant|pet nat|franciacorta) /.test(s),
+    grapeColour: colourFromGrape(s.trim()),
+    red: / (rouge|rosso|tinto|red) /.test(s),
+  };
+}
+
+/**
+ * Style conflict between two shop-style titles. Titles of rosé, white and
+ * sparkling wines say so, so a mark on one side only means a different wine
+ * - unless the other side names a grape that already implies it.
+ */
+function titleStyleConflict(a: string, b: string): boolean {
+  const x = marks(a);
+  const y = marks(b);
+  if (x.rose !== y.rose) return true;
+  if (x.white !== y.white) {
+    const plain = x.white ? y : x;
+    if (plain.grapeColour !== 'white') return true;
+  }
+  if (x.sparkling !== y.sparkling) {
+    const still = x.sparkling ? y : x;
+    if (still.grapeColour || still.red || still.white) return true;
+  }
+  return false;
+}
+
 function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: string, via: 'catalog' | 'alias'): ScoredCandidate {
   const qHay = withJoins(qTokens);
   const prodTokens = identityTokens(c.producer);
@@ -91,13 +124,18 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
     ...identityTokens(c.display_name),
     ...identityTokens(`${c.region} ${c.sub_region} ${c.country} ${c.grape} ${c.classification}`),
   ]);
-  // Grape words in the query are neutral when the catalog doesn't record a grape.
-  const judged = qTokens.filter((t) => !isBroadPlaceToken(t) && (c.grape || !isGrapeToken(t)));
+  // Catalog (LWIN/user) wines often don't record a grape, so grape words in
+  // the query are neutral for them. Shop-created wines carry the grape in
+  // their title, so for those a grape is identity ("Silver Gate Chardonnay"
+  // is not "Silver Gate Brut").
+  const shopTitled = c.source === 'crawl' || c.source === 'llm';
+  const judged = qTokens.filter((t) => !isBroadPlaceToken(t) && (c.grape || shopTitled || !isGrapeToken(t)));
   const explained = judged.length ? coverage(judged, explainers) : 1;
 
   const qColour = q.colour || colourOf(q.text);
   const cColour = c.colour || colourOf(`${c.display_name} ${c.name}`);
-  const colourConflict = Boolean(qColour && cColour && qColour !== cColour);
+  const colourConflict =
+    Boolean(qColour && cColour && qColour !== cColour) || (shopTitled && titleStyleConflict(q.text, nameText === c.name ? c.display_name : nameText));
 
   let score = 0.4 * producer + 0.3 * name + 0.3 * explained;
   if (producer === 0) score = Math.min(score, 0.35);   // never trust a match without the producer
@@ -106,7 +144,9 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   // "Chevillon NSG Les Cailles" vs "Chevillon NSG Perrieres" differs both ways
   // (a sibling wine); "Colin Chassagne 1er Cru Les Chaumees" vs "Colin
   // Chassagne" differs one way (a more specific wine). Neither may auto-match.
-  const complete = name === 1 && (producer === 1 || brandLed);
+  // A wine known only by grape/place words ("Pinot Noir") identifies nothing.
+  const identity = [...prodTokens, ...nameTokens].filter((t) => !isGrapeToken(t) && !isBroadPlaceToken(t));
+  const complete = name === 1 && (producer === 1 || brandLed) && identity.length > 0;
   if (explained < 1 && !complete) score = Math.min(score, 0.6);
   else if (explained < 1 || !complete) score = Math.min(score, THRESHOLDS.auto - 0.01);
   if (colourConflict) score -= 0.3;
