@@ -63,4 +63,12 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Denner Red Rhone Blend Ditch Digger', expect: 'denner-ditch' },
   { q: 'Denner Ditch Digger Concrete 2019', expect: 'denner-ditch-concrete' },
   { q: 'Chateau La Conseillante Blanc 2020', expect: null },
+  // Wrong merges seen in a duplicates dry run
+  { q: 'Guido Marsella Falanghina 2022', expect: null },
+  { q: 'Coche-Dury Bourgogne Blanc 2019', expect: null },
+  { q: 'Marques De Caceres Garnacha 2021', expect: null },
+  { q: 'Delamotte Brut Champagne NV', expect: null },
+  { q: 'Delamotte Brut Rose Champagne', expect: 'delamotte-rose' },
+  { q: 'Coche-Dury Bourgogne Aligote 2020', expect: 'coche-aligote' },
+  { q: 'Marques de Caceres Rioja 2019', expect: 'caceres-rioja' },
 ];

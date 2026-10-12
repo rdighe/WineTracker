@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createPool, withTransaction } from '../src/db/pool.js';
 import { mergeWines } from '../src/catalog/wines.js';
 import { matchWine } from '../src/match/matcher.js';
+import { THRESHOLDS } from '../src/match/score.js';
 import { aggregateWines } from '../src/prices/aggregate.js';
 
 const args = process.argv.slice(2);
@@ -46,19 +47,28 @@ if (mode === 'export') {
 } else if (mode === 'auto-merge') {
   // A crawl/llm wine whose own name auto-matches another wine (complete
   // two-way agreement, clear margin) is that wine under another shop's title.
+  // Merging two catalog entries is stricter than matching a scan: no typo
+  // tolerance (both spellings are real names), a producer on at least one
+  // side, and the other wine's own producer + name must lead back to this one.
   // Merge into the wine with more listings (ties: the older one).
   const log = file ?? 'data/review/auto-merged.jsonl';
   const { rows } = await db.query(
-    `SELECT w.wine_id, w.display_name, w.producer FROM wines w WHERE w.source IN ('crawl', 'llm') ORDER BY w.wine_id`
+    `SELECT w.wine_id, w.display_name, w.producer, w.name, w.source FROM wines w WHERE w.source IN ('crawl', 'llm') ORDER BY w.wine_id`
   );
   const gone = new Set<number>();
   const touched = new Set<number>();
   const lines: string[] = [];
   for (const w of rows) {
     if (gone.has(w.wine_id)) continue;
-    const r = await matchWine(db, { text: w.display_name, producer: w.producer || undefined }, { excludeWineId: w.wine_id });
+    const r = await matchWine(db, { text: w.display_name, producer: w.producer || undefined }, { excludeWineId: w.wine_id, exact: true });
     if (r.outcome !== 'auto') continue;
     const other = r.candidates[0]!.wine;
+    if (gone.has(other.wine_id) || (!w.producer && !other.producer)) continue;
+    // Catalog wines are asked by producer + name only: their display name adds the appellation.
+    const backText = other.source === 'crawl' || other.source === 'llm' ? other.display_name : `${other.producer} ${other.name}`;
+    const back = await matchWine(db, { text: backText, producer: other.producer || undefined }, { excludeWineId: other.wine_id, exact: true });
+    const backHit = back.candidates.find((c) => c.wine.wine_id === w.wine_id);
+    if (!backHit || backHit.score < THRESHOLDS.auto || back.candidates[0]!.score > backHit.score) continue;
     const counts = await db.query(
       `SELECT wine_id, (SELECT COUNT(*) FROM listings l WHERE l.wine_id = w.wine_id)::int AS n FROM wines w WHERE wine_id = ANY($1)`,
       [[w.wine_id, other.wine_id]]

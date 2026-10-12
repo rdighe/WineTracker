@@ -43,10 +43,15 @@ export interface ScoredCandidate {
   detail: { producer: number; name: number; explained: number; colourConflict: boolean; via: 'catalog' | 'alias'; nameWords: number };
 }
 
-function coverage(needles: string[], hay: string[]): number {
+export interface ScoreOptions {
+  /** No typo tolerance: for comparing two catalog wines, where both spellings are real names ("Marinus"/"Marius"). */
+  exact?: boolean;
+}
+
+function coverage(needles: string[], hay: string[], exact = false): number {
   if (!needles.length) return 1;
   let hit = 0;
-  for (const n of needles) if (hay.some((h) => tokensMatch(n, h))) hit++;
+  for (const n of needles) if (hay.some((h) => (exact ? n === h : tokensMatch(n, h)))) hit++;
   return hit / needles.length;
 }
 
@@ -97,22 +102,26 @@ function titleStyleConflict(a: string, b: string): boolean {
   return false;
 }
 
-function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: string, via: 'catalog' | 'alias'): ScoredCandidate {
+function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: string, via: 'catalog' | 'alias', opts: ScoreOptions): ScoredCandidate {
   const qHay = withJoins(qTokens);
+  const cover = (needles: string[], hay: string[]) => coverage(needles, hay, opts.exact);
   const prodTokens = identityTokens(c.producer);
   const placeTokens = identityTokens(`${c.region} ${c.sub_region} ${c.country}`);
-  // A producer's main wine has no name of its own; its display name is just
-  // producer + appellation ("Chateau La Conseillante, Pomerol"), and that
-  // appellation is description. Otherwise "Chateau La Conseillante" could not
-  // tell the grand vin from "Duo de Conseillante".
-  const ownPlaces = via === 'catalog' && !c.name ? placeTokens : [];
+  // A wine with no name of its own is shown as producer + appellation
+  // ("Chateau La Conseillante, Pomerol"). For a Bordeaux chateau the
+  // appellation is description; for "Coche-Dury, Bourgogne Aligote" it is
+  // the wine. So it may be left out only when the query names no part of it,
+  // and then grape words in the query must be explained too ("Guido Marsella
+  // Falanghina" is not "Guido Marsella, Fiano di Avellino").
+  const placeOptional = via === 'catalog' && !c.name && placeTokens.length > 0 && !placeTokens.some((t) => qHay.includes(t));
+  const ownPlaces = placeOptional ? placeTokens : [];
   // Broad places ("Santa Cruz Mountains", "Wairarapa") are description, not identity.
   const nameTokens = identityTokens(nameText).filter((t) => !prodTokens.includes(t) && !isBroadPlaceToken(t) && !ownPlaces.includes(t));
 
   // Producer: if the catalog producer is all stopwords ("Chateau Latour" ->
   // ["latour"] is fine; "Domaine" alone -> []), fall back to the display name.
-  let producer = prodTokens.length ? coverage(prodTokens, qHay) : coverage(identityTokens(c.display_name), qHay);
-  const name = coverage(nameTokens, qHay);
+  let producer = prodTokens.length ? cover(prodTokens, qHay) : cover(identityTokens(c.display_name), qHay);
+  const name = cover(nameTokens, qHay);
 
   // Brand-led wines: bottles and shop titles often say "Whispering Angel" or
   // "Sassicaia 2019" without the producer. A fully matched name counts as
@@ -134,13 +143,17 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   // their title, so for those a grape is identity ("Silver Gate Chardonnay"
   // is not "Silver Gate Brut").
   const shopTitled = c.source === 'crawl' || c.source === 'llm';
-  const judged = qTokens.filter((t) => !isBroadPlaceToken(t) && (c.grape || shopTitled || !isGrapeToken(t)));
-  const explained = judged.length ? coverage(judged, explainers) : 1;
+  const judged = qTokens.filter((t) => !isBroadPlaceToken(t) && (c.grape || shopTitled || placeOptional || !isGrapeToken(t)));
+  const explained = judged.length ? cover(judged, explainers) : 1;
 
   const qColour = q.colour || colourOf(q.text);
   const cColour = c.colour || colourOf(`${c.display_name} ${c.name}`);
+  // Rosés say so on the label and in shop titles; a query that doesn't is not the rosé.
+  const roseUnsaid = cColour === 'rose' && !q.colour && !marks(`${q.producer ?? ''} ${q.name ?? ''} ${q.text}`).rose;
   const colourConflict =
-    Boolean(qColour && cColour && qColour !== cColour) || (shopTitled && titleStyleConflict(q.text, nameText === c.name ? c.display_name : nameText));
+    Boolean(qColour && cColour && qColour !== cColour) ||
+    roseUnsaid ||
+    (shopTitled && titleStyleConflict(q.text, nameText === c.name ? c.display_name : nameText));
 
   let score = 0.4 * producer + 0.3 * name + 0.3 * explained;
   if (producer === 0) score = Math.min(score, 0.35);   // never trust a match without the producer
@@ -155,16 +168,16 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   if (explained < 1 && !complete) score = Math.min(score, 0.6);
   else if (explained < 1 || !complete) score = Math.min(score, THRESHOLDS.auto - 0.01);
   if (colourConflict) score -= 0.3;
-  return { wine: c, score: Math.max(0, Math.min(1, score)), detail: { producer, name, explained, colourConflict, via, nameWords: name === 1 ? nameTokens.length : 0 } };
+  return { wine: c, score: Math.max(0, Math.min(1, score)), detail: { producer, name, explained, colourConflict, via, nameWords: name === 1 ? nameTokens.filter((t) => !placeTokens.includes(t)).length : 0 } };
 }
 
-export function scoreCandidates(q: MatchQuery, candidates: CandidateWine[]): ScoredCandidate[] {
+export function scoreCandidates(q: MatchQuery, candidates: CandidateWine[], opts: ScoreOptions = {}): ScoredCandidate[] {
   const qTokens = identityTokens([q.producer, q.name, q.text].filter(Boolean).join(' '));
   const scored = candidates.map((c) => {
-    let best = scoreOne(q, qTokens, c, c.name || c.display_name, 'catalog');
+    let best = scoreOne(q, qTokens, c, c.name || c.display_name, 'catalog', opts);
     // An alias is a full alternative title for the wine, so score it as the "name".
     for (const alias of c.aliases ?? []) {
-      const s = scoreOne(q, qTokens, c, alias, 'alias');
+      const s = scoreOne(q, qTokens, c, alias, 'alias', opts);
       if (s.score > best.score) best = s;
     }
     return best;

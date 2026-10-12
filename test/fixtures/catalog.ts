@@ -46,4 +46,9 @@ export const CATALOG: Array<NewWine & { key: string }> = [
   { key: 'denner-dirt', producer: 'Denner Vineyards', name: 'Dirt Worshipper', region: 'California', sub_region: 'Paso Robles', country: 'USA', colour: 'red', source: 'lwin' },
   { key: 'tertre-roteboeuf', producer: 'Chateau Tertre Roteboeuf', name: '', display_name: 'Chateau Tertre Roteboeuf, Saint-Emilion Grand Cru', region: 'Bordeaux', sub_region: 'Saint-Emilion Grand Cru', country: 'France', colour: 'red', source: 'lwin' },
   { key: 'tertre-daugay', producer: 'Chateau Tertre Daugay', name: '', region: 'Bordeaux', sub_region: 'Saint-Emilion Grand Cru', country: 'France', colour: 'red', source: 'lwin' },
+  // Where the appellation IS the wine (Burgundy, Italy), and a rosé known only by its colour
+  { key: 'marsella-fiano', producer: 'Guido Marsella', name: '', display_name: 'Guido Marsella, Fiano di Avellino', region: 'Campania', sub_region: 'Fiano di Avellino', country: 'Italy', colour: 'white', source: 'lwin' },
+  { key: 'coche-aligote', producer: 'Coche-Dury', name: '', display_name: 'Coche-Dury, Bourgogne Aligote', region: 'Burgundy', sub_region: 'Bourgogne Aligote', country: 'France', colour: 'white', source: 'lwin' },
+  { key: 'caceres-rioja', producer: 'Marques de Caceres', name: '', display_name: 'Marques de Caceres, Rioja', region: 'Rioja', sub_region: 'Rioja', country: 'Spain', colour: 'red', source: 'lwin' },
+  { key: 'delamotte-rose', producer: 'Delamotte', name: 'Rose', region: 'Champagne', country: 'France', colour: 'rose', wine_type: 'sparkling', source: 'lwin' },
 ];

@@ -18,6 +18,8 @@ export interface MatchOptions {
   sources?: string[];
   /** Never return this wine (used when re-matching a wine against the rest of the catalog). */
   excludeWineId?: number;
+  /** No typo tolerance (comparing catalog wines with each other). */
+  exact?: boolean;
 }
 
 export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions = {}): Promise<CandidateWine[]> {
@@ -59,6 +61,6 @@ export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions =
 }
 
 export async function matchWine(db: Db, q: MatchQuery, opts: MatchOptions = {}): Promise<MatchResult> {
-  const candidates = scoreCandidates(q, await findCandidates(db, q, opts));
+  const candidates = scoreCandidates(q, await findCandidates(db, q, opts), { exact: opts.exact });
   return { outcome: decide(candidates), candidates };
 }
