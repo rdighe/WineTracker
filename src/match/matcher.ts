@@ -1,5 +1,5 @@
 /**
- * Catalog matcher: trigram search in Postgres for candidates, then the pure
+ * Catalog matcher: indexed candidate lookup in Postgres, then the pure
  * scorer in score.ts to rank them. Shared by label scans and price crawling.
  */
 import type { Db } from '../db/pool.js';
@@ -23,10 +23,6 @@ export interface MatchOptions {
 export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions = {}): Promise<CandidateWine[]> {
   const text = normalize([q.producer, q.name, q.text].filter(Boolean).join(' '));
   if (!text) return [];
-  // Three ways in: whole-text similarity, the catalog producer appearing
-  // inside the query, and learned aliases. word_similarity(a, b) asks "does a
-  // appear somewhere in b", which is right for a short producer inside a long
-  // retailer title.
   const tokens = identityTokens(text);
   const params = [text, tokens, CANDIDATE_LIMIT, opts.sources ?? null, opts.excludeWineId ?? 0];
   // Indexed ways in, each capped, then unioned:
