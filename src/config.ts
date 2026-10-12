@@ -6,6 +6,9 @@ export const config = {
   llmProvider: (process.env.LLM_PROVIDER ?? 'gemini') as 'gemini' | 'none',
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? '',
+  // Price refreshes also ask the LLM to search the web (Gemini: needs a
+  // billed key for search grounding). false = re-check known shop pages only.
+  priceWebSearch: process.env.PRICE_WEB_SEARCH !== 'false',
   // Auth: Supabase-issued JWTs. Either the project's JWT secret (HS256) or
   // its JWKS URL (asymmetric keys, https://<project>.supabase.co/auth/v1/.well-known/jwks.json).
   supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? '',

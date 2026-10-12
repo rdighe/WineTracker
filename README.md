@@ -118,7 +118,8 @@ npm run worker -- --once watched   # run one job now (feeds | pages | watched)
 
 `render.yaml` defines the API (web service) and the worker. Both need `DATABASE_URL` (Supabase Postgres) and
 `GEMINI_API_KEY`; the API also needs `SUPABASE_JWT_SECRET` (or `SUPABASE_JWKS_URL`) and, for a web build,
-`ALLOWED_ORIGINS`. Migrations run on API start. Paid endpoints are rate limited per user (30 scans and 30 price
+`ALLOWED_ORIGINS`. Migrations run on API start. `PRICE_WEB_SEARCH=false` (set in `render.yaml`) limits price refreshes
+to re-checking known shop pages; turn it on once the Gemini key has billing, which search grounding needs. Paid endpoints are rate limited per user (30 scans and 30 price
 refreshes per hour by default).
 
 ## API

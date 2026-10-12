@@ -20,8 +20,10 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: SUPABASE_JWT_SECRET
-        sync: false
+      - key: SUPABASE_JWKS_URL
+        value: https://bmtteqhttsadodgwodzn.supabase.co/auth/v1/.well-known/jwks.json
+      - key: PRICE_WEB_SEARCH
+        value: "false"
       - key: ALLOWED_ORIGINS
         sync: false
   - type: worker
@@ -39,5 +41,7 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: PRICE_WEB_SEARCH
+        value: "false"
       - key: EXCLUDE_TOS_PROHIBITED
         value: "false"

@@ -10,6 +10,7 @@
  *
  * Throttled per wine so repeated requests reuse the last result.
  */
+import { config } from '../config.js';
 import type { Db } from '../db/pool.js';
 import { getWine } from '../catalog/wines.js';
 import { parseTitle, per750 } from '../lib/listing.js';
@@ -30,6 +31,7 @@ export interface RefreshOptions {
   minIntervalHours?: number;
   maxKnownListings?: number;
   force?: boolean;
+  webSearch?: boolean; // default: config.priceWebSearch
   log?: (msg: string) => void;
 }
 
@@ -87,10 +89,12 @@ export async function refreshPrices(
 
     // 2-3. Web search + verification
     let hits: WebPriceHit[] = [];
-    try {
-      hits = await provider.searchPrices({ displayName: wine.display_name, vintage: vintageKey, region: wine.region || undefined });
-    } catch (err) {
-      out.searchError = err instanceof ProviderUnavailableError ? 'no LLM provider configured' : (err as Error).message;
+    if (opts.webSearch ?? config.priceWebSearch) {
+      try {
+        hits = await provider.searchPrices({ displayName: wine.display_name, vintage: vintageKey, region: wine.region || undefined });
+      } catch (err) {
+        out.searchError = err instanceof ProviderUnavailableError ? 'no LLM provider configured' : (err as Error).message;
+      }
     }
     out.webHits = hits.length;
     const applied = await applyWebHits(db, fetcher, wine, vintageKey, hits, new Set(known.map((k) => k.url)), log);

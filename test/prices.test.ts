@@ -134,4 +134,17 @@ describe('refreshPrices', () => {
     expect(rows[0]).toEqual({ median_cents: 17500, n_observations: 3 });
     expect((await refreshPrices(db, fetcher, provider, wineId, '2019')).status).toBe('throttled');
   });
+
+  it('with web search off, only rechecks known listings and never calls the LLM', async () => {
+    const wineId = await createWine(db, { producer: 'Ridge Vineyards', name: 'Monte Bello', source: 'lwin' });
+    const m = await ensureMerchant(db, 'known.test');
+    await ingestOffer(db, { merchantId: m, merchantName: 'k', url: 'https://known.test/mb19', offer: offer('Ridge Monte Bello 2019', 25000) }, { createWines: false });
+    const fetch = site({ 'https://known.test/mb19': html('Ridge Monte Bello 2019', '260.00') });
+    const fetcher = new PoliteFetcher({ userAgent: 'WineTrackerBot/0.1', minDelayMs: 0, fetch, sleep: async () => {} });
+    const provider: LlmProvider = { name: 'fake', readLabel: vi.fn(), searchPrices: vi.fn(async () => []) };
+
+    const r = await refreshPrices(db, fetcher, provider, wineId, '2019', { webSearch: false });
+    expect(r).toMatchObject({ status: 'refreshed', rechecked: 1, webHits: 0, searchError: null });
+    expect(provider.searchPrices).not.toHaveBeenCalled();
+  });
 });
