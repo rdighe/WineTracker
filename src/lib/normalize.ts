@@ -71,9 +71,12 @@ const YEAR_RE = /^(1[89]\d\d|20\d\d)$/;
 const SIZE_TOKEN_RE = /^\d+(\.\d+)?(ml|l|cl|oz|ltr|lt)$|^(187|375|500|750|1000|1500|3000)$|^\d+\.\d+$/;
 
 /** Identity tokens: normalized words minus stopwords, descriptors, years and sizes. */
+// Style phrases: "Red Rhone Blend" says what kind of wine, not which one.
+const STYLE_PHRASE_RE = /\b(rhone|bordeaux|burgundy|super tuscan) (blend|style)\b/g;
+
 export function identityTokens(input: unknown): string[] {
   const out: string[] = [];
-  for (const t of normalize(input).split(' ')) {
+  for (const t of normalize(input).replace(STYLE_PHRASE_RE, '$2').split(' ')) {
     if (!t || t.length < 2) continue;
     if (STOPWORDS.has(t) || DESCRIPTOR_WORDS.has(t)) continue;
     if (YEAR_RE.test(t) || SIZE_TOKEN_RE.test(t)) continue;

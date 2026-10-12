@@ -40,7 +40,7 @@ export interface CandidateWine {
 export interface ScoredCandidate {
   wine: CandidateWine;
   score: number;
-  detail: { producer: number; name: number; explained: number; colourConflict: boolean; via: 'catalog' | 'alias' };
+  detail: { producer: number; name: number; explained: number; colourConflict: boolean; via: 'catalog' | 'alias'; nameWords: number };
 }
 
 function coverage(needles: string[], hay: string[]): number {
@@ -100,8 +100,14 @@ function titleStyleConflict(a: string, b: string): boolean {
 function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: string, via: 'catalog' | 'alias'): ScoredCandidate {
   const qHay = withJoins(qTokens);
   const prodTokens = identityTokens(c.producer);
+  const placeTokens = identityTokens(`${c.region} ${c.sub_region} ${c.country}`);
+  // A producer's main wine has no name of its own; its display name is just
+  // producer + appellation ("Chateau La Conseillante, Pomerol"), and that
+  // appellation is description. Otherwise "Chateau La Conseillante" could not
+  // tell the grand vin from "Duo de Conseillante".
+  const ownPlaces = via === 'catalog' && !c.name ? placeTokens : [];
   // Broad places ("Santa Cruz Mountains", "Wairarapa") are description, not identity.
-  const nameTokens = identityTokens(nameText).filter((t) => !prodTokens.includes(t) && !isBroadPlaceToken(t));
+  const nameTokens = identityTokens(nameText).filter((t) => !prodTokens.includes(t) && !isBroadPlaceToken(t) && !ownPlaces.includes(t));
 
   // Producer: if the catalog producer is all stopwords ("Chateau Latour" ->
   // ["latour"] is fine; "Domaine" alone -> []), fall back to the display name.
@@ -111,7 +117,6 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   // Brand-led wines: bottles and shop titles often say "Whispering Angel" or
   // "Sassicaia 2019" without the producer. A fully matched name counts as
   // identity when it is distinctive - not just grape or place words.
-  const placeTokens = identityTokens(`${c.region} ${c.sub_region} ${c.country}`);
   const brand = nameTokens.filter((t) => !isGrapeToken(t) && !placeTokens.includes(t));
   const distinctive = brand.length >= 2 || (brand.length === 1 && brand[0]!.length >= 6);
   const brandLed = producer < 0.5 && name === 1 && distinctive;
@@ -150,7 +155,7 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   if (explained < 1 && !complete) score = Math.min(score, 0.6);
   else if (explained < 1 || !complete) score = Math.min(score, THRESHOLDS.auto - 0.01);
   if (colourConflict) score -= 0.3;
-  return { wine: c, score: Math.max(0, Math.min(1, score)), detail: { producer, name, explained, colourConflict, via } };
+  return { wine: c, score: Math.max(0, Math.min(1, score)), detail: { producer, name, explained, colourConflict, via, nameWords: name === 1 ? nameTokens.length : 0 } };
 }
 
 export function scoreCandidates(q: MatchQuery, candidates: CandidateWine[]): ScoredCandidate[] {
@@ -164,7 +169,9 @@ export function scoreCandidates(q: MatchQuery, candidates: CandidateWine[]): Sco
     }
     return best;
   });
-  return scored.sort((a, b) => b.score - a.score);
+  // Ties: prefer the wine whose own name words are all in the query - for
+  // "Duo de Conseillante Pomerol", the second wine over the grand vin.
+  return scored.sort((a, b) => b.score - a.score || b.detail.nameWords - a.detail.nameWords);
 }
 
 export type MatchOutcome = 'auto' | 'choose' | 'new';

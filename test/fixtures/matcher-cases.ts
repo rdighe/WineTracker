@@ -57,4 +57,10 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Ditch Digger', producer: 'Denner', name: 'Ditch Digger', expect: 'denner-ditch' },
   { q: 'Saint-Émilion Grand Cru', producer: 'Tertre Roteboeuf', expect: 'tertre-roteboeuf' },
   { q: 'Duo de Conseillante Pomerol 2019', expect: 'duo-conseillante' },
+  // Shop titles of the same wines (duplicates found in the crawl)
+  { q: 'Chateau La Conseillante', expect: 'conseillante' },
+  { q: 'Tertre Roteboeuf St. Emilion 2015', expect: 'tertre-roteboeuf' },
+  { q: 'Denner Red Rhone Blend Ditch Digger', expect: 'denner-ditch' },
+  { q: 'Denner Ditch Digger Concrete 2019', expect: 'denner-ditch-concrete' },
+  { q: 'Chateau La Conseillante Blanc 2020', expect: null },
 ];

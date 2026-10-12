@@ -5,6 +5,7 @@
  *   tsx scripts/duplicates.ts export [out.jsonl]   # likely pairs, for review
  *   tsx scripts/duplicates.ts apply decisions.jsonl
  *   tsx scripts/duplicates.ts auto-merge [log.jsonl]  # merge pairs the matcher is sure about
+ *   tsx scripts/duplicates.ts auto-merge --dry-run [log.jsonl]  # only log what it would merge
  *
  * Export lists, for every crawl/llm-created wine, the closest other wine when
  * its score is in the "plausible but not certain" band. Review each line and
@@ -17,7 +18,9 @@ import { mergeWines } from '../src/catalog/wines.js';
 import { matchWine } from '../src/match/matcher.js';
 import { aggregateWines } from '../src/prices/aggregate.js';
 
-const [mode, file] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const dryRun = args.includes('--dry-run');
+const [mode, file] = args.filter((a) => a !== '--dry-run');
 const db = createPool();
 
 if (mode === 'export') {
@@ -62,16 +65,16 @@ if (mode === 'export') {
     );
     const n = new Map(counts.rows.map((x) => [x.wine_id, x.n]));
     const [from, to] = (n.get(w.wine_id) ?? 0) > (n.get(other.wine_id) ?? 0) ? [other.wine_id, w.wine_id] : [w.wine_id, other.wine_id];
-    await withTransaction(db, (c) => mergeWines(c, from, to));
+    if (!dryRun) await withTransaction(db, (c) => mergeWines(c, from, to));
     gone.add(from);
     touched.add(to);
     lines.push(JSON.stringify({ from, fromName: from === w.wine_id ? w.display_name : other.display_name, to, toName: to === w.wine_id ? w.display_name : other.display_name, score: Number(r.candidates[0]!.score.toFixed(3)) }));
   }
   writeFileSync(log, lines.join('\n') + '\n');
   for (const id of gone) touched.delete(id);
-  const ids = [...touched];
+  const ids = dryRun ? [] : [...touched];
   for (let i = 0; i < ids.length; i += 500) await aggregateWines(db, ids.slice(i, i + 500));
-  console.log(`auto-merged ${lines.length} duplicate wines -> ${log}`);
+  console.log(`${dryRun ? 'would merge' : 'auto-merged'} ${lines.length} duplicate wines -> ${log}`);
 } else if (mode === 'apply' && file) {
   const decisions = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { from: number; to: number });
   const touched = new Set<number>();

@@ -38,10 +38,12 @@ export const CATALOG: Array<NewWine & { key: string }> = [
   { key: 'flowers-rose', producer: 'Flowers', name: 'Sonoma Coast Rose', source: 'crawl' },
   { key: 'whispering-angel', producer: "Chateau d'Esclans", name: 'Whispering Angel Rose', region: 'Provence', country: 'France', colour: 'rose', source: 'lwin' },
   // From real label scans (2026-10-12), with same-producer and look-alike traps
-  { key: 'conseillante', producer: 'Chateau La Conseillante', name: '', region: 'Bordeaux', sub_region: 'Pomerol', country: 'France', colour: 'red', source: 'lwin' },
-  { key: 'duo-conseillante', producer: 'Chateau La Conseillante', name: 'Duo de Conseillante', region: 'Bordeaux', sub_region: 'Pomerol', country: 'France', colour: 'red', source: 'lwin' },
+  // LWIN-style display names: a main wine is "producer, appellation"; second wines may lack a sub-region
+  { key: 'conseillante', producer: 'Chateau La Conseillante', name: '', display_name: 'Chateau La Conseillante, Pomerol', region: 'Bordeaux', sub_region: 'Pomerol', country: 'France', colour: 'red', source: 'lwin' },
+  { key: 'duo-conseillante', producer: 'Chateau La Conseillante', name: 'Duo de Conseillante', region: 'Bordeaux', country: 'France', colour: 'red', source: 'lwin' },
   { key: 'denner-ditch', producer: 'Denner Vineyards', name: 'The Ditch Digger', region: 'California', sub_region: 'Paso Robles', country: 'USA', colour: 'red', source: 'lwin' },
+  { key: 'denner-ditch-concrete', producer: 'Denner Vineyards', name: 'Ditch Digger Concrete', region: 'California', sub_region: 'Paso Robles', country: 'USA', colour: 'red', source: 'lwin' },
   { key: 'denner-dirt', producer: 'Denner Vineyards', name: 'Dirt Worshipper', region: 'California', sub_region: 'Paso Robles', country: 'USA', colour: 'red', source: 'lwin' },
-  { key: 'tertre-roteboeuf', producer: 'Chateau Tertre Roteboeuf', name: '', region: 'Bordeaux', sub_region: 'Saint-Emilion Grand Cru', country: 'France', colour: 'red', source: 'lwin' },
+  { key: 'tertre-roteboeuf', producer: 'Chateau Tertre Roteboeuf', name: '', display_name: 'Chateau Tertre Roteboeuf, Saint-Emilion Grand Cru', region: 'Bordeaux', sub_region: 'Saint-Emilion Grand Cru', country: 'France', colour: 'red', source: 'lwin' },
   { key: 'tertre-daugay', producer: 'Chateau Tertre Daugay', name: '', region: 'Bordeaux', sub_region: 'Saint-Emilion Grand Cru', country: 'France', colour: 'red', source: 'lwin' },
 ];
