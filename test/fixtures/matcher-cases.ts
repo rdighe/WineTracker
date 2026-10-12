@@ -52,4 +52,9 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Ranch 32 Pinot Noir 2021', expect: 'ranch32-pn' },
   { q: 'Perrin Cotes du Rhone Reserve Rouge 2022', expect: 'perrin-cdr' },
   { q: 'Silver Gate Brut NV', expect: 'silver-gate-brut' },
+  // Real label scans, as Gemini read them (producer field + region/name text)
+  { q: 'Pomerol', producer: 'Château La Conseillante', expect: 'conseillante' },
+  { q: 'Ditch Digger', producer: 'Denner', name: 'Ditch Digger', expect: 'denner-ditch' },
+  { q: 'Saint-Émilion Grand Cru', producer: 'Tertre Roteboeuf', expect: 'tertre-roteboeuf' },
+  { q: 'Duo de Conseillante Pomerol 2019', expect: 'duo-conseillante' },
 ];
