@@ -99,8 +99,8 @@ npm test
 7. Try `POST /api/wines/:id/prices/refresh` on one wine, so the Gemini web search plus shop-page verification runs.
 8. If reads or matches are off, fix them. Add the bad case to `test/fixtures/matcher-cases.ts`, and keep
    `npm run eval:matcher` at 0 wrong auto-matches.
-9. Gemini models: `src/llm/gemini.ts` tries `GEMINI_MODEL`, then `gemini-2.5-flash`, `gemini-2.5-flash-lite` and
-   `gemini-flash-latest`. If those names are retired, list the available models and update the list.
+9. Gemini models: `src/llm/gemini.ts` tries `GEMINI_MODEL`, then `gemini-3.5-flash`, `gemini-flash-latest`, `gemini-3.5-flash-lite` and
+   `gemini-flash-lite-latest` (the 2.5 models are closed to new API keys). If those names are retired, list the available models and update the list.
 
 ### Step 3 — remaining work, in priority order
 1. **Mobile app on a real phone.** Not done yet: the app has only been tested on web.

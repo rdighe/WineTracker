@@ -19,7 +19,7 @@ export interface GeminiOptions {
   timeoutMs?: number;
 }
 
-const DEFAULT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest'];
+const DEFAULT_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'];
 
 const LABEL_PROMPT = `You are reading a photo of a wine bottle label.
 Return ONLY a JSON object with these keys:
