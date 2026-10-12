@@ -71,4 +71,7 @@ export const MATCH_CASES: Array<{ q: string; expect: string | null; producer?: s
   { q: 'Delamotte Brut Rose Champagne', expect: 'delamotte-rose' },
   { q: 'Coche-Dury Bourgogne Aligote 2020', expect: 'coche-aligote' },
   { q: 'Marques de Caceres Rioja 2019', expect: 'caceres-rioja' },
+  { q: 'Chateau Coutet 2017', expect: null },
+  { q: 'Chateau Coutet Barsac 2017', expect: 'coutet-barsac' },
+  { q: 'Chateau Coutet Saint Emilion 2018', expect: 'coutet-se' },
 ];

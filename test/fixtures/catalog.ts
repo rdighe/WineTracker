@@ -51,4 +51,7 @@ export const CATALOG: Array<NewWine & { key: string }> = [
   { key: 'coche-aligote', producer: 'Coche-Dury', name: '', display_name: 'Coche-Dury, Bourgogne Aligote', region: 'Burgundy', sub_region: 'Bourgogne Aligote', country: 'France', colour: 'white', source: 'lwin' },
   { key: 'caceres-rioja', producer: 'Marques de Caceres', name: '', display_name: 'Marques de Caceres, Rioja', region: 'Rioja', sub_region: 'Rioja', country: 'Spain', colour: 'red', source: 'lwin' },
   { key: 'delamotte-rose', producer: 'Delamotte', name: 'Rose', region: 'Champagne', country: 'France', colour: 'rose', wine_type: 'sparkling', source: 'lwin' },
+  // Namesakes in different appellations; LWIN puts the classification in the main wine's display name
+  { key: 'coutet-barsac', producer: 'Chateau Coutet', name: '', display_name: 'Chateau Coutet Premier Cru Classe, Barsac', region: 'Bordeaux', sub_region: 'Barsac', country: 'France', colour: 'white', source: 'lwin' },
+  { key: 'coutet-se', producer: 'Chateau Coutet', name: '', display_name: 'Chateau Coutet, Saint-Emilion', region: 'Bordeaux', sub_region: 'Saint-Emilion', country: 'France', colour: 'red', source: 'lwin' },
 ];

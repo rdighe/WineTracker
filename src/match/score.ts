@@ -48,6 +48,11 @@ export interface ScoreOptions {
   exact?: boolean;
 }
 
+const CLASSIFICATION_TOKENS = [
+  'grand', 'premier', '1er', 'cru', 'crus', 'classe', 'classes', 'superieur', 'exceptionnel', 'bourgeois',
+  'deuxieme', 'troisieme', 'quatrieme', 'cinquieme', '2eme', '3eme', '4eme', '5eme', '2e', '3e', '4e', '5e',
+];
+
 function coverage(needles: string[], hay: string[], exact = false): number {
   if (!needles.length) return 1;
   let hit = 0;
@@ -114,7 +119,11 @@ function scoreOne(q: MatchQuery, qTokens: string[], c: CandidateWine, nameText: 
   // and then grape words in the query must be explained too ("Guido Marsella
   // Falanghina" is not "Guido Marsella, Fiano di Avellino").
   const placeOptional = via === 'catalog' && !c.name && placeTokens.length > 0 && !placeTokens.some((t) => qHay.includes(t));
-  const ownPlaces = placeOptional ? placeTokens : [];
+  // Classification is description too: LWIN names a main wine "Chateau du
+  // Tertre 5eme Cru Classe, Margaux"; shops say "Chateau du Tertre".
+  const ownPlaces = via === 'catalog' && !c.name
+    ? [...(placeOptional ? placeTokens : []), ...CLASSIFICATION_TOKENS, ...identityTokens(c.classification)]
+    : [];
   // Broad places ("Santa Cruz Mountains", "Wairarapa") are description, not identity.
   const nameTokens = identityTokens(nameText).filter((t) => !prodTokens.includes(t) && !isBroadPlaceToken(t) && !ownPlaces.includes(t));
 

@@ -17,7 +17,15 @@ import { createPool, withTransaction } from '../src/db/pool.js';
 import { mergeWines } from '../src/catalog/wines.js';
 import { matchWine } from '../src/match/matcher.js';
 import { THRESHOLDS } from '../src/match/score.js';
+import { normalize } from '../src/lib/normalize.js';
 import { aggregateWines } from '../src/prices/aggregate.js';
+
+/** Words that tell a cuvee's versions apart but are not identity tokens: "Roederer Brut" vs "Roederer Vintage Brut". */
+function styleWords(title: string): string {
+  const words = new Set(normalize(title).split(' '));
+  return ['vintage', 'millesime', 'extra', 'nature', 'zero', 'rose', 'blanc', 'demi', 'sec', 'doux', 'late']
+    .filter((w) => words.has(w)).join(' ');
+}
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -64,6 +72,7 @@ if (mode === 'export') {
     if (r.outcome !== 'auto') continue;
     const other = r.candidates[0]!.wine;
     if (gone.has(other.wine_id) || (!w.producer && !other.producer)) continue;
+    if (styleWords(w.display_name) !== styleWords(other.display_name)) continue;
     // Catalog wines are asked by producer + name only: their display name adds the appellation.
     const backText = other.source === 'crawl' || other.source === 'llm' ? other.display_name : `${other.producer} ${other.name}`;
     const back = await matchWine(db, { text: backText, producer: other.producer || undefined }, { excludeWineId: other.wine_id, exact: true });
