@@ -65,6 +65,20 @@ WineTracker = track wines you taste, the price then vs now, and get recommendati
   - The app needs the project's **anon key** in `mobile/.env` (it's public by design). Ask the user to paste it, or
     read it from the Supabase dashboard.
 
+### Progress since this was written (2026-10-12, second session)
+- **Gemini works** via the environment's network secret (header `x-goog-api-key`); set `GEMINI_API_KEY` to any
+  placeholder so the provider is enabled. The key is free tier: label reads work, **search grounding returns 429**.
+  The user chose not to enable billing for now, so `PRICE_WEB_SEARCH=false` (set in `render.yaml`): prices come from
+  the crawl and from re-checking known shop pages only.
+- **Label scan verified end to end** on 3 real photos (La Conseillante 2016, Denner Ditch Digger 2016, Tertre
+  Roteboeuf 1999): correct reads, all `auto` to the right LWIN wine; confirm + tasting + paid-vs-market work.
+- **Crawl:** one 3,000-page chunk each for Wally's and Spec's done; Spec's has ~1.6k pages left, Wally's ~40.8k.
+- **Duplicates:** matcher fixes (main wine's appellation/classification is description, style phrases, rosé rule,
+  tie-break) and a stricter `duplicates.ts auto-merge` (`--dry-run`, exact tokens, two-way check, vintage/NV words,
+  keeps the LWIN wine). Three reviewed dry runs, then 278 merges applied locally (log in `data/review/`).
+  Still open: typo duplicates ("Terte Roteboeuf") and pairs in `duplicates.ts export` need human review.
+- Local DB only: none of this is deployed. Database is ~410 MB (check the Supabase plan limit before loading it).
+
 ### Step 1 — set up locally
 ```bash
 # Postgres 16 is installed in the container; start it and create the role/dbs
