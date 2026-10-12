@@ -58,7 +58,8 @@ if (mode === 'export') {
   // Merging two catalog entries is stricter than matching a scan: no typo
   // tolerance (both spellings are real names), a producer on at least one
   // side, and the other wine's own producer + name must lead back to this one.
-  // Merge into the wine with more listings (ties: the older one).
+  // Merge into the catalog wine, or between shop-created wines into the one
+  // with more listings (ties: the older one).
   const log = file ?? 'data/review/auto-merged.jsonl';
   const { rows } = await db.query(
     `SELECT w.wine_id, w.display_name, w.producer, w.name, w.source FROM wines w WHERE w.source IN ('crawl', 'llm') ORDER BY w.wine_id`
@@ -83,7 +84,9 @@ if (mode === 'export') {
       [[w.wine_id, other.wine_id]]
     );
     const n = new Map(counts.rows.map((x) => [x.wine_id, x.n]));
-    const [from, to] = (n.get(w.wine_id) ?? 0) > (n.get(other.wine_id) ?? 0) ? [other.wine_id, w.wine_id] : [w.wine_id, other.wine_id];
+    // Keep a catalog (LWIN/user) wine over a shop-created one: it carries the LWIN, region and colour.
+    const otherIsCatalog = other.source !== 'crawl' && other.source !== 'llm';
+    const [from, to] = !otherIsCatalog && (n.get(w.wine_id) ?? 0) > (n.get(other.wine_id) ?? 0) ? [other.wine_id, w.wine_id] : [w.wine_id, other.wine_id];
     if (!dryRun) await withTransaction(db, (c) => mergeWines(c, from, to));
     gone.add(from);
     touched.add(to);
