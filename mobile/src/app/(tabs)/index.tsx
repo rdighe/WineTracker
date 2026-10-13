@@ -32,7 +32,7 @@ export default function ScanScreen() {
       Alert.alert('Permission needed', fromCamera ? 'Allow camera access to scan labels.' : 'Allow photo access to choose a label photo.');
       return;
     }
-    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.7, allowsEditing: false };
+    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.6, allowsEditing: false, base64: true };
     const res = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (res.canceled || !res.assets[0]) return;
     const asset = res.assets[0];

@@ -25,11 +25,12 @@ export function createApi(authHeader: AuthHeader) {
   const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
   return {
-    scan(photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
-      const form = new FormData();
-      // React Native's FormData accepts {uri, name, type} file descriptors.
-      form.append('image', { uri: photo.uri, name: photo.fileName ?? 'label.jpg', type: photo.mimeType ?? 'image/jpeg' } as unknown as Blob);
-      return request<ScanResult>('/api/scans', { method: 'POST', body: form });
+    scan(photo: { uri: string; base64?: string | null; mimeType?: string | null }) {
+      // Sent as base64 JSON: Expo's fetch drops React Native {uri, name, type}
+      // file parts from FormData, so the server never saw the photo.
+      const imageBase64 = photo.base64 ?? (photo.uri.startsWith('data:') ? photo.uri : null);
+      if (!imageBase64) throw new ApiError(0, 'could not read the photo');
+      return request<ScanResult>('/api/scans', json('POST', { imageBase64, mimeType: photo.mimeType ?? 'image/jpeg' }));
     },
     confirmScan: (scanId: number, choice: { wineId: number } | { newWine: { producer: string; name: string; region?: string } }) =>
       request<{ wineId: number; wine: Wine }>(`/api/scans/${scanId}/confirm`, json('POST', choice)),

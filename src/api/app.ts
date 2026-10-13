@@ -107,16 +107,27 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
   app.use('/api', limiter(15 * 60_000, limits.requestsPer15Min ?? 900));
   const scanLimit = limiter(60 * 60_000, limits.scansPerHour ?? 30);
   const refreshLimit = limiter(60 * 60_000, limits.refreshesPerHour ?? 30);
-  app.use(express.json({ limit: '100kb' }));
+  // Scans may carry a base64 photo in JSON (React Native's fetch can't always
+  // send a file part), so that one route gets a larger body limit.
+  const smallJson = express.json({ limit: '100kb' });
+  app.use((req, res, next) => (req.path === '/api/scans' ? next() : smallJson(req, res, next)));
+  const scanJson = express.json({ limit: '12mb' });
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, provider: provider.name });
   });
 
   // ── Label scans ──────────────────────────────────────────────────────────
-  app.post('/api/scans', auth.optionalUser, scanLimit, upload.single('image'), wrap(async (req, res) => {
-    const file = req.file;
-    if (!file) throw new HttpError(400, 'multipart field "image" is required');
+  // The photo comes as multipart field "image", or as JSON {imageBase64, mimeType}.
+  app.post('/api/scans', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
+    let file: { buffer: Buffer; mimetype: string } | undefined = req.file;
+    if (!file && typeof req.body?.imageBase64 === 'string') {
+      const m = /^data:([^;,]+);base64,/.exec(req.body.imageBase64);
+      const buffer = Buffer.from(m ? req.body.imageBase64.slice(m[0].length) : req.body.imageBase64, 'base64');
+      if (buffer.length > 8 * 1024 * 1024) throw new HttpError(413, 'image larger than 8 MB');
+      if (buffer.length) file = { buffer, mimetype: String(req.body.mimeType ?? m?.[1] ?? 'image/jpeg') };
+    }
+    if (!file) throw new HttpError(400, 'an image is required (multipart field "image" or JSON "imageBase64")');
     if (!IMAGE_TYPES.has(file.mimetype)) throw new HttpError(415, `unsupported image type ${file.mimetype}`);
     const result = await scanLabel(db, provider, file.buffer, file.mimetype);
     if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, result.scanId]);

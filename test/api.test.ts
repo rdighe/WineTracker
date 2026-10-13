@@ -49,6 +49,17 @@ describe('scan API', () => {
 });
 
 describe('rate limits', () => {
+  it('accepts the photo as base64 JSON (React Native)', async () => {
+    const a = app(providerReading({ producer: 'Ridge Vineyards', name: 'Monte Bello' }));
+    const r = await request(a).post('/api/scans').send({ imageBase64: jpeg.toString('base64'), mimeType: 'image/jpeg' });
+    expect(r.status).toBe(201);
+    expect(r.body.scanId).toBeGreaterThan(0);
+    const dataUri = await request(a).post('/api/scans').send({ imageBase64: `data:image/png;base64,${jpeg.toString('base64')}` });
+    expect(dataUri.status).toBe(201);
+    expect((await request(a).post('/api/scans').send({})).status).toBe(400);
+    expect((await request(a).post('/api/scans').send({ imageBase64: 'eA==', mimeType: 'text/plain' })).status).toBe(415);
+  });
+
   it('limits scans per user', async () => {
     const a = createApp({ db, provider: providerReading({ producer: 'X' }), fetcher, auth: { allowDev: true }, limits: { scansPerHour: 2 } });
     const scan = () => request(a).post('/api/scans').set('Authorization', 'Dev r').attach('image', jpeg, { filename: 'l.jpg', contentType: 'image/jpeg' });
