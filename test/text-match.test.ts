@@ -23,6 +23,10 @@ const CASES: Array<{ text: string; expect: string | null; vintage?: string | nul
   { text: 'CHATEAU LYNCK-BAGEZ PAUILLAC 2015', expect: null },
   { text: 'CHATEAU TERTRE ROTEBEUF SAINT-EMILION GRAND CRU 2005', expect: 'tertre-roteboeuf' },
   { text: 'DUO DE CONSELANTE 2019', expect: null },
+  // The more specific sibling is on the label, misread: don't settle for the plain wine
+  { text: 'DENNER VINEYARDS DITCH DIGGER CONCRAT 2019', expect: null },
+  { text: 'DENNER VINEYARDS DITCH DIGGER CONCRET 2019', expect: 'denner-ditch-concrete' },
+  { text: 'DENNER VINEYARDS DITCH DIGGER CONCRETE 2019', expect: 'denner-ditch-concrete' },
   { text: 'GRAND VIN DE CHATEAU LYNCH-BAGES PAUILLAC 2016 APPELLATION PAUILLAC CONTROLEE MIS EN BOUTEILLE AU CHATEAU', expect: 'lynch-bages' },
   { text: 'ECHO DE LYNCH-BAGES PAUILLAC 2018 13% VOL', expect: 'echo-lynch-bages' },
   { text: 'CAYMUS ZINFANDEL NAPA VALLEY 2020', expect: null },

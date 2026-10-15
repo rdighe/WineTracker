@@ -118,7 +118,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
   });
 
   // ── Label scans ──────────────────────────────────────────────────────────
-  // The photo comes as multipart field "image", or as JSON {imageBase64, mimeType}.
+  // The photo comes as multipart field "image", or as JSON {imageBase64, mimeType}; optional "ocrText".
   app.post('/api/scans', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
     let file: { buffer: Buffer; mimetype: string } | undefined = req.file;
     if (!file && typeof req.body?.imageBase64 === 'string') {
@@ -129,7 +129,9 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
     }
     if (!file) throw new HttpError(400, 'an image is required (multipart field "image" or JSON "imageBase64")');
     if (!IMAGE_TYPES.has(file.mimetype)) throw new HttpError(415, `unsupported image type ${file.mimetype}`);
-    const result = await scanLabel(db, provider, file.buffer, file.mimetype);
+    // Text the phone's OCR read off the label: lets the server identify the wine without the LLM.
+    const ocrText = typeof req.body?.ocrText === 'string' ? req.body.ocrText : undefined;
+    const result = await scanLabel(db, provider, file.buffer, file.mimetype, { ocrText });
     if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, result.scanId]);
     res.status(201).json(result);
   }));

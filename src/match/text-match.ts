@@ -103,7 +103,17 @@ export function matchTextCandidates(text: string, candidates: CandidateWine[]): 
     if (placed.length === 1) best = placed;
   }
   const ordered = [...fits].sort((a, b) => b.identity.length - a.identity.length).map((f) => f.c);
-  return best.length === 1 ? { outcome: 'auto', wine: best[0]!.c, fits: ordered } : { outcome: 'unsure', wine: null, fits: ordered };
+  if (best.length !== 1) return { outcome: 'unsure', wine: null, fits: ordered };
+  // A more specific sibling whose extra words are on the label but misread ("DITCH DIGGER CONCRET")
+  // means we can't tell which one this is.
+  const pick = best[0]!;
+  const nearSibling = candidates.some((c) => {
+    if (c.wine_id === pick.c.wine_id) return false;
+    const identity = identityOf(c);
+    return identity.length > pick.identity.length && contains(identity, pick.identity) &&
+      identity.every((t) => hay.some((h) => tokensMatch(t, h) || nearly(h, t)));
+  });
+  return nearSibling ? { outcome: 'unsure', wine: null, fits: ordered } : { outcome: 'auto', wine: pick.c, fits: ordered };
 }
 
 /** OCR misread: a long label word within 30% edits of the identity word. */

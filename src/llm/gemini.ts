@@ -32,7 +32,8 @@ class GeminiHttpError extends Error {
 const isTransient = (err: unknown) =>
   !(err instanceof GeminiHttpError) || err.status === 429 || err.status >= 500;
 
-const DEFAULT_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'];
+// Flash-Lite first: as accurate as Flash on real labels (2026-10 test), several times cheaper, and less often overloaded.
+const DEFAULT_MODELS = ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-flash-latest'];
 
 const LABEL_PROMPT = `You are reading a photo of a wine bottle label.
 Return ONLY a JSON object with these keys:

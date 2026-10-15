@@ -116,6 +116,7 @@ export async function mergeWines(db: Db, fromId: number, toId: number): Promise<
   await db.query('UPDATE scans SET chosen_wine_id = $2 WHERE chosen_wine_id = $1', [fromId, toId]);
   await db.query('UPDATE price_refreshes SET wine_id = $2 WHERE wine_id = $1', [fromId, toId]);
   await db.query('UPDATE tastings SET wine_id = $2 WHERE wine_id = $1', [fromId, toId]);
+  await db.query('UPDATE label_texts SET wine_id = $2 WHERE wine_id = $1', [fromId, toId]);
   await db.query(
     `INSERT INTO saved_wines (user_id, wine_id, vintage_key, created_at)
      SELECT user_id, $2, vintage_key, created_at FROM saved_wines WHERE wine_id = $1 ON CONFLICT DO NOTHING`,
