@@ -10,16 +10,24 @@
  * the appellation on the label. A grape or colour word the wine can't account
  * for ("Caymus" + "Zinfandel" when only Caymus Cabernet is known) blocks it.
  * Anything short of that is 'unsure', and the caller falls back to the LLM.
+ *
+ * Second stage, for garbled OCR ("ACONSELANTE"): a long word may stand for a
+ * producer/name word it is close to (edit distance <= 30% of its length), but
+ * only when the label also prints the wine's appellation exactly ("POMEROL")
+ * and no other wine is corroborated the same way. Similarity alone is not
+ * enough: "aconselante" is nearly as close to Napa's "Alante".
  */
 import type { Db } from '../db/pool.js';
 import { isGrapeToken } from '../lib/grapes.js';
-import { identityTokens, normalize, tokensMatch } from '../lib/normalize.js';
+import { editDistance, identityTokens, normalize, tokensMatch } from '../lib/normalize.js';
 import { isBroadPlaceToken } from '../lib/places.js';
 import { findCandidates } from './matcher.js';
 import { withJoins, type CandidateWine } from './score.js';
 
 export interface TextMatch {
   outcome: 'auto' | 'unsure';
+  /** 'exact': every identity word printed; 'fuzzy': garbled words corroborated by the appellation. */
+  via?: 'exact' | 'fuzzy';
   wine: CandidateWine | null;
   vintage: string | null;
   /** Wines whose identity words were all on the label, most specific first. */
@@ -98,7 +106,53 @@ export function matchTextCandidates(text: string, candidates: CandidateWine[]): 
   return best.length === 1 ? { outcome: 'auto', wine: best[0]!.c, fits: ordered } : { outcome: 'unsure', wine: null, fits: ordered };
 }
 
+/** OCR misread: a long label word within 30% edits of the identity word. */
+function nearly(word: string, target: string): boolean {
+  if (word.length < 6 || target.length < 6) return false;
+  const max = Math.floor(0.3 * Math.max(word.length, target.length));
+  return editDistance(word, target, max) <= max;
+}
+
+const placeOf = (c: CandidateWine) => identityTokens(c.sub_region).filter((t) => !isBroadPlaceToken(t));
+
+/** Second stage: fuzzy identity words, corroborated by the exact appellation on the label. */
+export function fuzzyTextCandidates(text: string, candidates: CandidateWine[]): Omit<TextMatch, 'vintage'> {
+  const qTokens = identityTokens(text);
+  const hay = withJoins(qTokens);
+  const ok: Array<{ c: CandidateWine; identity: string[] }> = [];
+  for (const c of candidates) {
+    const identity = identityOf(c);
+    const place = placeOf(c);
+    if (!identityTokens(c.producer).length || !place.length || !allOnLabel(place, hay)) continue;
+    if (!identity.some((t) => t.length >= 6 && !isGrapeToken(t))) continue;
+    if (!identity.every((t) => hay.some((h) => tokensMatch(t, h) || nearly(h, t)))) continue;
+    // The usual colour and grape checks still apply: run the exact matcher with the misread words repaired.
+    if (matchTextCandidates(`${text} ${identity.join(' ')}`, [c]).outcome !== 'auto') continue;
+    ok.push({ c, identity });
+  }
+  const contains = (a: string[], b: string[]) => b.every((t) => a.includes(t));
+  const best = ok.filter((f) => !ok.some((g) => g !== f && g.identity.length > f.identity.length && contains(g.identity, f.identity)));
+  if (best.length === 1) return { outcome: 'auto', via: 'fuzzy', wine: best[0]!.c, fits: ok.map((f) => f.c) };
+  return { outcome: 'unsure', wine: null, fits: ok.map((f) => f.c) };
+}
+
 export async function matchLabelText(db: Db, text: string): Promise<TextMatch> {
+  const vintage = vintageFromText(text);
   const candidates = text.trim() ? await findCandidates(db, { text }) : [];
-  return { ...matchTextCandidates(text, candidates), vintage: vintageFromText(text) };
+  const first = matchTextCandidates(text, candidates);
+  if (first.outcome === 'auto' || first.fits.length) return { ...first, via: first.outcome === 'auto' ? 'exact' : undefined, vintage };
+  // Nothing fits exactly: look up producers that long label words could be misreadings of.
+  const words = [...new Set(identityTokens(text).filter((t) => t.length >= 6 && !isGrapeToken(t) && !isBroadPlaceToken(t)))].slice(0, 8);
+  if (!words.length) return { ...first, vintage };
+  const { rows } = await db.query(
+    `WITH near AS (
+       SELECT DISTINCT producer_norm FROM unnest($1::text[]) AS q(word)
+         CROSS JOIN LATERAL (SELECT producer_norm FROM wines WHERE producer_norm % q.word
+                              ORDER BY similarity(producer_norm, q.word) DESC LIMIT 10) p)
+     SELECT w.wine_id, w.producer, w.name, w.display_name, w.region, w.sub_region, w.country,
+            w.colour, w.grape, w.classification, w.source
+       FROM wines w JOIN near USING (producer_norm) LIMIT 200`,
+    [words]
+  );
+  return { ...fuzzyTextCandidates(text, rows as CandidateWine[]), vintage };
 }

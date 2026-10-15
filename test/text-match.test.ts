@@ -17,7 +17,12 @@ afterAll(closeDb);
 const CASES: Array<{ text: string; expect: string | null; vintage?: string | null }> = [
   { text: 'DENNER INEYARDS 2016 DITCHDIGGER', expect: 'denner-ditch', vintage: '2016' },
   { text: 'TERTRE ROTEBOEUF 1999 SAINT-EMILION GRAND CRU LATINANANONRLE MA MISEN BOUTEILE AU CHATEAU', expect: 'tertre-roteboeuf', vintage: '1999' },
-  { text: 'CHATEAU ACONSELANTE 2016 e 88 G G POMEROL HERITIERS LOUIS NICOLAS PROPRIETAIRES DEPUIS 1871', expect: null, vintage: '2016' },
+  // Garbled producer, corroborated by the appellation printed on the label
+  { text: 'CHATEAU ACONSELANTE 2016 e 88 G G POMEROL HERITIERS LOUIS NICOLAS PROPRIETAIRES DEPUIS 1871', expect: 'conseillante', vintage: '2016' },
+  { text: 'CHATEAU ACONSELANTE 2016 HERITIERS LOUIS NICOLAS', expect: null },
+  { text: 'CHATEAU LYNCK-BAGEZ PAUILLAC 2015', expect: null },
+  { text: 'CHATEAU TERTRE ROTEBEUF SAINT-EMILION GRAND CRU 2005', expect: 'tertre-roteboeuf' },
+  { text: 'DUO DE CONSELANTE 2019', expect: null },
   { text: 'GRAND VIN DE CHATEAU LYNCH-BAGES PAUILLAC 2016 APPELLATION PAUILLAC CONTROLEE MIS EN BOUTEILLE AU CHATEAU', expect: 'lynch-bages' },
   { text: 'ECHO DE LYNCH-BAGES PAUILLAC 2018 13% VOL', expect: 'echo-lynch-bages' },
   { text: 'CAYMUS ZINFANDEL NAPA VALLEY 2020', expect: null },
