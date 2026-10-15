@@ -61,7 +61,7 @@ function coverage(needles: string[], hay: string[], exact = false): number {
 }
 
 /** Tokens of a and b, plus joined pairs so "lynchbages" can match "lynch bages". */
-function withJoins(tokens: string[]): string[] {
+export function withJoins(tokens: string[]): string[] {
   const out = [...tokens];
   for (let i = 0; i + 1 < tokens.length; i++) out.push(tokens[i]! + tokens[i + 1]!);
   return out;
