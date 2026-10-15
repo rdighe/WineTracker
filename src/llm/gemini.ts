@@ -17,7 +17,20 @@ export interface GeminiOptions {
   baseUrl?: string;
   fetch?: FetchFn;
   timeoutMs?: number;
+  /** Pause before the one retry of an overloaded/rate-limited model (default 2 s). */
+  retryDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
 }
+
+class GeminiHttpError extends Error {
+  constructor(readonly model: string, readonly status: number) {
+    super(`Gemini ${model} HTTP ${status}`);
+  }
+}
+
+/** Busy or rate-limited: worth one retry of the same model, never a walk through the others. */
+const isTransient = (err: unknown) =>
+  !(err instanceof GeminiHttpError) || err.status === 429 || err.status >= 500;
 
 const DEFAULT_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'];
 
@@ -73,16 +86,26 @@ export class GeminiProvider implements LlmProvider {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(this.opts.timeoutMs ?? 45000),
     });
-    if (!resp.ok) throw new Error(`Gemini ${model} HTTP ${resp.status}`);
+    if (!resp.ok) throw new GeminiHttpError(model, resp.status);
     const data = (await resp.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
     return (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('\n');
   }
 
-  /** Try models in order (last working first) until parse() accepts a reply. */
+  /**
+   * Try models in order (last working first) until parse() accepts a reply.
+   * Every attempt is a billed/quota-counted request, so: move to the next
+   * model only when this one is gone (404) or gave an unusable reply; when it
+   * is busy or rate-limited (429/5xx/timeout) retry it once after a pause and
+   * then give up - other models share the key's quota. Other errors (bad key,
+   * bad request) fail at once.
+   */
   private async firstGood<T>(run: (model: string) => Promise<string>, parse: (text: string) => T | null): Promise<T> {
     const order = [...new Set([this.working, ...this.models].filter((m): m is string => Boolean(m)))];
+    const sleep = this.opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    let retried = false;
     let lastErr: unknown = new Error('no usable reply');
-    for (const model of order) {
+    for (let i = 0; i < order.length; i++) {
+      const model = order[i]!;
       try {
         const out = parse(await run(model));
         if (out !== null) {
@@ -91,6 +114,14 @@ export class GeminiProvider implements LlmProvider {
         }
       } catch (err) {
         lastErr = err;
+        if (err instanceof GeminiHttpError && err.status === 404) {
+          if (this.working === model) this.working = null;
+          continue;
+        }
+        if (!isTransient(err) || retried) throw err;
+        retried = true;
+        await sleep(this.opts.retryDelayMs ?? 2000);
+        i--; // same model once more
       }
     }
     throw lastErr;

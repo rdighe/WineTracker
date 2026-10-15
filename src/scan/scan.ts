@@ -32,8 +32,19 @@ export async function matchLabel(db: Db, read: LabelRead): Promise<MatchResult> 
   return (withRaw.candidates[0]?.score ?? 0) > (primary.candidates[0]?.score ?? 0) ? withRaw : primary;
 }
 
+/** Earlier reads of the exact same photo are reused for this long (retries, re-uploads). */
+const READ_CACHE_DAYS = 30;
+
 export async function scanLabel(db: Db, provider: LlmProvider, image: Buffer, mimeType: string): Promise<ScanResult> {
-  const read = await provider.readLabel(image, mimeType);
+  const sha256 = createHash('sha256').update(image).digest('hex');
+  const cached = await db.query(
+    `SELECT extracted FROM scans
+      WHERE image_sha256 = $1 AND provider = $2 AND created_at > NOW() - make_interval(days => $3)
+      ORDER BY created_at DESC LIMIT 1`,
+    [sha256, provider.name, READ_CACHE_DAYS]
+  );
+  // Matching always re-runs: it is free and picks up aliases learned since.
+  const read: LabelRead = cached.rows[0]?.extracted ?? (await provider.readLabel(image, mimeType));
   const match = await matchLabel(db, read);
   // A label the model itself is unsure about is never auto-attached.
   const outcome = match.outcome === 'auto' && read.confidence < 0.6 ? 'choose' : match.outcome;
@@ -48,7 +59,7 @@ export async function scanLabel(db: Db, provider: LlmProvider, image: Buffer, mi
     `INSERT INTO scans (image_sha256, extracted, candidates, outcome, chosen_wine_id, provider)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING scan_id`,
     [
-      createHash('sha256').update(image).digest('hex'),
+      sha256,
       JSON.stringify(read),
       JSON.stringify(candidates),
       outcome,

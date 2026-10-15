@@ -49,6 +49,19 @@ describe('scan API', () => {
 });
 
 describe('rate limits', () => {
+  it('reuses the read of an identical photo instead of calling the vision model again', async () => {
+    const provider = providerReading({ producer: 'Caymus Vineyards', name: 'Special Selection' });
+    const a = app(provider);
+    const photo = Buffer.concat([jpeg, Buffer.from('same-photo')]);
+    const first = await request(a).post('/api/scans').attach('image', photo, { filename: 'l.jpg', contentType: 'image/jpeg' });
+    const second = await request(a).post('/api/scans').attach('image', photo, { filename: 'l.jpg', contentType: 'image/jpeg' });
+    expect(second.body.read).toEqual(first.body.read);
+    expect(second.body.scanId).not.toBe(first.body.scanId);
+    expect(provider.readLabel).toHaveBeenCalledTimes(1);
+    await request(a).post('/api/scans').attach('image', Buffer.concat([photo, Buffer.from('x')]), { filename: 'l.jpg', contentType: 'image/jpeg' });
+    expect(provider.readLabel).toHaveBeenCalledTimes(2);
+  });
+
   it('accepts the photo as base64 JSON (React Native)', async () => {
     const a = app(providerReading({ producer: 'Ridge Vineyards', name: 'Monte Bello' }));
     const r = await request(a).post('/api/scans').send({ imageBase64: jpeg.toString('base64'), mimeType: 'image/jpeg' });

@@ -33,6 +33,23 @@ describe('GeminiProvider', () => {
     expect(fetch.mock.calls[2]![0]).toBe(fetch.mock.calls[1]![0]);
   });
 
+  it('retries a busy or rate-limited model once, then gives up without trying the others', async () => {
+    const sleep = vi.fn(async () => {});
+    const busyThenOk = vi.fn().mockResolvedValueOnce(reply('', 503)).mockResolvedValue(reply('{"producer":"Ridge","confidence":0.9}'));
+    const p = new GeminiProvider({ apiKey: 'k', fetch: busyThenOk, sleep });
+    expect((await p.readLabel(Buffer.from('img'), 'image/jpeg')).producer).toBe('Ridge');
+    expect(busyThenOk).toHaveBeenCalledTimes(2);
+    expect(busyThenOk.mock.calls[1]![0]).toBe(busyThenOk.mock.calls[0]![0]);
+
+    const limited = vi.fn().mockResolvedValue(reply('', 429));
+    await expect(new GeminiProvider({ apiKey: 'k', fetch: limited, sleep }).readLabel(Buffer.from('img'), 'image/jpeg')).rejects.toThrow('HTTP 429');
+    expect(limited).toHaveBeenCalledTimes(2);
+
+    const badKey = vi.fn().mockResolvedValue(reply('', 403));
+    await expect(new GeminiProvider({ apiKey: 'k', fetch: badKey, sleep }).readLabel(Buffer.from('img'), 'image/jpeg')).rejects.toThrow('HTTP 403');
+    expect(badKey).toHaveBeenCalledTimes(1);
+  });
+
   it('drops invalid offers', async () => {
     const fetch = vi.fn().mockResolvedValue(
       reply('[{"merchant":"A","url":"not a url","price":10},{"merchant":"B","url":"https://b.example/x","price":0},{"merchant":"C","url":"javascript:alert(1)","price":20}]')
