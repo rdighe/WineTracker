@@ -6,7 +6,7 @@
  */
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { SUPABASE_ANON_KEY, SUPABASE_URL, USE_DEV_AUTH } from './config';
+import { loadApiUrl, SUPABASE_ANON_KEY, SUPABASE_URL, USE_DEV_AUTH } from './config';
 import { storage } from './storage';
 
 // Keychain values are size-limited, so long values (Supabase sessions) are
@@ -61,15 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [devUser, setDevUser] = useState<string | null>(null);
 
   useEffect(() => {
+    // The saved API address must be loaded before any screen calls the API.
     if (supabase) {
-      supabase.auth.getSession().then(({ data }) => {
+      Promise.all([supabase.auth.getSession(), loadApiUrl()]).then(([{ data }]) => {
         setSession(data.session);
         setReady(true);
       });
       const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
       return () => data.subscription.unsubscribe();
     }
-    storage.get(DEV_KEY).then((v) => {
+    Promise.all([storage.get(DEV_KEY), loadApiUrl()]).then(([v]) => {
       setDevUser(v);
       setReady(true);
     });

@@ -1,5 +1,5 @@
 /** Small typed client for the WineTracker API. */
-import { API_URL } from './config';
+import { getApiUrl } from './config';
 import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate } from './types';
 
 export class ApiError extends Error {
@@ -10,13 +10,21 @@ export class ApiError extends Error {
 
 type AuthHeader = () => Promise<string | null>;
 
+/** Is there a WineTracker API at this address? Resolves to its LLM provider name. */
+export async function checkServer(url: string): Promise<string> {
+  const res = await fetch(`${url.replace(/\/+$/, '')}/api/health`, { headers: { Accept: 'application/json' } });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.ok) throw new Error(`No WineTracker API at ${url} (HTTP ${res.status})`);
+  return String(body.provider ?? '');
+}
+
 export function createApi(authHeader: AuthHeader) {
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
     const auth = await authHeader();
     if (auth) headers.Authorization = auth;
     if (init.body && !(init.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-    const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    const res = await fetch(`${getApiUrl()}${path}`, { ...init, headers });
     if (res.status === 204) return undefined as T;
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new ApiError(res.status, body.error ?? `HTTP ${res.status}`);
@@ -25,12 +33,12 @@ export function createApi(authHeader: AuthHeader) {
   const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
   return {
-    scan(photo: { uri: string; base64?: string | null; mimeType?: string | null }) {
+    scan(photo: { uri: string; base64?: string | null; mimeType?: string | null; ocrText?: string }) {
       // Sent as base64 JSON: Expo's fetch drops React Native {uri, name, type}
       // file parts from FormData, so the server never saw the photo.
       const imageBase64 = photo.base64 ?? (photo.uri.startsWith('data:') ? photo.uri : null);
       if (!imageBase64) throw new ApiError(0, 'could not read the photo');
-      return request<ScanResult>('/api/scans', json('POST', { imageBase64, mimeType: photo.mimeType ?? 'image/jpeg' }));
+      return request<ScanResult>('/api/scans', json('POST', { imageBase64, mimeType: photo.mimeType ?? 'image/jpeg', ocrText: photo.ocrText }));
     },
     confirmScan: (scanId: number, choice: { wineId: number } | { newWine: { producer: string; name: string; region?: string } }) =>
       request<{ wineId: number; wine: Wine }>(`/api/scans/${scanId}/confirm`, json('POST', choice)),

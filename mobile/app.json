@@ -8,7 +8,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.winetracker.app"
+      "bundleIdentifier": "com.rohanatstanford.winetracker",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +21,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.winetracker.app"
+      "package": "com.rohanatstanford.winetracker"
     },
     "web": {
       "favicon": "./assets/favicon.png"

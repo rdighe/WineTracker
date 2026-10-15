@@ -9,7 +9,7 @@ import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { TastingForm } from '../../components/TastingForm';
 import { Button, Card, ErrorText, Field, Muted, colors, styles } from '../../components/ui';
 import { ApiError } from '../../lib/api';
-import { prepareLabelPhoto } from '../../lib/photo';
+import { prepareLabelPhoto, readLabelText } from '../../lib/photo';
 import type { ScanResult } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
@@ -39,7 +39,8 @@ export default function ScanScreen() {
     const asset = res.assets[0];
     setStep({ kind: 'scanning', uri: asset.uri });
     try {
-      const scan = await api.scan(await prepareLabelPhoto(asset));
+      const photo = await prepareLabelPhoto(asset);
+      const scan = await api.scan({ ...photo, ocrText: await readLabelText(photo.uri) });
       setNewWine({ producer: scan.read.producer, name: scan.read.name, region: scan.read.region });
       setStep({ kind: 'review', uri: asset.uri, scan });
     } catch (e) {

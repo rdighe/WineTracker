@@ -127,7 +127,7 @@ refreshes per hour by default).
 | Method | Path | Body / query | Notes |
 |---|---|---|---|
 | GET | `/api/health` | | |
-| POST | `/api/scans` | multipart `image` (jpeg/png/webp/heic, ≤ 8 MB) | → `{scanId, read, outcome, vintage, bottleMl, candidates}` |
+| POST | `/api/scans` | multipart `image` (jpeg/png/webp/heic, ≤ 8 MB) or JSON `{imageBase64, mimeType}`; optional `ocrText` | → `{scanId, read, outcome, vintage, bottleMl, candidates}`; with `ocrText` the wine is often identified without the LLM |
 | POST | `/api/scans/:id/confirm` | `{wineId}` or `{newWine: {producer, name, region, …}}` | learns an alias |
 | GET | `/api/wines/search?q=` | | ranked matches |
 | POST | `/api/wines` | `{producer, name, …}` | user-created wine |

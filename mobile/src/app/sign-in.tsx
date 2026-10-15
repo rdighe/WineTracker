@@ -2,7 +2,9 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text } from 'react-native';
 import { Button, Card, ErrorText, Field, Muted, styles } from '../components/ui';
+import { checkServer } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { getApiUrl, setApiUrl } from '../lib/config';
 
 export default function SignIn() {
   const auth = useAuth();
@@ -11,6 +13,8 @@ export default function SignIn() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [server, setServer] = useState(getApiUrl());
+  const [serverStatus, setServerStatus] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -51,6 +55,26 @@ export default function SignIn() {
           </>
         )}
         <ErrorText error={error} />
+      </Card>
+      <Card>
+        <Text style={styles.h2}>Server</Text>
+        <Muted>The WineTracker API this app talks to. On iPhone it must be an https:// address (a deployed API or a tunnel).</Muted>
+        <Field label="API address" value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." />
+        <Button
+          title="Save and check"
+          variant="secondary"
+          busy={busy}
+          onPress={() =>
+            run(async () => {
+              setServerStatus(null);
+              const saved = await setApiUrl(server);
+              setServer(saved);
+              const provider = await checkServer(saved);
+              setServerStatus(`Connected${provider === 'none' ? ' (label reading is off on this server)' : ''}.`);
+            })
+          }
+        />
+        {serverStatus ? <Muted>{serverStatus}</Muted> : null}
       </Card>
     </ScrollView>
   );
