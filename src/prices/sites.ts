@@ -33,6 +33,13 @@ export const SITES: SiteConfig[] = [
   { domain: 'primalwine.com', name: 'Primal Wine', kind: 'shopify', tos: 'prohibits_scraping' },
   { domain: 'crushwineco.com', name: 'Crush Wine & Spirits', kind: 'shopify', tos: 'no_clause_found' },
   { domain: 'www.missionliquor.com', name: 'Mission Liquor', kind: 'shopify', tos: 'prohibits_scraping' },
+  { domain: 'vervewine.com', name: 'Verve Wine', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'plumpjackwines.com', name: 'PlumpJack Wines', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'silverlakewine.com', name: 'Silver Lake Wine', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'solanocellars.com', name: 'Solano Cellars', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'cellar.com', name: "Schneider's of Capitol Hill", kind: 'shopify', tos: 'no_clause_found' },
+  { domain: '67wine.com', name: '67 Wine & Spirits', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'wineandcheeseplace.com', name: 'The Wine and Cheese Place', kind: 'shopify', tos: 'not_found' },
   // Sitemap + structured data on each product page.
   {
     domain: 'www.wallywine.com', name: "Wally's Wine & Spirits", kind: 'sitemap', tos: 'not_found',

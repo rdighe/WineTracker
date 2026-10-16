@@ -18,7 +18,11 @@ const TOS_WORDS = /(scrap|crawl|spider|robot|data[- ]mining|automated (means|acc
 
 async function json(url: string): Promise<unknown | null> {
   try {
-    if (!(await fetcher.isAllowed(url))) return 'disallowed';
+    if (!(await fetcher.isAllowed(url))) {
+      // The fetcher also refuses a host whose robots.txt can't be read (no such domain, connection refused).
+      const reachable = await fetch(new URL('/robots.txt', url), { signal: AbortSignal.timeout(10000) }).then(() => true, () => false);
+      return reachable ? 'disallowed' : 'unreachable';
+    }
     const r = await fetcher.get(url, 'application/json');
     if (r.status !== 200) return null;
     return JSON.parse(r.body);
@@ -48,7 +52,8 @@ async function probe(domain: string) {
   const origin = `https://${domain}`;
   const out: Record<string, unknown> = { domain };
   const shop = (await json(`${origin}/products.json?limit=30`)) as { products?: Array<{ title: string; product_type?: string }> } | string | null;
-  if (shop === 'disallowed') out.shopify = 'disallowed by robots.txt';
+  if (shop === 'unreachable') out.error = 'unreachable';
+  else if (shop === 'disallowed') out.shopify = 'disallowed by robots.txt';
   else if (shop && typeof shop === 'object' && Array.isArray(shop.products)) {
     out.kind = 'shopify';
     out.sample = shop.products.length;
