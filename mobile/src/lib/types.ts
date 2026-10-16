@@ -97,8 +97,11 @@ export interface Tasting {
   tasted_on: string;
   kind: 'tasted' | 'cellar';
   bottles: number | null;
+  setting: TastingSetting | null;
   image_url: string | null;
 }
+
+export type TastingSetting = 'home' | 'restaurant' | 'other';
 
 export interface ImportSummary {
   rows: number;

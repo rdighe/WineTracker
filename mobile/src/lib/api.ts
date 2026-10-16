@@ -1,6 +1,6 @@
 /** Small typed client for the WineTracker API. */
 import { getApiUrl } from './config';
-import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary } from './types';
+import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -51,7 +51,7 @@ export function createApi(authHeader: AuthHeader) {
     addTasting: (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
-      kind?: 'tasted' | 'cellar'; bottles?: number | null;
+      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null;
     }) => request<{ tastingId: number }>('/api/tastings', json('POST', t)),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null }) =>

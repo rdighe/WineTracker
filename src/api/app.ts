@@ -74,6 +74,7 @@ const tastingBody = z.object({
   priceContext: z.enum(['retail', 'restaurant']).nullable().optional(),
   bottleMl: z.number().int().min(50).max(30000).optional(),
   location: z.string().max(200).optional(),
+  setting: z.enum(['home', 'restaurant', 'other']).nullable().optional(),
   tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   kind: z.enum(['tasted', 'cellar']).optional(),
   bottles: z.number().int().min(1).max(9999).nullable().optional(),

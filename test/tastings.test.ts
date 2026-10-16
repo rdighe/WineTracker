@@ -55,6 +55,20 @@ describe('tastings API', () => {
     expect((await request(a).get('/api/me').set('Authorization', 'Dev rohan')).body).toMatchObject({ tastings: 0 });
   });
 
+  it('records where a tasted wine was drunk, never for cellar bottles', async () => {
+    const a = app();
+    const wineId = await createWine(db, { producer: 'Ridge', name: 'Geyserville', source: 'user' });
+    const home = await request(a).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, rating: 4, setting: 'home' });
+    expect(home.status).toBe(201);
+    await request(a).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, kind: 'cellar', bottles: 2, setting: 'home', tastedOn: '2026-01-01' });
+    expect((await request(a).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, setting: 'beach' })).status).toBe(400);
+    const list = (await request(a).get('/api/tastings').set('Authorization', 'Dev r')).body.tastings;
+    expect(list.map((t: { kind: string; setting: string | null }) => [t.kind, t.setting])).toEqual([['tasted', 'home'], ['cellar', null]]);
+    await request(a).patch(`/api/tastings/${home.body.tastingId}`).set('Authorization', 'Dev r').send({ setting: 'restaurant' });
+    await request(a).patch(`/api/tastings/${home.body.tastingId}`).set('Authorization', 'Dev r').send({ rating: 3.5 });
+    expect((await request(a).get('/api/tastings').set('Authorization', 'Dev r')).body.tastings[0]).toMatchObject({ setting: 'restaurant', rating: 3.5 });
+  });
+
   it('validates ratings in half steps', async () => {
     const wineId = await createWine(db, { producer: 'X', name: 'Y', source: 'user' });
     expect((await request(app()).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, rating: 4.3 })).status).toBe(400);

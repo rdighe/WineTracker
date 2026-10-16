@@ -2,7 +2,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { FlatList, Platform, Pressable, RefreshControl, Text, View } from 'react-native';
 import { WineThumb } from '../../components/WineThumb';
 import { Button, Card, ErrorText, Eyebrow, Mono, Muted, RatingDots, Segmented, Title, colors, fonts, styles, useScreenPadding } from '../../components/ui';
@@ -102,6 +102,16 @@ export default function MyWines() {
   );
 }
 
+const SETTING_LABEL = { home: 'AT HOME', restaurant: 'RESTAURANT', other: 'ELSEWHERE' } as const;
+
+function Badge({ children }: { children: ReactNode }) {
+  return (
+    <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: colors.line2 }}>
+      <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.text2 }}>{children}</Text>
+    </View>
+  );
+}
+
 function Stat({ label, value, gold }: { label: string; value: string; gold?: boolean }) {
   return (
     <View style={{ flex: 1, gap: 6 }}>
@@ -130,11 +140,7 @@ function WineRow({ t, onRate }: { t: Tasting; onRate: (rating: number) => Promis
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {t.sub_region || t.region ? <Muted style={{ fontSize: 12, flexShrink: 1 }}>{t.sub_region || t.region}</Muted> : null}
-            {t.kind === 'cellar' ? (
-              <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: colors.line2 }}>
-                <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.text2 }}>CELLAR · {t.bottles ?? 1}</Text>
-              </View>
-            ) : null}
+            {t.kind === 'cellar' ? <Badge>CELLAR · {t.bottles ?? 1}</Badge> : t.setting ? <Badge>{SETTING_LABEL[t.setting]}</Badge> : null}
           </View>
           <View style={{ marginTop: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             {t.paid_750_cents && t.market_now_cents && !anyVintage ? (

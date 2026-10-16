@@ -17,6 +17,8 @@ export interface TastingInput {
   priceContext?: 'retail' | 'restaurant' | null;
   bottleMl?: number;
   location?: string;
+  /** Where a tasted wine was drunk; ignored for cellar bottles. */
+  setting?: 'home' | 'restaurant' | 'other' | null;
   tastedOn?: string;               // YYYY-MM-DD
   scanId?: number | null;
   /** 'cellar': bottles you own (maybe not opened yet); 'tasted': drunk somewhere. */
@@ -48,12 +50,12 @@ export async function createTasting(db: Db, userId: number, t: TastingInput): Pr
   const kind = t.kind ?? 'tasted';
   const { rows } = await db.query(
     `INSERT INTO tastings (user_id, wine_id, vintage_key, rating, notes, tags, price_paid_cents, price_context, bottle_ml,
-                           location, tasted_on, scan_id, observation_id, kind, bottles, external_ref)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, CURRENT_DATE),$12,$13,$14,$15,$16) RETURNING tasting_id`,
+                           location, tasted_on, scan_id, observation_id, kind, bottles, external_ref, setting)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, CURRENT_DATE),$12,$13,$14,$15,$16,$17) RETURNING tasting_id`,
     [userId, t.wineId, t.vintage ?? null, t.rating ?? null, t.notes ?? '', JSON.stringify(normalizeTags(t.tags ?? [])),
      t.pricePaid ? Math.round(t.pricePaid * 100) : null, t.pricePaid ? t.priceContext ?? 'retail' : null, t.bottleMl ?? 750,
      t.location ?? '', t.tastedOn ?? null, t.scanId ?? null, observationId, kind,
-     kind === 'cellar' ? t.bottles ?? 1 : null, t.externalRef ?? null]
+     kind === 'cellar' ? t.bottles ?? 1 : null, t.externalRef ?? null, kind === 'cellar' ? null : t.setting ?? null]
   );
   return rows[0].tasting_id;
 }
@@ -75,6 +77,7 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
     tastedOn: t.tastedOn ?? cur.tasted_on.toISOString().slice(0, 10),
     kind: t.kind ?? cur.kind,
     bottles: t.bottles !== undefined ? t.bottles : cur.bottles,
+    setting: t.setting !== undefined ? t.setting : cur.setting,
   };
   const priceChanged = t.pricePaid !== undefined || t.priceContext !== undefined || t.bottleMl !== undefined || t.vintage !== undefined || t.tastedOn !== undefined;
   let observationId = cur.observation_id;
@@ -84,12 +87,12 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
   }
   await db.query(
     `UPDATE tastings SET vintage_key = $3, rating = $4, notes = $5, tags = $6, price_paid_cents = $7, price_context = $8,
-            bottle_ml = $9, location = $10, tasted_on = $11::date, observation_id = $12, kind = $13, bottles = $14, updated_at = NOW()
+            bottle_ml = $9, location = $10, tasted_on = $11::date, observation_id = $12, kind = $13, bottles = $14, setting = $15, updated_at = NOW()
       WHERE tasting_id = $1 AND user_id = $2`,
     [tastingId, userId, merged.vintage ?? null, merged.rating ?? null, merged.notes ?? '', JSON.stringify(normalizeTags(merged.tags ?? [])),
      merged.pricePaid ? Math.round(merged.pricePaid * 100) : null, merged.pricePaid ? merged.priceContext ?? 'retail' : null,
      merged.bottleMl ?? 750, merged.location ?? '', merged.tastedOn, observationId, merged.kind ?? 'tasted',
-     merged.kind === 'cellar' ? merged.bottles ?? 1 : null]
+     merged.kind === 'cellar' ? merged.bottles ?? 1 : null, merged.kind === 'cellar' ? null : merged.setting ?? null]
   );
   return true;
 }
@@ -109,7 +112,7 @@ export async function listTastings(db: Db, userId: number, opts: { limit?: numbe
   const { rows } = await db.query(
     `SELECT t.tasting_id, t.wine_id, w.display_name, w.producer, w.region, w.sub_region, w.country, w.colour, t.vintage_key,
             t.rating::float AS rating, t.notes, t.tags, t.price_paid_cents, t.price_context, t.bottle_ml, t.location,
-            to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on, t.kind, t.bottles, w.image_url,
+            to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on, t.kind, t.bottles, t.setting, w.image_url,
             CASE WHEN t.price_paid_cents IS NULL THEN NULL ELSE round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END AS paid_750_cents,
             COALESCE(pv.median_cents, pa.median_cents) AS market_now_cents,
             CASE WHEN pv.median_cents IS NOT NULL THEN t.vintage_key ELSE CASE WHEN pa.median_cents IS NOT NULL THEN '*' END END AS market_vintage_key
