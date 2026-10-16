@@ -19,15 +19,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rohanatstanford/WineTracker.git"
+    "url": "git+https://github.com/rdighe/WineTracker.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/rohanatstanford/WineTracker/issues"
+    "url": "https://github.com/rdighe/WineTracker/issues"
   },
-  "homepage": "https://github.com/rohanatstanford/WineTracker#readme",
+  "homepage": "https://github.com/rdighe/WineTracker#readme",
   "dependencies": {
     "cheerio": "^1.2.0",
     "dotenv": "^18.0.7",

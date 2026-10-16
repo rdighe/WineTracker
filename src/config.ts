@@ -26,5 +26,5 @@ export const config = {
   trustProxy: Number(process.env.TRUST_PROXY ?? 0),
   crawlerUserAgent:
     process.env.CRAWLER_USER_AGENT ??
-    'WineTrackerBot/0.1 (+https://github.com/rohanatstanford/WineTracker)',
+    'WineTrackerBot/0.1 (+https://github.com/rdighe/WineTracker)',
 };

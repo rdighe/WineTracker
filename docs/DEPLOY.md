@@ -38,7 +38,7 @@ The dump holds the wine catalog and all crawled prices (63,377 wines with a mark
 ## 2. Create everything on Render
 
 1. Sign in at dashboard.render.com and connect your GitHub account if asked.
-2. **New → Blueprint**, pick the `rohanatstanford/WineTracker` repository and the branch that has `render.yaml`
+2. **New → Blueprint**, pick the `rdighe/WineTracker` repository and the branch that has `render.yaml`
    (`claude/compassionate-franklin-72h8wx` until it is merged into `main`).
 3. Render lists the database and the four services. It asks for two values:
    - `OPENROUTER_API_KEY`: your OpenRouter key (label reading).
