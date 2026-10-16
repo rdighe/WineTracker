@@ -42,6 +42,9 @@ export const SITES: SiteConfig[] = [
   { domain: 'wineandcheeseplace.com', name: 'The Wine and Cheese Place', kind: 'shopify', tos: 'not_found' },
   { domain: 'sommselect.com', name: 'SommSelect', kind: 'shopify', tos: 'no_clause_found' },
   { domain: 'highlandparkwine.com', name: 'Highland Park Wine', kind: 'shopify', tos: 'not_found' },
+  { domain: 'permanwine.com', name: 'Perman Wine Selections', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'slopecellars.com', name: 'Slope Cellars', kind: 'shopify', tos: 'not_found' },
+  { domain: 'linerandelsen.com', name: 'Liner & Elsen', kind: 'shopify', tos: 'not_found' },
   // Sitemap + structured data on each product page.
   {
     domain: 'www.wallywine.com', name: "Wally's Wine & Spirits", kind: 'sitemap', tos: 'not_found',
