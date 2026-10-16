@@ -1,21 +1,25 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { Button, Card, ErrorText, Eyebrow, Field, Muted, Screen, colors, fonts } from '../components/ui';
-import { checkServer } from '../lib/api';
+import { checkServer, type ServerInfo } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { getApiUrl, setApiUrl } from '../lib/config';
 
 export default function SignIn() {
   const auth = useAuth();
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [sent, setSent] = useState(false);
+  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [server, setServer] = useState(getApiUrl());
   const [serverStatus, setServerStatus] = useState<string | null>(null);
   const [serverError, setServerError] = useState<unknown>(null);
+  // How the current server signs people in; null while checking or unreachable.
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+
+  useEffect(() => {
+    checkServer(getApiUrl()).then(setInfo, setServerError);
+  }, []);
 
   const run = async (fn: () => Promise<void>, onError = setError) => {
     setBusy(true);
@@ -41,24 +45,22 @@ export default function SignIn() {
       </View>
 
       <Card>
-        {auth.devMode ? (
-          <>
-            <Eyebrow>Development sign-in</Eyebrow>
-            <Muted>No Supabase project is configured, so pick any name (the API must run with ALLOW_DEV_AUTH=true).</Muted>
-            <Field label="Name" value={email} onChangeText={setEmail} autoCapitalize="none" placeholder="rohan" />
-            <Button title="Continue" busy={busy} onPress={() => run(async () => { await auth.signInDev(email); done(); })} />
-          </>
-        ) : !sent ? (
-          <>
-            <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
-            <Button title="Email me a sign-in code" busy={busy} onPress={() => run(async () => { await auth.sendCode(email.trim()); setSent(true); })} />
-          </>
+        {!info ? (
+          <Muted>{serverError ? 'Can\'t reach the server below. Check its address.' : 'Connecting…'}</Muted>
         ) : (
           <>
-            <Muted>Enter the 6-digit code sent to {email}.</Muted>
-            <Field label="Code" mono value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" maxLength={8} />
-            <Button title="Sign in" busy={busy} onPress={() => run(async () => { await auth.verifyCode(email.trim(), code.trim()); done(); })} />
-            <Button title="Use a different email" variant="secondary" onPress={() => setSent(false)} />
+            {info.signIn.includes('google') ? (
+              <Button title="Continue with Google" busy={busy} onPress={() => run(async () => { if (await auth.signInGoogle()) done(); })} />
+            ) : null}
+            {info.signIn.includes('dev') ? (
+              <>
+                <Eyebrow>Development sign-in</Eyebrow>
+                <Muted>This server accepts any name (ALLOW_DEV_AUTH=true).</Muted>
+                <Field label="Name" value={name} onChangeText={setName} autoCapitalize="none" placeholder="rohan" />
+                <Button title="Continue" variant={info.signIn.includes('google') ? 'secondary' : undefined} busy={busy} onPress={() => run(async () => { await auth.signInDev(name); done(); })} />
+              </>
+            ) : null}
+            {!info.signIn.length ? <Muted>This server has no sign-in set up.</Muted> : null}
           </>
         )}
         <ErrorText error={error} />
@@ -75,10 +77,12 @@ export default function SignIn() {
           onPress={() =>
             run(async () => {
               setServerStatus(null);
+              setInfo(null);
               const saved = await setApiUrl(server);
               setServer(saved);
-              const provider = await checkServer(saved);
-              setServerStatus(`Connected${provider === 'none' ? ' (label reading is off on this server)' : ''}.`);
+              const next = await checkServer(saved);
+              setInfo(next);
+              setServerStatus(`Connected${next.provider === 'none' ? ' (label reading is off on this server)' : ''}.`);
             }, setServerError)
           }
         />

@@ -1,5 +1,5 @@
 # Render blueprint: the API, three cron jobs that keep prices fresh, and the
-# Postgres database they share. Sign-in stays on Supabase Auth (JWKS below).
+# Postgres database they share. Sign-in is with Google, run by the API (src/auth/google.ts).
 # Secrets (sync: false) are filled in the Render dashboard, not here.
 # Loading the data and copying your tastings: docs/DEPLOY.md.
 
@@ -47,8 +47,18 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: SUPABASE_JWKS_URL
-        value: https://bmtteqhttsadodgwodzn.supabase.co/auth/v1/.well-known/jwks.json
+      # Google sign-in: an OAuth "Web application" client with the redirect URI
+      # https://<this service>.onrender.com/api/auth/google/callback (docs/DEPLOY.md).
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Signs session tokens. Changing it signs everyone out.
+      - key: AUTH_SESSION_SECRET
+        generateValue: true
+      # "exp" lets Expo Go receive the sign-in; drop it once you only use App Store/TestFlight builds.
+      - key: AUTH_APP_SCHEMES
+        value: winetracker,exp
       - key: ALLOWED_ORIGINS
         sync: false
 

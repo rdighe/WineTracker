@@ -14,7 +14,11 @@ createApp({
   db,
   provider,
   fetcher,
-  auth: { jwtSecret: config.supabaseJwtSecret, jwksUrl: config.supabaseJwksUrl, allowDev: config.allowDevAuth },
+  auth: { sessionSecret: config.authSessionSecret, allowDev: config.allowDevAuth },
+  google:
+    config.googleClientId && config.googleClientSecret
+      ? { clientId: config.googleClientId, clientSecret: config.googleClientSecret, appSchemes: config.authAppSchemes, publicUrl: config.publicUrl }
+      : undefined,
   allowedOrigins: config.allowedOrigins,
   trustProxy: config.trustProxy,
 }).listen(config.port, () => {

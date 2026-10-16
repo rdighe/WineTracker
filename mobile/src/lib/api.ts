@@ -10,12 +10,20 @@ export class ApiError extends Error {
 
 type AuthHeader = () => Promise<string | null>;
 
-/** Is there a WineTracker API at this address? Resolves to its LLM provider name. */
-export async function checkServer(url: string): Promise<string> {
+export interface ServerInfo {
+  /** LLM provider for label reading ("none" = off). */
+  provider: string;
+  /** Sign-in methods the server offers: "google", "dev". */
+  signIn: string[];
+}
+
+/** Is there a WineTracker API at this address, and how does it sign people in? */
+export async function checkServer(url: string): Promise<ServerInfo> {
   const res = await fetch(`${url.replace(/\/+$/, '')}/api/health`, { headers: { Accept: 'application/json' } });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body?.ok) throw new Error(`No WineTracker API at ${url} (HTTP ${res.status})`);
-  return String(body.provider ?? '');
+  // Servers from before Google sign-in only offered development sign-in.
+  return { provider: String(body.provider ?? ''), signIn: Array.isArray(body.signIn) ? body.signIn.map(String) : ['dev'] };
 }
 
 export function createApi(authHeader: AuthHeader) {

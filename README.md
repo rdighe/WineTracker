@@ -27,7 +27,7 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/prices/aggregate.ts` | Market price per wine+vintage: one vote per offer, MAD outlier filter, median/p10/p90, daily history |
 | `src/prices/refresh.ts` | On-demand refresh: re-check known shop pages + LLM web search, verifying each hit on the shop's own page |
 | `src/prices/sites.ts` | Retailers for the bulk crawl, with each site's terms-of-service status |
-| `src/auth/auth.ts` | Supabase JWT verification (HS256 secret or JWKS); dev sign-in for local use |
+| `src/auth/` | Google sign-in (`google.ts`) and session tokens (`auth.ts`); dev sign-in for local use |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
 | `src/recs/` | Taste profile from ratings (grape, appellation, region, producer, style, price range) and recommendations |
 | `src/api/app.ts` | REST API |
@@ -133,8 +133,8 @@ npm run worker -- --once watched   # run one job now (feeds | pages | watched)
 
 `render.yaml` defines the Render Postgres database, the API (web service) and three cron jobs that keep prices fresh
 (`npm run worker -- --once feeds|pages|watched`); step-by-step instructions, including loading the data and copying
-tastings from a local database (`npm run copy-user-data`), are in `docs/DEPLOY.md`. Sign-in uses Supabase Auth
-(`SUPABASE_JWKS_URL`); label reading uses Gemini (`GEMINI_API_KEY`), or OpenRouter (`OPENROUTER_API_KEY`) when no Gemini key is set. Pending migrations are applied whenever
+tastings from a local database (`npm run copy-user-data`), are in `docs/DEPLOY.md`. Sign-in uses Google accounts
+(`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_SESSION_SECRET`); label reading uses Gemini (`GEMINI_API_KEY`), or OpenRouter (`OPENROUTER_API_KEY`) when no Gemini key is set. Pending migrations are applied whenever
 the API starts (`npm start` / `npm run dev`). `PRICE_WEB_SEARCH=false` limits price refreshes to re-checking known
 shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refreshes per hour by default).
 
@@ -159,7 +159,8 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | POST | `/api/import/vivino` | `{csv}` (a Vivino data export, ≤ 8 MB) | auth; matches each row, adds unknown wines as the user's own; re-importing adds nothing |
 
 Scan outcomes: `auto` (confident, attach directly), `choose` (show the candidates), `new` (offer to create the wine).
-User routes need `Authorization: Bearer <Supabase access token>` (set `SUPABASE_JWT_SECRET` or `SUPABASE_JWKS_URL`).
+User routes need `Authorization: Bearer <session token>`, which the app gets from Google sign-in
+(`GET /api/auth/google/start?redirect=<app URL>`; `/api/health` lists the sign-in methods a server offers).
 For local development, `ALLOW_DEV_AUTH=true` also accepts `Authorization: Dev <name>`; it is ignored when
 `NODE_ENV=production`. Browser origins (Expo web) must be listed in `ALLOWED_ORIGINS`.
 

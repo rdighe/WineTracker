@@ -1,21 +1,21 @@
 /**
  * Request authentication.
  *
- * Production: "Authorization: Bearer <Supabase access token>", verified with
- * the project's JWT secret (HS256) or its JWKS (asymmetric signing keys).
+ * Production: "Authorization: Bearer <WineTracker session token>", issued
+ * after Google sign-in (src/auth/google.ts) and signed with sessionSecret.
  * Development (ALLOW_DEV_AUTH=true, never in production): "Authorization: Dev
- * <name>" acts as that user, so the API and app can be exercised without a
- * Supabase project.
+ * <name>" acts as that user, so the API and app can be exercised without
+ * Google sign-in.
  *
  * The first authenticated request creates the users row.
  */
 import type { NextFunction, Request, Response } from 'express';
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
 import type { Db } from '../db/pool.js';
 
 export interface AuthOptions {
-  jwtSecret?: string;
-  jwksUrl?: string;
+  /** Signs and verifies WineTracker session tokens (AUTH_SESSION_SECRET). */
+  sessionSecret?: string;
   allowDev?: boolean;
 }
 
@@ -32,18 +32,29 @@ declare module 'express-serve-static-core' {
 
 export class AuthError extends Error {}
 
-export function createAuthenticator(db: Db, opts: AuthOptions) {
-  const secret = opts.jwtSecret ? new TextEncoder().encode(opts.jwtSecret) : null;
-  const jwks = opts.jwksUrl ? createRemoteJWKSet(new URL(opts.jwksUrl)) : null;
+const SESSION_ISSUER = 'winetracker';
+const SESSION_TTL = '90d';
 
-  // Supabase user tokens: issuer is the project's auth URL, audience "authenticated".
-  // (The anon/service keys are also JWTs but carry no user and fail these checks.)
-  const issuer = opts.jwksUrl ? opts.jwksUrl.replace(/\/\.well-known\/jwks\.json$/, '') : undefined;
+const key = (secret: string) => new TextEncoder().encode(secret);
+
+/** A WineTracker session token for this identity (e.g. "google:<sub>"). */
+export function createSessionToken(secret: string, authSub: string, email: string): Promise<string> {
+  return new SignJWT({ email })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(authSub)
+    .setIssuer(SESSION_ISSUER)
+    .setAudience(SESSION_ISSUER)
+    .setIssuedAt()
+    .setExpirationTime(SESSION_TTL)
+    .sign(key(secret));
+}
+
+export function createAuthenticator(db: Db, opts: AuthOptions) {
+  const session = opts.sessionSecret ? key(opts.sessionSecret) : null;
 
   async function verify(token: string): Promise<JWTPayload> {
-    if (jwks) return (await jwtVerify(token, jwks, { issuer, audience: 'authenticated' })).payload;
-    if (secret) return (await jwtVerify(token, secret, { algorithms: ['HS256'], audience: 'authenticated' })).payload;
-    throw new AuthError('authentication is not configured');
+    if (!session) throw new AuthError('authentication is not configured');
+    return (await jwtVerify(token, session, { algorithms: ['HS256'], issuer: SESSION_ISSUER, audience: SESSION_ISSUER })).payload;
   }
 
   async function userFor(authSub: string, email: string): Promise<AuthUser> {
@@ -93,5 +104,5 @@ export function createAuthenticator(db: Db, opts: AuthOptions) {
       .catch(() => next());
   };
 
-  return { authenticate, requireUser, optionalUser };
+  return { authenticate, requireUser, optionalUser, userFor };
 }

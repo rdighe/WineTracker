@@ -1,54 +1,28 @@
 /**
- * Sign-in state. With Supabase configured: email one-time-code sign-in, and
- * the Supabase access token is sent to the API as a Bearer token. Without it
- * (local development): a name is stored on the device and sent as
- * "Authorization: Dev <name>", which the API accepts when ALLOW_DEV_AUTH=true.
+ * Sign-in state. Google sign-in runs through the API (src/auth/google.ts): the
+ * app opens /api/auth/google/start in a browser and gets a WineTracker session
+ * token back on its own URL, then sends it to the API as a Bearer token. For
+ * local development, servers with ALLOW_DEV_AUTH=true also accept a name, sent
+ * as "Authorization: Dev <name>".
  */
-import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { loadApiUrl, SUPABASE_ANON_KEY, SUPABASE_URL, USE_DEV_AUTH } from './config';
+import { getApiUrl, loadApiUrl } from './config';
 import { storage } from './storage';
 
-// Keychain values are size-limited, so long values (Supabase sessions) are
-// stored in chunks.
-const CHUNK = 1800;
-const secureStorage = {
-  async getItem(key: string): Promise<string | null> {
-    const n = await storage.get(`${key}.n`);
-    if (!n) return storage.get(key);
-    const parts = await Promise.all(Array.from({ length: Number(n) }, (_, i) => storage.get(`${key}.${i}`)));
-    return parts.every((p) => p !== null) ? parts.join('') : null;
-  },
-  async setItem(key: string, value: string): Promise<void> {
-    const parts = value.match(new RegExp(`[\\s\\S]{1,${CHUNK}}`, 'g')) ?? [''];
-    await Promise.all(parts.map((p, i) => storage.set(`${key}.${i}`, p)));
-    await storage.set(`${key}.n`, String(parts.length));
-  },
-  async removeItem(key: string): Promise<void> {
-    const n = Number((await storage.get(`${key}.n`)) ?? 0);
-    await Promise.all(Array.from({ length: n }, (_, i) => storage.remove(`${key}.${i}`)));
-    await storage.remove(`${key}.n`);
-    await storage.remove(key);
-  },
-};
-
-const supabase: SupabaseClient | null = USE_DEV_AUTH
-  ? null
-  : createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { storage: secureStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
-    });
-
+const SESSION_KEY = 'wt.session';
+const EMAIL_KEY = 'wt.sessionEmail';
 const DEV_KEY = 'wt.devUser';
 
 interface AuthState {
   ready: boolean;
   signedIn: boolean;
   label: string;
-  devMode: boolean;
   /** Authorization header value for API calls, or null when signed out. */
   authHeader: () => Promise<string | null>;
-  sendCode: (email: string) => Promise<void>;
-  verifyCode: (email: string, code: string) => Promise<void>;
+  /** Resolves signed in, or false if the user closed the sign-in window. */
+  signInGoogle: () => Promise<boolean>;
   signInDev: (name: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -57,21 +31,14 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<{ token: string; email: string } | null>(null);
   const [devUser, setDevUser] = useState<string | null>(null);
 
   useEffect(() => {
     // The saved API address must be loaded before any screen calls the API.
-    if (supabase) {
-      Promise.all([supabase.auth.getSession(), loadApiUrl()]).then(([{ data }]) => {
-        setSession(data.session);
-        setReady(true);
-      });
-      const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-      return () => data.subscription.unsubscribe();
-    }
-    Promise.all([storage.get(DEV_KEY), loadApiUrl()]).then(([v]) => {
-      setDevUser(v);
+    Promise.all([storage.get(SESSION_KEY), storage.get(EMAIL_KEY), storage.get(DEV_KEY), loadApiUrl()]).then(([token, email, dev]) => {
+      setSession(token ? { token, email: email ?? '' } : null);
+      setDevUser(dev);
       setReady(true);
     });
   }, []);
@@ -79,25 +46,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthState>(
     () => ({
       ready,
-      devMode: !supabase,
-      signedIn: supabase ? Boolean(session) : Boolean(devUser),
-      label: supabase ? session?.user.email ?? '' : devUser ?? '',
+      signedIn: Boolean(session || devUser),
+      label: session?.email ?? devUser ?? '',
       async authHeader() {
-        if (supabase) {
-          const { data } = await supabase.auth.getSession();
-          return data.session ? `Bearer ${data.session.access_token}` : null;
-        }
+        if (session) return `Bearer ${session.token}`;
         return devUser ? `Dev ${devUser}` : null;
       },
-      async sendCode(email) {
-        if (!supabase) throw new Error('Supabase is not configured');
-        const { error } = await supabase.auth.signInWithOtp({ email });
-        if (error) throw error;
-      },
-      async verifyCode(email, code) {
-        if (!supabase) throw new Error('Supabase is not configured');
-        const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' });
-        if (error) throw error;
+      async signInGoogle() {
+        // Expo Go: exp://<host>/--/auth; app builds: winetracker://auth; web: <origin>/auth.
+        const returnUrl = Linking.createURL('auth');
+        const start = `${getApiUrl()}/api/auth/google/start?redirect=${encodeURIComponent(returnUrl)}`;
+        const result = await WebBrowser.openAuthSessionAsync(start, returnUrl);
+        if (result.type !== 'success') return false;
+        const params = new URLSearchParams(result.url.split('#')[1] ?? '');
+        const token = params.get('token');
+        if (!token) throw new Error(params.get('error') ?? 'Sign-in failed');
+        const email = params.get('email') ?? '';
+        await storage.set(SESSION_KEY, token);
+        await storage.set(EMAIL_KEY, email);
+        await storage.remove(DEV_KEY);
+        setDevUser(null);
+        setSession({ token, email });
+        return true;
       },
       async signInDev(name) {
         const clean = name.trim().replace(/[^\w.@-]/g, '').slice(0, 64);
@@ -106,11 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDevUser(clean);
       },
       async signOut() {
-        if (supabase) await supabase.auth.signOut();
-        else {
-          await storage.remove(DEV_KEY);
-          setDevUser(null);
-        }
+        await Promise.all([storage.remove(SESSION_KEY), storage.remove(EMAIL_KEY), storage.remove(DEV_KEY)]);
+        setSession(null);
+        setDevUser(null);
       },
     }),
     [ready, session, devUser]

@@ -1,6 +1,6 @@
 /**
  * REST API. User-specific routes (tastings, saved wines, recommendations)
- * require a Supabase access token (see src/auth/auth.ts); catalog and price
+ * require a signed-in user (see src/auth/auth.ts; Google sign-in in src/auth/google.ts); catalog and price
  * routes are public reads. Scans attach to the user when one is signed in.
  */
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -18,6 +18,7 @@ import type { PoliteFetcher } from '../prices/fetcher.js';
 import { refreshPrices } from '../prices/refresh.js';
 import { aggregateWines } from '../prices/aggregate.js';
 import { createAuthenticator, type AuthOptions } from '../auth/auth.js';
+import { googleRoutes, type GoogleOptions } from '../auth/google.js';
 import { createTasting, deleteTasting, listTastings, updateTasting } from '../tastings/tastings.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { importVivino } from '../imports/vivino.js';
@@ -28,6 +29,8 @@ export interface AppDeps {
   provider: LlmProvider;
   fetcher: PoliteFetcher;
   auth: AuthOptions;
+  /** Google sign-in; off when absent. allowedOrigins comes from AppDeps. */
+  google?: Omit<GoogleOptions, 'allowedOrigins' | 'sessionSecret'>;
   allowedOrigins?: string[];
   /** Number of proxies in front of the app (Render: 1), so rate limits see the client IP. */
   trustProxy?: number;
@@ -80,7 +83,7 @@ const tastingBody = z.object({
   bottles: z.number().int().min(1).max(9999).nullable().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, allowedOrigins = [], trustProxy = 0, limits = {} }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {} }: AppDeps) {
   const app = express();
   app.set('trust proxy', trustProxy);
   app.use(helmet());
@@ -120,9 +123,15 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
   const importJson = express.json({ limit: '8mb' });
   const importLimit = limiter(60 * 60_000, 20);
 
+  // Sign-in methods this server offers, so the app shows the right sign-in screen.
+  const signIn = [...(google && authOptions.sessionSecret ? ['google'] : []), ...(authOptions.allowDev ? ['dev'] : [])];
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, provider: provider.name });
+    res.json({ ok: true, provider: provider.name, signIn });
   });
+
+  if (google && authOptions.sessionSecret) {
+    app.use('/api/auth/google', googleRoutes({ ...google, allowedOrigins, sessionSecret: authOptions.sessionSecret }, auth.userFor));
+  }
 
   // ── Label scans ──────────────────────────────────────────────────────────
   // The photo comes as multipart field "image", or as JSON {imageBase64, mimeType}; optional "ocrText".

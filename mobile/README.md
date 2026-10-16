@@ -16,16 +16,15 @@ npx expo start           # scan the QR code with Expo Go, or press w for web
 ```
 
 Start the API from the repo root with `ALLOW_DEV_AUTH=true` (and `ALLOWED_ORIGINS=http://localhost:8081` for the web
-build). Without Supabase settings the app uses development sign-in: any name works.
+build). The sign-in screen offers whatever the API supports: development sign-in (any name) when it runs with
+`ALLOW_DEV_AUTH=true`, and Google when it has a Google OAuth client.
 
-## Sign-in with Supabase
+## Google sign-in
 
-Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` here, and `SUPABASE_JWKS_URL`
-(`https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json`) on the API. Users sign in with an emailed
-one-time code; the app sends the Supabase access token to the API.
-
-For the code to appear in the email, the Supabase **Magic Link** email template (Authentication → Emails) must
-include `{{ .Token }}`. Supabase's built-in email sender is heavily rate limited; set up custom SMTP before launch.
+The API runs the Google sign-in (`src/auth/google.ts`; setup in `docs/DEPLOY.md`, step 4). The app opens
+`/api/auth/google/start` in a browser window and gets a session token back on its own address: `exp://...` in Expo
+Go, `winetracker://auth` in builds, `<origin>/auth` on the web (`src/app/auth.tsx` finishes the web popup). The token
+is kept in the keychain (localStorage on web) and lasts 90 days.
 
 ## Label text on the phone (Apple Vision)
 
