@@ -13,7 +13,8 @@
     "aggregate": "tsx scripts/aggregate.ts",
     "eval:matcher": "tsx scripts/eval-matcher.ts",
     "import:web-prices": "tsx scripts/import-web-prices.ts",
-    "worker": "tsx src/worker.ts"
+    "worker": "tsx src/worker.ts",
+    "images": "tsx scripts/backfill-images.ts"
   },
   "repository": {
     "type": "git",
@@ -39,6 +40,7 @@
     "node-cron": "^4.6.0",
     "pg": "^8.23.1",
     "robots-parser": "^3.0.1",
+    "sharp": "^0.35.5",
     "zod": "^4.6.6"
   },
   "devDependencies": {

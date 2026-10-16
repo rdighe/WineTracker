@@ -19,6 +19,8 @@ import { refreshPrices } from '../prices/refresh.js';
 import { aggregateWines } from '../prices/aggregate.js';
 import { createAuthenticator, type AuthOptions } from '../auth/auth.js';
 import { createTasting, deleteTasting, listTastings, updateTasting } from '../tastings/tastings.js';
+import { maybeQueueWineImage } from '../catalog/images.js';
+import { importVivino } from '../imports/vivino.js';
 import { recommend } from '../recs/recommend.js';
 
 export interface AppDeps {
@@ -73,6 +75,8 @@ const tastingBody = z.object({
   bottleMl: z.number().int().min(50).max(30000).optional(),
   location: z.string().max(200).optional(),
   tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  kind: z.enum(['tasted', 'cellar']).optional(),
+  bottles: z.number().int().min(1).max(9999).nullable().optional(),
 });
 
 export function createApp({ db, provider, fetcher, auth: authOptions, allowedOrigins = [], trustProxy = 0, limits = {} }: AppDeps) {
@@ -110,8 +114,10 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
   // Scans may carry a base64 photo in JSON (React Native's fetch can't always
   // send a file part), so that one route gets a larger body limit.
   const smallJson = express.json({ limit: '100kb' });
-  app.use((req, res, next) => (req.path === '/api/scans' ? next() : smallJson(req, res, next)));
+  app.use((req, res, next) => (req.path === '/api/scans' || req.path === '/api/import/vivino' ? next() : smallJson(req, res, next)));
   const scanJson = express.json({ limit: '12mb' });
+  const importJson = express.json({ limit: '8mb' });
+  const importLimit = limiter(60 * 60_000, 20);
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, provider: provider.name });
@@ -198,6 +204,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
     const wineId = parse(idParam, req.params.id);
     const wine = await getWine(db, wineId);
     if (!wine) throw new HttpError(404, 'wine not found');
+    maybeQueueWineImage(db, wine);
     res.json({ wine, prices: await priceSummary(db, wineId) });
   }));
 
@@ -280,7 +287,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
 
   app.post('/api/tastings', auth.requireUser, wrap(async (req, res) => {
     const b = parse(tastingBody.extend({ wineId: z.number().int().positive(), scanId: z.number().int().positive().optional() }), req.body);
-    if (!(await getWine(db, b.wineId))) throw new HttpError(404, 'wine not found');
+    const wine = await getWine(db, b.wineId);
+    if (!wine) throw new HttpError(404, 'wine not found');
     if (b.scanId) {
       const { rows } = await db.query('SELECT user_id FROM scans WHERE scan_id = $1', [b.scanId]);
       if (!rows[0] || (rows[0].user_id !== null && rows[0].user_id !== req.user!.userId)) throw new HttpError(404, 'scan not found');
@@ -288,6 +296,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
     // The price paid is stored as a 'user' observation, which never moves the
     // market price, so there is nothing to re-aggregate.
     const tastingId = await createTasting(db, req.user!.userId, b);
+    maybeQueueWineImage(db, wine, b.vintage);
     res.status(201).json({ tastingId });
   }));
 
@@ -302,6 +311,16 @@ export function createApp({ db, provider, fetcher, auth: authOptions, allowedOri
     const id = parse(idParam, req.params.id);
     if (!(await deleteTasting(db, req.user!.userId, id))) throw new HttpError(404, 'tasting not found');
     res.status(204).end();
+  }));
+
+  // ── Imports ──────────────────────────────────────────────────────────────
+  app.post('/api/import/vivino', auth.requireUser, importLimit, importJson, wrap(async (req, res) => {
+    const { csv } = parse(z.object({ csv: z.string().min(1).max(8_000_000) }), req.body);
+    const summary = await importVivino(db, req.user!.userId, csv);
+    if (summary.missingColumns.includes('producer') && summary.missingColumns.includes('name')) {
+      throw new HttpError(400, "This doesn't look like a Vivino wine list: no Winery or Wine name column.");
+    }
+    res.json(summary);
   }));
 
   // ── Saved wines (want to try / watch the price) ──────────────────────────

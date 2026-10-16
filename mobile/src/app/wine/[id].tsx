@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { BackIcon, BookmarkIcon } from '../../components/icons';
 import { TastingForm } from '../../components/TastingForm';
+import { WineThumb } from '../../components/WineThumb';
 import { Button, Card, ErrorText, Eyebrow, IconButton, Mono, Muted, Screen, colors, fonts } from '../../components/ui';
 import { dollarsExact as dollars, wineTitle } from '../../lib/format';
 import type { PriceSummary, PricesResponse, Wine } from '../../lib/types';
@@ -89,6 +90,12 @@ export default function WineScreen() {
         </IconButton>
       </View>
 
+      {wine?.image_url ? (
+        <View style={{ alignItems: 'center', gap: 6 }}>
+          <WineThumb uri={wine.image_url} width={150} height={210} radius={22} />
+          {wine.image_match === 'producer' ? <Muted style={{ fontSize: 11 }}>Photo of another wine from this producer</Muted> : null}
+        </View>
+      ) : null}
       {wine && (
         <View style={{ gap: 6 }}>
           <Eyebrow>{[wine.sub_region, wine.region, wine.country].filter(Boolean).slice(0, 2).join(' · ')}</Eyebrow>

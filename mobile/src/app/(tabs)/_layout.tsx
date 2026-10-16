@@ -66,7 +66,7 @@ export default function TabLayout() {
   return (
     <Tabs tabBar={(props) => <PillTabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}>
       <Tabs.Screen name="index" options={{ title: 'Scan' }} />
-      <Tabs.Screen name="tastings" options={{ title: 'Cellar' }} />
+      <Tabs.Screen name="tastings" options={{ title: 'My wines' }} />
       <Tabs.Screen name="recommendations" options={{ title: 'For you' }} />
       <Tabs.Screen name="search" options={{ title: 'Search' }} />
     </Tabs>

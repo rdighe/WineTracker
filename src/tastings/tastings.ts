@@ -19,6 +19,11 @@ export interface TastingInput {
   location?: string;
   tastedOn?: string;               // YYYY-MM-DD
   scanId?: number | null;
+  /** 'cellar': bottles you own (maybe not opened yet); 'tasted': drunk somewhere. */
+  kind?: 'tasted' | 'cellar';
+  bottles?: number | null;
+  /** Where an imported entry came from ("vivino:<id>"); importing it again is a no-op. */
+  externalRef?: string | null;
 }
 
 async function recordPrice(db: Db, userId: number, t: TastingInput): Promise<number | null> {
@@ -33,15 +38,22 @@ async function recordPrice(db: Db, userId: number, t: TastingInput): Promise<num
   return rows[0].observation_id;
 }
 
-export async function createTasting(db: Db, userId: number, t: TastingInput): Promise<number> {
+/** Returns the new tasting's id, or null when an entry with the same externalRef already exists. */
+export async function createTasting(db: Db, userId: number, t: TastingInput): Promise<number | null> {
+  if (t.externalRef) {
+    const dup = await db.query('SELECT 1 FROM tastings WHERE user_id = $1 AND external_ref = $2', [userId, t.externalRef]);
+    if (dup.rows[0]) return null;
+  }
   const observationId = await recordPrice(db, userId, t);
+  const kind = t.kind ?? 'tasted';
   const { rows } = await db.query(
     `INSERT INTO tastings (user_id, wine_id, vintage_key, rating, notes, tags, price_paid_cents, price_context, bottle_ml,
-                           location, tasted_on, scan_id, observation_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, CURRENT_DATE),$12,$13) RETURNING tasting_id`,
+                           location, tasted_on, scan_id, observation_id, kind, bottles, external_ref)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, CURRENT_DATE),$12,$13,$14,$15,$16) RETURNING tasting_id`,
     [userId, t.wineId, t.vintage ?? null, t.rating ?? null, t.notes ?? '', JSON.stringify(normalizeTags(t.tags ?? [])),
      t.pricePaid ? Math.round(t.pricePaid * 100) : null, t.pricePaid ? t.priceContext ?? 'retail' : null, t.bottleMl ?? 750,
-     t.location ?? '', t.tastedOn ?? null, t.scanId ?? null, observationId]
+     t.location ?? '', t.tastedOn ?? null, t.scanId ?? null, observationId, kind,
+     kind === 'cellar' ? t.bottles ?? 1 : null, t.externalRef ?? null]
   );
   return rows[0].tasting_id;
 }
@@ -61,6 +73,8 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
     bottleMl: t.bottleMl ?? cur.bottle_ml,
     location: t.location ?? cur.location,
     tastedOn: t.tastedOn ?? cur.tasted_on.toISOString().slice(0, 10),
+    kind: t.kind ?? cur.kind,
+    bottles: t.bottles !== undefined ? t.bottles : cur.bottles,
   };
   const priceChanged = t.pricePaid !== undefined || t.priceContext !== undefined || t.bottleMl !== undefined || t.vintage !== undefined || t.tastedOn !== undefined;
   let observationId = cur.observation_id;
@@ -70,11 +84,12 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
   }
   await db.query(
     `UPDATE tastings SET vintage_key = $3, rating = $4, notes = $5, tags = $6, price_paid_cents = $7, price_context = $8,
-            bottle_ml = $9, location = $10, tasted_on = $11::date, observation_id = $12, updated_at = NOW()
+            bottle_ml = $9, location = $10, tasted_on = $11::date, observation_id = $12, kind = $13, bottles = $14, updated_at = NOW()
       WHERE tasting_id = $1 AND user_id = $2`,
     [tastingId, userId, merged.vintage ?? null, merged.rating ?? null, merged.notes ?? '', JSON.stringify(normalizeTags(merged.tags ?? [])),
      merged.pricePaid ? Math.round(merged.pricePaid * 100) : null, merged.pricePaid ? merged.priceContext ?? 'retail' : null,
-     merged.bottleMl ?? 750, merged.location ?? '', merged.tastedOn, observationId]
+     merged.bottleMl ?? 750, merged.location ?? '', merged.tastedOn, observationId, merged.kind ?? 'tasted',
+     merged.kind === 'cellar' ? merged.bottles ?? 1 : null]
   );
   return true;
 }
@@ -94,7 +109,7 @@ export async function listTastings(db: Db, userId: number, opts: { limit?: numbe
   const { rows } = await db.query(
     `SELECT t.tasting_id, t.wine_id, w.display_name, w.producer, w.region, w.sub_region, w.country, w.colour, t.vintage_key,
             t.rating::float AS rating, t.notes, t.tags, t.price_paid_cents, t.price_context, t.bottle_ml, t.location,
-            to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on,
+            to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on, t.kind, t.bottles, w.image_url,
             CASE WHEN t.price_paid_cents IS NULL THEN NULL ELSE round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END AS paid_750_cents,
             COALESCE(pv.median_cents, pa.median_cents) AS market_now_cents,
             CASE WHEN pv.median_cents IS NOT NULL THEN t.vintage_key ELSE CASE WHEN pa.median_cents IS NOT NULL THEN '*' END END AS market_vintage_key

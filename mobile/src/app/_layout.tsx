@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AuthProvider } from '../lib/auth';
 import { colors } from '../components/ui';
 
@@ -20,13 +21,15 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <AuthProvider>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="wine/[id]" />
-      </Stack>
-    </AuthProvider>
+    <KeyboardProvider>
+      <AuthProvider>
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="wine/[id]" />
+        </Stack>
+      </AuthProvider>
+    </KeyboardProvider>
   );
 }

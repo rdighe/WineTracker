@@ -7,7 +7,6 @@ import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -18,6 +17,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const colors = {
@@ -53,12 +53,20 @@ export function useScreenPadding(opts: { tabBar?: boolean } = {}): ViewStyle {
   return { paddingTop: insets.top + 16, paddingHorizontal: 20, paddingBottom: opts.tabBar === false ? insets.bottom + 24 : 120, gap: 16 };
 }
 
+/** A scrolling screen that keeps the focused text field above the keyboard. */
 export function Screen({ children, tabBar, ...rest }: ScrollViewProps & { children: ReactNode; tabBar?: boolean }) {
   const padding = useScreenPadding({ tabBar });
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={padding} keyboardShouldPersistTaps="handled" {...rest}>
+    <KeyboardAwareScrollView
+      style={styles.screen}
+      contentContainerStyle={padding}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      bottomOffset={24}
+      {...rest}
+    >
       {children}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 

@@ -4,7 +4,7 @@
  * store costs tens of requests instead of thousands of page loads.
  */
 import { getWithRetry, type PoliteFetcher } from './fetcher.js';
-import type { ExtractedOffer } from './extract.js';
+import { imageFrom, type ExtractedOffer } from './extract.js';
 
 interface ShopifyVariant {
   id: number;
@@ -12,6 +12,7 @@ interface ShopifyVariant {
   price: string;
   available?: boolean;
   sku?: string | null;
+  featured_image?: { src?: string } | null;
 }
 interface ShopifyProduct {
   id: number;
@@ -21,6 +22,7 @@ interface ShopifyProduct {
   product_type: string;
   tags: string[] | string;
   variants: ShopifyVariant[];
+  images?: Array<{ src?: string }>;
 }
 
 const TAG_KEYS: Array<[RegExp, string]> = [
@@ -64,6 +66,7 @@ export function offersFromProduct(p: ShopifyProduct, origin: string): Array<{ ur
         inStock: typeof v.available === 'boolean' ? v.available : null,
         attributes,
         via: 'jsonld',
+        imageUrl: imageFrom(v.featured_image?.src) ?? imageFrom(p.images?.[0]?.src),
       },
     });
   }

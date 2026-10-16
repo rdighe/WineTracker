@@ -1,6 +1,6 @@
 /** Small typed client for the WineTracker API. */
 import { getApiUrl } from './config';
-import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate } from './types';
+import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -51,8 +51,10 @@ export function createApi(authHeader: AuthHeader) {
     addTasting: (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
+      kind?: 'tasted' | 'cellar'; bottles?: number | null;
     }) => request<{ tastingId: number }>('/api/tastings', json('POST', t)),
-    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[] }) =>
+    importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
+    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null }) =>
       request<unknown>(`/api/tastings/${id}`, json('PATCH', patch)),
     deleteTasting: (id: number) => request<void>(`/api/tastings/${id}`, { method: 'DELETE' }),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
@@ -61,7 +63,7 @@ export function createApi(authHeader: AuthHeader) {
       if (opts.bestValue) q.set('bestValue', 'true');
       if (opts.colour) q.set('colour', opts.colour);
       if (opts.maxPrice) q.set('maxPrice', String(opts.maxPrice));
-      return request<{ mode: 'profile' | 'popular'; items: Recommendation[] }>(`/api/recommendations?${q}`);
+      return request<{ mode: 'profile'; items: Recommendation[] } | { mode: 'locked'; rated: number; needed: number; items: [] }>(`/api/recommendations?${q}`);
     },
   };
 }

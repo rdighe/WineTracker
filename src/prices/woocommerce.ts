@@ -3,7 +3,7 @@
  * (/wp-json/wc/store/v1/products) - the same endpoint their block-based
  * storefront uses. 100 products per request.
  */
-import type { ExtractedOffer } from './extract.js';
+import { imageFrom, type ExtractedOffer } from './extract.js';
 import { getWithRetry, type PoliteFetcher } from './fetcher.js';
 
 interface WooProduct {
@@ -15,6 +15,7 @@ interface WooProduct {
   categories?: Array<{ name: string }>;
   brands?: Array<{ name: string }>;
   attributes?: Array<{ name: string; terms?: Array<{ name: string }> }>;
+  images?: Array<{ src?: string }>;
 }
 
 const decode = (s: string) =>
@@ -43,6 +44,7 @@ export function offerFromWoo(p: WooProduct): { url: string; offer: ExtractedOffe
       inStock: typeof p.is_in_stock === 'boolean' ? p.is_in_stock : null,
       attributes,
       via: 'jsonld',
+      imageUrl: imageFrom(p.images?.[0]?.src),
     },
   };
 }

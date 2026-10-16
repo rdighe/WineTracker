@@ -126,18 +126,19 @@ export async function ingestOffer(
   // Upsert listing; keep an existing confirmed match unless the title changed.
   const { rows } = await db.query(
     `INSERT INTO listings (merchant_id, url, title, brand, sku, gtin, attributes, vintage_key, bottle_ml, pack_size,
-                           last_price_cents, last_currency, last_in_stock)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                           last_price_cents, last_currency, last_in_stock, image_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT (url) DO UPDATE SET
        wine_id = CASE WHEN listings.title = EXCLUDED.title THEN listings.wine_id ELSE NULL END,
        match_status = CASE WHEN listings.title = EXCLUDED.title THEN listings.match_status ELSE 'unmatched' END,
        title = EXCLUDED.title, brand = EXCLUDED.brand, sku = EXCLUDED.sku, gtin = EXCLUDED.gtin,
        attributes = EXCLUDED.attributes, vintage_key = EXCLUDED.vintage_key, bottle_ml = EXCLUDED.bottle_ml,
        pack_size = EXCLUDED.pack_size, last_price_cents = EXCLUDED.last_price_cents,
-       last_currency = EXCLUDED.last_currency, last_in_stock = EXCLUDED.last_in_stock, last_seen_at = NOW()
+       last_currency = EXCLUDED.last_currency, last_in_stock = EXCLUDED.last_in_stock, last_seen_at = NOW(),
+       image_url = COALESCE(EXCLUDED.image_url, listings.image_url)
      RETURNING listing_id, wine_id, match_status`,
     [merchantId, url, offer.title.slice(0, 500), offer.brand, offer.sku, offer.gtin, JSON.stringify(offer.attributes),
-     parsed.vintageKey, parsed.bottleMl, parsed.packSize, offer.priceCents, currency, offer.inStock]
+     parsed.vintageKey, parsed.bottleMl, parsed.packSize, offer.priceCents, currency, offer.inStock, offer.imageUrl ?? null]
   );
   const listing = rows[0];
   const listingId: number = listing.listing_id;

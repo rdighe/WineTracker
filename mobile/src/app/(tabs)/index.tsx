@@ -198,7 +198,7 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
       if (confirmedId !== selected.wineId) await api.confirmScan(scan.scanId, { wineId: selected.wineId });
       await api.addTasting({ wineId: selected.wineId, scanId: scan.scanId, ...tasting });
       onDone();
-      router.push('/tastings');
+      router.push(tasting.kind === 'cellar' ? '/tastings?show=cellar' : '/tastings');
     } catch (e) {
       setError(e);
     } finally {
@@ -308,7 +308,7 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
       <TastingFields draft={draft} />
       <ErrorText error={error} />
       <View style={{ gap: 10 }}>
-        <Button title="Log tasting" busy={busy} onPress={log} />
+        <Button title={draft.kind === 'cellar' ? 'Add to cellar' : 'Log tasting'} busy={busy} onPress={log} />
         {confirmedId !== selected.wineId ? <Button title="Not this wine" variant="secondary" onPress={() => setSelected(null)} /> : null}
       </View>
     </Screen>

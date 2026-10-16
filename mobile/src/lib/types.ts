@@ -55,6 +55,9 @@ export interface Wine {
   colour: string;
   grape: string;
   lwin: string | null;
+  /** Reference photo (a shop's packshot on white); image_match says how close it is. */
+  image_url?: string | null;
+  image_match?: 'vintage' | 'wine' | 'producer' | null;
 }
 
 export interface Offer {
@@ -92,6 +95,20 @@ export interface Tasting {
   market_now_cents: number | null;
   market_vintage_key: string | null;
   tasted_on: string;
+  kind: 'tasted' | 'cellar';
+  bottles: number | null;
+  image_url: string | null;
+}
+
+export interface ImportSummary {
+  rows: number;
+  imported: number;
+  alreadyImported: number;
+  matched: number;
+  addedWines: number;
+  skipped: number;
+  addedNames: string[];
+  missingColumns: string[];
 }
 
 export interface Recommendation {

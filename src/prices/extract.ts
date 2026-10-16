@@ -18,6 +18,18 @@ export interface ExtractedOffer {
   inStock: boolean | null;
   attributes: Record<string, string>;
   via: 'jsonld' | 'microdata' | 'meta';
+  /** The shop's product photo, when it publishes one. */
+  imageUrl?: string;
+}
+
+/** First usable image URL from a schema.org image value (string, ImageObject, or a list of either). */
+export function imageFrom(v: unknown): string | undefined {
+  for (const x of asArray(v)) {
+    const url = typeof x === 'string' ? x : x && typeof x === 'object' ? String((x as Json).url ?? (x as Json).contentUrl ?? (x as Json).src ?? '') : '';
+    const clean = url.trim().replace(/^\/\//, 'https://');
+    if (/^https?:\/\/\S+$/i.test(clean)) return clean;
+  }
+  return undefined;
 }
 
 type Json = Record<string, unknown>;
@@ -101,6 +113,7 @@ function offerFromProduct(p: Json): Omit<ExtractedOffer, 'via'> | null {
     currency,
     inStock,
     attributes,
+    imageUrl: imageFrom(p.image),
   };
 }
 
@@ -142,6 +155,7 @@ export function extractOffer(html: string): ExtractedOffer | null {
         inStock: availability(prop('availability')),
         attributes: {},
         via: 'microdata',
+        imageUrl: imageFrom(product.find('[itemprop="image"]').first().attr('src') ?? prop('image')),
       };
     }
   }
@@ -161,6 +175,7 @@ export function extractOffer(html: string): ExtractedOffer | null {
       inStock: availability(meta('product:availability') || meta('og:availability')),
       attributes: {},
       via: 'meta',
+      imageUrl: imageFrom(meta('og:image')),
     };
   }
   return null;

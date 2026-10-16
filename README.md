@@ -104,6 +104,21 @@ It contains about 60k wines, 125k matched listings from 10 shops plus web-search
 38k wines. On hand-checked samples, wrong merges between wines run at roughly 5%. The usual misses are wines that
 differ only in a region word ("DeLoach RRV Zinfandel" vs "DeLoach California Zinfandel").
 
+### Reference photos
+
+Each wine gets a product photo from the shop listings we crawl: the same wine and vintage if possible, else the
+same wine, else another wine of the same producer and colour - and only a packshot on white (checked on the image:
+light, neutral top corners and border, not landscape). Lookups run in the background when a wine is logged or its
+page is opened. For a database crawled before images were recorded:
+
+```bash
+npm run images                          # re-read the shop feeds for image links, then pick photos for logged wines
+npm run images -- --exclude-tos-prohibited
+```
+
+The photos are the shops' own product images, shown from their URLs. Check the shops' terms (and consider asking or
+licensing) before a public launch.
+
 ### Background worker
 
 ```bash
@@ -136,10 +151,11 @@ refreshes per hour by default).
 | POST | `/api/wines/:id/prices/refresh` | `{vintage}` | on-demand refresh, throttled to once per 12 h per wine+vintage |
 | POST | `/api/wines/:id/prices/report` | `{price, vintage, bottleMl, context: retail\|restaurant, merchant, observedAt}` | price at tasting |
 | GET | `/api/me` | | signed-in user, counts (auth) |
-| GET/POST | `/api/tastings` | `{wineId, vintage, rating (0.5–5), notes, tags, pricePaid, priceContext, tastedOn, scanId}` | auth; list includes paid vs market now |
+| GET/POST | `/api/tastings` | `{wineId, vintage, rating (0.5–5), notes, tags, pricePaid, priceContext, tastedOn, scanId, kind: tasted\|cellar, bottles}` | auth; list includes paid vs market now and the wine's photo |
 | PATCH/DELETE | `/api/tastings/:id` | partial tasting | auth, own tastings only |
 | GET, PUT/DELETE | `/api/saved`, `/api/saved/:wineId` | | watch list (auth) |
-| GET | `/api/recommendations?bestValue=&colour=&maxPrice=&limit=` | | auth; popular wines until 3 ratings, then personal |
+| GET | `/api/recommendations?bestValue=&colour=&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal |
+| POST | `/api/import/vivino` | `{csv}` (a Vivino data export, ≤ 8 MB) | auth; matches each row, adds unknown wines as the user's own; re-importing adds nothing |
 
 Scan outcomes: `auto` (confident, attach directly), `choose` (show the candidates), `new` (offer to create the wine).
 User routes need `Authorization: Bearer <Supabase access token>` (set `SUPABASE_JWT_SECRET` or `SUPABASE_JWKS_URL`).

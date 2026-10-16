@@ -59,7 +59,7 @@ describe('recommendations API', () => {
     return id;
   }
 
-  it('starts with popular wines, then personalizes after a few ratings', async () => {
+  it('suggests nothing until a few ratings, then personalizes', async () => {
     const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
     const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });
     const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
@@ -71,8 +71,7 @@ describe('recommendations API', () => {
     const dud = await priced({ producer: 'Cloudy Bay', name: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white', source: 'crawl' }, 3000, 4);
 
     const cold = await as(request(app).get('/api/recommendations'));
-    expect(cold.body.mode).toBe('popular');
-    expect(cold.body.items[0].wineId).toBe(t3); // most shops
+    expect(cold.body).toEqual({ mode: 'locked', rated: 0, needed: 3, items: [] });
 
     for (const [wineId, rating] of [[t1, 5], [t2, 4.5], [t3, 2]] as const) {
       expect((await as(request(app).post('/api/tastings')).send({ wineId, rating, pricePaid: 40, priceContext: 'restaurant' })).status).toBe(201);

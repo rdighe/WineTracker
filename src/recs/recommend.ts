@@ -2,8 +2,8 @@
  * Recommendations for a user: wines with a current market price, scored by
  * the user's taste profile.
  *
- * Fewer than MIN_RATED rated tastings -> cold start: the wines most shops
- * carry (a proxy for popularity), filtered by any stated preferences.
+ * Fewer than MIN_RATED rated tastings -> 'locked': no suggestions at all,
+ * since anything we showed wouldn't be personal.
  */
 import type { Db } from '../db/pool.js';
 import { normalize } from '../lib/normalize.js';
@@ -47,7 +47,12 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
   return { profile: buildProfile(rated), tasted };
 }
 
-export async function recommend(db: Db, userId: number, opts: RecOptions = {}): Promise<{ mode: 'profile' | 'popular'; items: Recommendation[] }> {
+export type RecResult =
+  | { mode: 'profile'; items: Recommendation[] }
+  /** Not enough ratings to say anything personal yet: no suggestions, just how far along the user is. */
+  | { mode: 'locked'; rated: number; needed: number; items: [] };
+
+export async function recommend(db: Db, userId: number, opts: RecOptions = {}): Promise<RecResult> {
   const limit = Math.min(opts.limit ?? 20, 100);
   const { profile, tasted } = await loadProfile(db, userId);
   const filters: string[] = [`p.vintage_key = '*'`, `p.currency = 'USD'`];
@@ -57,18 +62,7 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
     filters.push(`p.median_cents <= $${params.length}`);
   }
 
-  if (profile.n < MIN_RATED) {
-    const { rows } = await db.query(
-      `SELECT ${WINE_COLS}, p.median_cents, p.n_merchants FROM wine_prices p JOIN wines w USING (wine_id)
-        WHERE ${filters.join(' AND ')} ORDER BY p.n_merchants DESC, p.n_observations DESC LIMIT 500`,
-      params
-    );
-    const items = rows
-      .filter((r) => !tasted.has(r.wine_id) && (!opts.colour || wineFeatures(r).colour === opts.colour))
-      .slice(0, limit)
-      .map((r) => toRec(r, 0, [`Sold by ${r.n_merchants} shops we track`]));
-    return { mode: 'popular', items };
-  }
+  if (profile.n < MIN_RATED) return { mode: 'locked', rated: profile.n, needed: MIN_RATED, items: [] };
 
   // Every priced wine is a candidate (tens of thousands - scoring them in
   // memory is ~100 ms). Move this to a precomputed table if the catalog grows
