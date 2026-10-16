@@ -115,6 +115,12 @@ npm test
    `npm run eval:matcher` at 0 wrong auto-matches.
 9. Gemini models: `src/llm/gemini.ts` tries `GEMINI_MODEL`, then `gemini-3.5-flash-lite`, `gemini-flash-lite-latest`, `gemini-3.5-flash` and
    `gemini-flash-latest` (Flash-Lite first: as accurate on real labels, cheaper; the 2.5 models are closed to new API keys). If those names are retired, list the available models and update the list.
+10. Free alternative: `LLM_PROVIDER=openrouter` with `OPENROUTER_API_KEY` (`src/llm/openrouter.ts`) reads labels on OpenRouter's
+   free vision models (`OPENROUTER_MODEL`, then `google/gemma-4-31b-it:free`, `nvidia/nemotron-3.5-super-vl:free`,
+   `google/gemma-4-26b-a4b-it:free`, `openrouter/free`), moving to the next model when one is rate limited. No web price
+   search on this provider. Free endpoints need "free endpoints that may train on inputs" allowed in the OpenRouter privacy
+   settings, and allow about 50 requests a day (1,000 once the account has bought $10 of credits). Current free vision models:
+   `curl -s https://openrouter.ai/api/v1/models` and keep ids ending in `:free` with `image` in `architecture.input_modalities`.
 
 ### Step 3 — remaining work, in priority order
 1. **Mobile app on a real phone.** Not done yet: the app has only been tested on web.

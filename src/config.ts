@@ -4,9 +4,12 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://wt:wt@localhost:5432/winetracker',
   // Not 5000: macOS AirPlay Receiver listens there and answers 403.
   port: Number(process.env.PORT ?? 5050),
-  llmProvider: (process.env.LLM_PROVIDER ?? 'gemini') as 'gemini' | 'none',
+  // gemini | openrouter | none; unset = whichever has a key (Gemini first).
+  llmProvider: (process.env.LLM_PROVIDER ?? '') as '' | 'gemini' | 'openrouter' | 'none',
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? '',
+  openrouterApiKey: process.env.OPENROUTER_API_KEY ?? '',
+  openrouterModel: process.env.OPENROUTER_MODEL ?? '',
   // Price refreshes also ask the LLM to search the web (Gemini: needs a
   // billed key for search grounding). false = re-check known shop pages only.
   priceWebSearch: process.env.PRICE_WEB_SEARCH !== 'false',

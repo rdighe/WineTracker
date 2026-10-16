@@ -1,6 +1,6 @@
 /**
  * Provider-agnostic interface for the three LLM jobs in WineTracker. Callers
- * depend only on this file; providers (Gemini today, Claude or others later)
+ * depend only on this file; providers (Gemini, OpenRouter; others later)
  * live next to it and are picked in index.ts.
  */
 

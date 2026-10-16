@@ -15,10 +15,10 @@ services:
       - key: TRUST_PROXY
         value: "1"
       - key: LLM_PROVIDER
-        value: gemini
+        value: openrouter
       - key: DATABASE_URL
         sync: false
-      - key: GEMINI_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
       - key: SUPABASE_JWKS_URL
         value: https://bmtteqhttsadodgwodzn.supabase.co/auth/v1/.well-known/jwks.json
@@ -36,10 +36,10 @@ services:
       - key: NODE_ENV
         value: production
       - key: LLM_PROVIDER
-        value: gemini
+        value: openrouter
       - key: DATABASE_URL
         sync: false
-      - key: GEMINI_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
       - key: PRICE_WEB_SEARCH
         value: "false"
