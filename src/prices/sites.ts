@@ -40,6 +40,8 @@ export const SITES: SiteConfig[] = [
   { domain: 'cellar.com', name: "Schneider's of Capitol Hill", kind: 'shopify', tos: 'no_clause_found' },
   { domain: '67wine.com', name: '67 Wine & Spirits', kind: 'shopify', tos: 'no_clause_found' },
   { domain: 'wineandcheeseplace.com', name: 'The Wine and Cheese Place', kind: 'shopify', tos: 'not_found' },
+  { domain: 'sommselect.com', name: 'SommSelect', kind: 'shopify', tos: 'no_clause_found' },
+  { domain: 'highlandparkwine.com', name: 'Highland Park Wine', kind: 'shopify', tos: 'not_found' },
   // Sitemap + structured data on each product page.
   {
     domain: 'www.wallywine.com', name: "Wally's Wine & Spirits", kind: 'sitemap', tos: 'not_found',
