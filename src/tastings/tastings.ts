@@ -92,7 +92,7 @@ export async function deleteTasting(db: Db, userId: number, tastingId: number): 
  */
 export async function listTastings(db: Db, userId: number, opts: { limit?: number; before?: number } = {}) {
   const { rows } = await db.query(
-    `SELECT t.tasting_id, t.wine_id, w.display_name, w.producer, w.region, w.country, w.colour, t.vintage_key,
+    `SELECT t.tasting_id, t.wine_id, w.display_name, w.producer, w.region, w.sub_region, w.country, w.colour, t.vintage_key,
             t.rating::float AS rating, t.notes, t.tags, t.price_paid_cents, t.price_context, t.bottle_ml, t.location,
             to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on,
             CASE WHEN t.price_paid_cents IS NULL THEN NULL ELSE round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END AS paid_750_cents,

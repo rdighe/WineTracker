@@ -1,28 +1,74 @@
 import { Redirect, Tabs } from 'expo-router';
-import { ActivityIndicator, Text, View, type ColorValue } from 'react-native';
+import type { ComponentProps } from 'react';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GlassIcon, ScanIcon, SearchIcon, SparkleIcon } from '../../components/icons';
+import { colors, fonts } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
-import { colors } from '../../components/ui';
 
-function TabIcon({ glyph, color }: { glyph: string; color: ColorValue }) {
-  return <Text style={{ color, fontSize: 18 }}>{glyph}</Text>;
+type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
+
+const ICONS: Record<string, (p: { color: string; size?: number }) => React.ReactElement> = {
+  index: ScanIcon,
+  tastings: GlassIcon,
+  recommendations: SparkleIcon,
+  search: SearchIcon,
+};
+
+/** Floating frosted pill, inset from the screen edges. */
+function PillTabBar({ state, descriptors, navigation }: TabBarProps) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      accessibilityRole="tablist"
+      style={{
+        position: 'absolute', left: 20, right: 20, bottom: Math.max(insets.bottom - 8, 12) + 14, height: 64,
+        borderRadius: 22, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
+        flexDirection: 'row', alignItems: 'center',
+      }}
+    >
+      {state.routes.map((route, index) => {
+        const focused = state.index === index;
+        const title = descriptors[route.key]?.options.title ?? route.name;
+        const Icon = ICONS[route.name] ?? ScanIcon;
+        const color = focused ? colors.accent : colors.muted;
+        return (
+          <Pressable
+            key={route.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: focused }}
+            accessibilityLabel={title}
+            onPress={() => {
+              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+              if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+            }}
+            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%' }}
+          >
+            <Icon color={color} />
+            <Text style={{ fontFamily: focused ? fonts.semibold : fonts.regular, fontSize: 10, color }}>{title}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 export default function TabLayout() {
   const { ready, signedIn } = useAuth();
   if (!ready) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={colors.wine} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
   if (!signedIn) return <Redirect href="/sign-in" />;
   return (
-    <Tabs screenOptions={{ tabBarActiveTintColor: colors.wine, headerTintColor: colors.text }}>
-      <Tabs.Screen name="index" options={{ title: 'Scan', tabBarIcon: ({ color }) => <TabIcon glyph="◎" color={color} /> }} />
-      <Tabs.Screen name="tastings" options={{ title: 'My wines', tabBarIcon: ({ color }) => <TabIcon glyph="♥" color={color} /> }} />
-      <Tabs.Screen name="recommendations" options={{ title: 'For you', tabBarIcon: ({ color }) => <TabIcon glyph="✦" color={color} /> }} />
-      <Tabs.Screen name="search" options={{ title: 'Search', tabBarIcon: ({ color }) => <TabIcon glyph="⌕" color={color} /> }} />
+    <Tabs tabBar={(props) => <PillTabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}>
+      <Tabs.Screen name="index" options={{ title: 'Scan' }} />
+      <Tabs.Screen name="tastings" options={{ title: 'Cellar' }} />
+      <Tabs.Screen name="recommendations" options={{ title: 'For you' }} />
+      <Tabs.Screen name="search" options={{ title: 'Search' }} />
     </Tabs>
   );
 }

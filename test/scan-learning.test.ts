@@ -28,6 +28,7 @@ describe('scans with phone OCR text', () => {
     expect(r.outcome).toBe('auto');
     expect(r.candidates[0]!.wineId).toBe(ids.get('denner-ditch'));
     expect(r.vintage).toBe('2016');
+    expect(r.source).toBe('ocr');
     expect(provider.readLabel).not.toHaveBeenCalled();
     const { rows } = await db.query('SELECT provider, ocr_text FROM scans WHERE scan_id = $1', [r.scanId]);
     expect(rows[0]).toEqual({ provider: 'ocr', ocr_text: 'DENNER VINEYARDS 2016 DITCHDIGGER' });

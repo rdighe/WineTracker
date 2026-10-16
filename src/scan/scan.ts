@@ -23,6 +23,8 @@ export interface ScanResult {
   vintage: string | null;
   bottleMl: number | null;
   candidates: Array<{ wineId: number; displayName: string; region: string; country: string; score: number }>;
+  /** How the label was read: 'ocr', 'ocr-learned', 'ocr-fuzzy' (phone text, no LLM) or the LLM provider's name. */
+  source: string;
 }
 
 /** Match on the structured fields first; fall back to including all label text. */
@@ -71,7 +73,7 @@ export async function scanLabel(
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING scan_id`,
       [sha256, JSON.stringify(read), JSON.stringify(candidates), outcome, outcome === 'auto' ? candidates[0]!.wineId : null, source, ocrText]
     );
-    return { scanId: rows[0].scan_id as number, read, outcome, vintage: read.vintage || null, bottleMl: read.bottleMl, candidates: outcome === 'new' ? [] : candidates };
+    return { scanId: rows[0].scan_id as number, read, outcome, vintage: read.vintage || null, bottleMl: read.bottleMl, candidates: outcome === 'new' ? [] : candidates, source };
   };
 
   const cached = await db.query(

@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text } from 'react-native';
-import { Button, Card, ErrorText, Field, Muted, styles } from '../components/ui';
+import { Text, View } from 'react-native';
+import { Button, Card, ErrorText, Eyebrow, Field, Muted, Screen, colors, fonts } from '../components/ui';
 import { checkServer } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { getApiUrl, setApiUrl } from '../lib/config';
@@ -15,14 +15,15 @@ export default function SignIn() {
   const [error, setError] = useState<unknown>(null);
   const [server, setServer] = useState(getApiUrl());
   const [serverStatus, setServerStatus] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<unknown>(null);
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>, onError = setError) => {
     setBusy(true);
-    setError(null);
+    onError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e);
+      onError(e);
     } finally {
       setBusy(false);
     }
@@ -30,13 +31,19 @@ export default function SignIn() {
   const done = () => router.replace('/');
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>WineTracker</Text>
-      <Muted>Track the wines you taste, what they cost then and now, and find more you&apos;ll like.</Muted>
+    <Screen tabBar={false}>
+      <View style={{ marginTop: 24, marginBottom: 8, gap: 10 }}>
+        <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>WineTracker</Text>
+        <Text style={{ fontFamily: fonts.semibold, fontSize: 30, lineHeight: 36, letterSpacing: -0.6, color: colors.text }}>
+          Every bottle you taste, and what it&apos;s worth now.
+        </Text>
+        <Muted>Scan a label, log what you paid, and find more you&apos;ll like.</Muted>
+      </View>
+
       <Card>
         {auth.devMode ? (
           <>
-            <Text style={styles.h2}>Development sign-in</Text>
+            <Eyebrow>Development sign-in</Eyebrow>
             <Muted>No Supabase project is configured, so pick any name (the API must run with ALLOW_DEV_AUTH=true).</Muted>
             <Field label="Name" value={email} onChangeText={setEmail} autoCapitalize="none" placeholder="rohan" />
             <Button title="Continue" busy={busy} onPress={() => run(async () => { await auth.signInDev(email); done(); })} />
@@ -49,17 +56,18 @@ export default function SignIn() {
         ) : (
           <>
             <Muted>Enter the 6-digit code sent to {email}.</Muted>
-            <Field label="Code" value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" maxLength={8} />
+            <Field label="Code" mono value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" maxLength={8} />
             <Button title="Sign in" busy={busy} onPress={() => run(async () => { await auth.verifyCode(email.trim(), code.trim()); done(); })} />
             <Button title="Use a different email" variant="secondary" onPress={() => setSent(false)} />
           </>
         )}
         <ErrorText error={error} />
       </Card>
+
       <Card>
-        <Text style={styles.h2}>Server</Text>
+        <Eyebrow>Server</Eyebrow>
         <Muted>The WineTracker API this app talks to. On iPhone it must be an https:// address (a deployed API or a tunnel).</Muted>
-        <Field label="API address" value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." />
+        <Field label="API address" mono value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." />
         <Button
           title="Save and check"
           variant="secondary"
@@ -71,11 +79,12 @@ export default function SignIn() {
               setServer(saved);
               const provider = await checkServer(saved);
               setServerStatus(`Connected${provider === 'none' ? ' (label reading is off on this server)' : ''}.`);
-            })
+            }, setServerError)
           }
         />
-        {serverStatus ? <Muted>{serverStatus}</Muted> : null}
+        {serverStatus ? <Muted style={{ color: colors.gold }}>{serverStatus}</Muted> : null}
+        <ErrorText error={serverError} />
       </Card>
-    </ScrollView>
+    </Screen>
   );
 }

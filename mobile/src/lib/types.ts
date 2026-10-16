@@ -29,6 +29,8 @@ export interface ScanResult {
   vintage: string | null;
   bottleMl: number | null;
   candidates: Candidate[];
+  /** 'ocr', 'ocr-learned', 'ocr-fuzzy': identified from the phone's text; else the server's LLM read it. */
+  source?: string;
 }
 
 export interface PriceSummary {
@@ -78,6 +80,7 @@ export interface Tasting {
   wine_id: number;
   display_name: string;
   region: string;
+  sub_region?: string;
   country: string;
   vintage_key: string | null;
   rating: number | null;

@@ -52,6 +52,8 @@ export function createApi(authHeader: AuthHeader) {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
     }) => request<{ tastingId: number }>('/api/tastings', json('POST', t)),
+    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[] }) =>
+      request<unknown>(`/api/tastings/${id}`, json('PATCH', patch)),
     deleteTasting: (id: number) => request<void>(`/api/tastings/${id}`, { method: 'DELETE' }),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
     recommendations: (opts: { bestValue?: boolean; colour?: string; maxPrice?: number } = {}) => {

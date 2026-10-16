@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.rohanatstanford.winetracker",
@@ -37,11 +37,21 @@
           "photosPermission": "WineTracker reads wine labels from photos you choose.",
           "microphonePermission": false
         }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0D0A0E",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120
+        }
       ]
     ],
     "scheme": "winetracker",
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "backgroundColor": "#0D0A0E"
   }
 }
