@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "WineTracker backend: wine catalog + matcher, label scan, and price aggregation",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "tsx src/db/migrate.ts && tsx watch src/server.ts",
+    "start": "tsx src/db/migrate.ts && tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",

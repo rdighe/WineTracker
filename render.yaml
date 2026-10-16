@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: starter
     buildCommand: npm ci
-    startCommand: npm run migrate && npm start
+    startCommand: npm start   # applies pending migrations first
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
