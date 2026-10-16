@@ -1,47 +1,115 @@
-# Render blueprint: the API and the background worker share one Postgres
-# (Supabase, like the Wine Circle app). Secrets are set in the Render
-# dashboard, not here.
+# Render blueprint: the API, three cron jobs that keep prices fresh, and the
+# Postgres database they share. Sign-in stays on Supabase Auth (JWKS below).
+# Secrets (sync: false) are filled in the Render dashboard, not here.
+# Loading the data and copying your tastings: docs/DEPLOY.md.
+
+databases:
+  - name: winetracker-db
+    plan: 0.1c-256mb   # 0.1 CPU, 256 MB RAM ("Basic-256mb")
+    diskSizeGB: 5
+    postgresMajorVersion: "16"
+    databaseName: winetracker
+    user: winetracker
+    region: oregon
+    ipAllowList:
+      # Needed to load the data from your computer; narrow it to your IP (or remove it) afterwards.
+      - source: 0.0.0.0/0
+        description: anywhere (password required)
+
 services:
   - type: web
     name: winetracker-api
     runtime: node
-    plan: starter
-    buildCommand: npm ci
+    plan: 0.5c-512mb   # "Starter"
+    region: oregon
+    # tsx (which runs the TypeScript) is a dev dependency; NODE_ENV=production would skip it.
+    buildCommand: npm ci --include=dev
     startCommand: npm start   # applies pending migrations first
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "22"
+      # Price refreshes re-check known shop pages only (no paid web search).
+      - key: PRICE_WEB_SEARCH
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: winetracker-db
+          property: connectionString
       - key: TRUST_PROXY
         value: "1"
       - key: LLM_PROVIDER
         value: openrouter
-      - key: DATABASE_URL
-        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: SUPABASE_JWKS_URL
         value: https://bmtteqhttsadodgwodzn.supabase.co/auth/v1/.well-known/jwks.json
-      - key: PRICE_WEB_SEARCH
-        value: "false"
       - key: ALLOWED_ORIGINS
         sync: false
-  - type: worker
-    name: winetracker-worker
+
+  # Price updates (src/worker.ts jobs), each run once and exit. Render never starts a
+  # cron job while its previous run is still going.
+  - type: cron
+    name: winetracker-feeds   # Shopify/WooCommerce shop catalogs, daily
     runtime: node
-    plan: starter
-    buildCommand: npm ci
-    startCommand: npm run worker
+    plan: 0.5c-512mb   # "Starter"
+    region: oregon
+    schedule: "17 9 * * *"
+    buildCommand: npm ci --include=dev
+    startCommand: npm run worker -- --once feeds
     envVars:
       - key: NODE_ENV
         value: production
-      - key: LLM_PROVIDER
-        value: openrouter
-      - key: DATABASE_URL
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
+      - key: NODE_VERSION
+        value: "22"
+      # Price refreshes re-check known shop pages only (no paid web search).
       - key: PRICE_WEB_SEARCH
         value: "false"
-      - key: EXCLUDE_TOS_PROHIBITED
+      - key: DATABASE_URL
+        fromDatabase:
+          name: winetracker-db
+          property: connectionString
+
+  - type: cron
+    name: winetracker-pages   # sitemap shops (Wally's), up to 2,000 product pages per run, every 6 h
+    runtime: node
+    plan: 0.5c-512mb   # "Starter"
+    region: oregon
+    schedule: "47 */6 * * *"
+    buildCommand: npm ci --include=dev
+    startCommand: npm run worker -- --once pages
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      # Price refreshes re-check known shop pages only (no paid web search).
+      - key: PRICE_WEB_SEARCH
         value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: winetracker-db
+          property: connectionString
+
+  - type: cron
+    name: winetracker-watched   # wines people saved or tasted lately, stalest first, daily
+    runtime: node
+    plan: 0.5c-512mb   # "Starter"
+    region: oregon
+    schedule: "23 11 * * *"
+    buildCommand: npm ci --include=dev
+    startCommand: npm run worker -- --once watched
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      # Price refreshes re-check known shop pages only (no paid web search).
+      - key: PRICE_WEB_SEARCH
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: winetracker-db
+          property: connectionString

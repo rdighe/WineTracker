@@ -25,8 +25,7 @@
 - **Terms of service:** 5 crawled shops prohibit scraping (Zachys, Bassins, Chambers St, Primal, Mission Liquor).
   They're included because you asked. Before a public launch, decide whether to keep them
   (`EXCLUDE_TOS_PROHIBITED=true` drops them in the worker).
-- **Hosting:** the plan is Render (API + worker, `render.yaml`) + Supabase Postgres. To deploy, you'll need a Render account.
-  You'll also need to give Claude the Supabase **database connection string** as a secret named `DATABASE_URL`, not in chat.
+- **Hosting:** Render (Postgres, API and three cron jobs, `render.yaml`) with Supabase for sign-in only; steps in `docs/DEPLOY.md`.
 
 ---
 

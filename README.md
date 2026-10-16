@@ -131,11 +131,12 @@ npm run worker -- --once watched   # run one job now (feeds | pages | watched)
 
 ### Deploying
 
-`render.yaml` defines the API (web service) and the worker. Both need `DATABASE_URL` (Supabase Postgres) and
-`GEMINI_API_KEY`; the API also needs `SUPABASE_JWT_SECRET` (or `SUPABASE_JWKS_URL`) and, for a web build,
-`ALLOWED_ORIGINS`. Pending migrations are applied whenever the API starts (`npm start` / `npm run dev`). `PRICE_WEB_SEARCH=false` (set in `render.yaml`) limits price refreshes
-to re-checking known shop pages; turn it on once the Gemini key has billing, which search grounding needs. Paid endpoints are rate limited per user (30 scans and 30 price
-refreshes per hour by default).
+`render.yaml` defines the Render Postgres database, the API (web service) and three cron jobs that keep prices fresh
+(`npm run worker -- --once feeds|pages|watched`); step-by-step instructions, including loading the data and copying
+tastings from a local database (`npm run copy-user-data`), are in `docs/DEPLOY.md`. Sign-in uses Supabase Auth
+(`SUPABASE_JWKS_URL`); label reading uses OpenRouter (`OPENROUTER_API_KEY`). Pending migrations are applied whenever
+the API starts (`npm start` / `npm run dev`). `PRICE_WEB_SEARCH=false` limits price refreshes to re-checking known
+shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refreshes per hour by default).
 
 ## API
 

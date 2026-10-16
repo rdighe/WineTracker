@@ -14,7 +14,8 @@
     "eval:matcher": "tsx scripts/eval-matcher.ts",
     "import:web-prices": "tsx scripts/import-web-prices.ts",
     "worker": "tsx src/worker.ts",
-    "images": "tsx scripts/backfill-images.ts"
+    "images": "tsx scripts/backfill-images.ts",
+    "copy-user-data": "tsx scripts/copy-user-data.ts"
   },
   "repository": {
     "type": "git",
