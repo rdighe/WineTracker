@@ -134,7 +134,7 @@ npm run worker -- --once watched   # run one job now (feeds | pages | watched)
 `render.yaml` defines the Render Postgres database, the API (web service) and three cron jobs that keep prices fresh
 (`npm run worker -- --once feeds|pages|watched`); step-by-step instructions, including loading the data and copying
 tastings from a local database (`npm run copy-user-data`), are in `docs/DEPLOY.md`. Sign-in uses Supabase Auth
-(`SUPABASE_JWKS_URL`); label reading uses OpenRouter (`OPENROUTER_API_KEY`). Pending migrations are applied whenever
+(`SUPABASE_JWKS_URL`); label reading uses Gemini (`GEMINI_API_KEY`), or OpenRouter (`OPENROUTER_API_KEY`) when no Gemini key is set. Pending migrations are applied whenever
 the API starts (`npm start` / `npm run dev`). `PRICE_WEB_SEARCH=false` limits price refreshes to re-checking known
 shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refreshes per hour by default).
 

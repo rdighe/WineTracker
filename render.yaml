@@ -40,8 +40,11 @@ services:
           property: connectionString
       - key: TRUST_PROXY
         value: "1"
+      # Label reading. Falls back to OpenRouter while GEMINI_API_KEY is unset.
       - key: LLM_PROVIDER
-        value: openrouter
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: SUPABASE_JWKS_URL

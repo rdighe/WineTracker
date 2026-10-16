@@ -17,12 +17,14 @@ export class NullProvider implements LlmProvider {
 }
 
 export function createProvider(): LlmProvider {
-  const pick = config.llmProvider || (config.geminiApiKey ? 'gemini' : config.openrouterApiKey ? 'openrouter' : 'none');
-  if (pick === 'gemini' && config.geminiApiKey) {
-    return new GeminiProvider({ apiKey: config.geminiApiKey, model: config.geminiModel || undefined });
-  }
-  if (pick === 'openrouter' && config.openrouterApiKey) {
-    return new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined });
-  }
+  const gemini = () => new GeminiProvider({ apiKey: config.geminiApiKey, model: config.geminiModel || undefined });
+  const openrouter = () =>
+    new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined });
+  if (config.llmProvider === 'none') return new NullProvider();
+  // The chosen provider if its key is set, otherwise whichever key is set (Gemini first), so switching
+  // LLM_PROVIDER before its key is added keeps the other provider working.
+  if (config.llmProvider === 'openrouter' && config.openrouterApiKey) return openrouter();
+  if (config.geminiApiKey) return gemini();
+  if (config.openrouterApiKey) return openrouter();
   return new NullProvider();
 }

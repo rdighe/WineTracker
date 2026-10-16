@@ -40,8 +40,9 @@ The dump holds the wine catalog and all crawled prices (63,377 wines with a mark
 1. Sign in at dashboard.render.com and connect your GitHub account if asked.
 2. **New → Blueprint**, pick the `rdighe/WineTracker` repository and the branch that has `render.yaml`
    (`claude/compassionate-franklin-72h8wx` until it is merged into `main`).
-3. Render lists the database and the four services. It asks for two values:
-   - `OPENROUTER_API_KEY`: your OpenRouter key (label reading).
+3. Render lists the database and the four services. It asks for these values:
+   - `GEMINI_API_KEY`: your Gemini key (label reading), from https://aistudio.google.com/apikey.
+   - `OPENROUTER_API_KEY`: optional; used for label reading only if `GEMINI_API_KEY` is empty.
    - `ALLOWED_ORIGINS`: only needed for the web version of the app; enter `http://localhost:8081`.
 4. **Apply.** Wait until the database says *Available* and `winetracker-api` says *Live* (5-10 minutes). Its first start
    creates the empty tables.
