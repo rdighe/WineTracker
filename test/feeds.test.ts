@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { offersFromProduct, tagAttributes } from '../src/prices/shopify.js';
+import { describe, expect, it, vi } from 'vitest';
+import { PoliteFetcher } from '../src/prices/fetcher.js';
+import { offersFromProduct, shopifyProducts, tagAttributes } from '../src/prices/shopify.js';
 import { offerFromWoo } from '../src/prices/woocommerce.js';
 import { nonWineCategory } from '../src/prices/ingest.js';
 
@@ -24,6 +25,27 @@ describe('shopify feed', () => {
     });
     expect(offers[0]!.offer.attributes).toEqual({ country: 'Italy', region: 'Piedmont', varietal: 'Nebbiolo', category: 'Red Wine' });
     expect(tagAttributes('Color: Red, misc')).toEqual({ type: 'Red' });
+  });
+});
+
+describe('shopify feed paging', () => {
+  const fetcherFor = (pages: Record<number, number>) => new PoliteFetcher({
+    userAgent: 'x', minDelayMs: 0, sleep: async () => {},
+    fetch: vi.fn(async (url: string | URL) => {
+      const u = new URL(String(url));
+      if (u.pathname === '/robots.txt') return new Response('', { status: 404 });
+      const status = pages[Number(u.searchParams.get('page'))] ?? 200;
+      return new Response(status === 200 ? JSON.stringify({ products: [{ id: 1 }] }) : 'bad', { status, headers: { 'content-type': 'application/json' } });
+    }) as never,
+  });
+  const collect = async (gen: AsyncGenerator<unknown[]>) => { let n = 0; for await (const p of gen) n += p.length; return n; };
+
+  it('stops quietly at Shopify\'s 100-page cap', async () => {
+    expect(await collect(shopifyProducts(fetcherFor({ 101: 400 }), 'https://shop.example', 400, 99))).toBe(2);
+  });
+
+  it('still fails on an error before the cap', async () => {
+    await expect(collect(shopifyProducts(fetcherFor({ 3: 400 }), 'https://shop.example', 400, 2))).rejects.toThrow(/page 3: HTTP 400/);
   });
 });
 

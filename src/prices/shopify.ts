@@ -73,10 +73,14 @@ export function offersFromProduct(p: ShopifyProduct, origin: string): Array<{ ur
   return out;
 }
 
+const SHOPIFY_PAGE_CAP = 100;
+
 /** Yield pages of products until the feed runs out (or robots.txt says no). */
 export async function* shopifyProducts(fetcher: PoliteFetcher, origin: string, maxPages = 400, startPage = 1): AsyncGenerator<ShopifyProduct[]> {
   for (let page = startPage; page <= maxPages; page++) {
     const r = await getWithRetry(fetcher, `${origin}/products.json?limit=250&page=${page}`, 'application/json');
+    // Shopify serves at most 100 pages (25,000 products) and answers 400 past that: the end of what the feed can give.
+    if (r.status === 400 && page > SHOPIFY_PAGE_CAP) return;
     if (r.status !== 200) throw new Error(`products.json page ${page}: HTTP ${r.status}`);
     const products = (JSON.parse(r.body) as { products?: ShopifyProduct[] }).products ?? [];
     if (!products.length) return;
