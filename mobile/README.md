@@ -53,7 +53,7 @@ The API address is set in the app (sign-in screen -> **Server**), not baked into
 only reach `https://` addresses, so for testing against the API on your computer run a tunnel next to it:
 
 ```bash
-cloudflared tunnel --url http://localhost:5000   # prints https://<random>.trycloudflare.com
+cloudflared tunnel --url http://127.0.0.1:5050   # prints https://<random>.trycloudflare.com
 ```
 
 and enter that address under **Server**. The address changes each time the tunnel restarts. Anyone who has it

@@ -49,7 +49,7 @@ npm install
 cp .env.example .env                     # set DATABASE_URL, GEMINI_API_KEY
 npm run migrate
 npm test                                 # needs TEST_DATABASE_URL (a separate, disposable database)
-npm run dev                              # API on :5000
+npm run dev                              # API on :5050 (not 5000: macOS AirPlay uses it)
 ```
 
 Behind an HTTP proxy, Node's built-in fetch needs `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).

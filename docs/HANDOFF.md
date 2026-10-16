@@ -107,7 +107,7 @@ npm test
 3. Start the API:
    `NODE_USE_ENV_PROXY=1 LLM_PROVIDER=gemini npx tsx src/server.ts` (run it in the background).
 4. For each uploaded label photo:
-   `curl -F "image=@photo.jpg;type=image/jpeg" -H "Authorization: Dev test" localhost:5000/api/scans`
+   `curl -F "image=@photo.jpg;type=image/jpeg" -H "Authorization: Dev test" localhost:5050/api/scans`
 5. Report what Gemini read, the match outcome (`auto` / `choose` / `new`), and whether the matched wine is right.
 6. Then confirm a scan (`POST /api/scans/:id/confirm`) and log a tasting.
 7. Try `POST /api/wines/:id/prices/refresh` on one wine, so the Gemini web search plus shop-page verification runs.
