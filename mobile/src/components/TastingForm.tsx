@@ -3,13 +3,16 @@ import { useState } from 'react';
 import type { TastingSetting } from '../lib/types';
 import { Text, TextInput, View } from 'react-native';
 import { useApi } from '../lib/useApi';
+import { todayIso } from '../lib/format';
+import { DateField } from './DateField';
 import { Button, Card, Chip, ErrorText, Eyebrow, Field, RatingDots, Segmented, colors, fonts, styles } from './ui';
 
 export type PriceContext = 'retail' | 'restaurant';
 export type TastingKind = 'tasted' | 'cellar';
 
-export function useTastingDraft(initialVintage?: string | null) {
-  const [kind, setKind] = useState<TastingKind>('tasted');
+export function useTastingDraft(initialVintage?: string | null, initialKind: TastingKind = 'tasted') {
+  const [kind, setKind] = useState<TastingKind>(initialKind);
+  const [date, setDate] = useState(todayIso());
   const [bottles, setBottles] = useState(1);
   const [setting, setSetting] = useState<TastingSetting>('home');
   const [vintage, setVintage] = useState(initialVintage ?? '');
@@ -25,16 +28,17 @@ export function useTastingDraft(initialVintage?: string | null) {
     if (v && !/^(1[89]\d\d|20\d\d|NV)$/.test(v)) throw new Error('Vintage should be a year or NV');
     const p = price.trim() ? Number(price.replace(/[$,\s]/g, '')) : null;
     if (p !== null && !(p > 0)) throw new Error('Price should be a number');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayIso()) throw new Error('Date should be a past day, like 2026-03-07');
     // Cellar bottles and wine drunk at home were bought from a shop; a restaurant price is a restaurant price.
     const where: PriceContext = kind === 'cellar' || setting === 'home' ? 'retail' : setting === 'restaurant' ? 'restaurant' : context;
     const priceContext = p ? where : null;
     return {
       vintage: v || null, rating, notes: notes.trim(), tags, pricePaid: p, priceContext, kind,
-      bottles: kind === 'cellar' ? bottles : null, setting: kind === 'cellar' ? null : setting,
+      bottles: kind === 'cellar' ? bottles : null, setting: kind === 'cellar' ? null : setting, tastedOn: date,
     };
   }
 
-  return { kind, setKind, bottles, setBottles, setting, setSetting, vintage, setVintage, rating, setRating, price, setPrice, context, setContext, tags, setTags, notes, setNotes, toTasting };
+  return { kind, setKind, date, setDate, bottles, setBottles, setting, setSetting, vintage, setVintage, rating, setRating, price, setPrice, context, setContext, tags, setTags, notes, setNotes, toTasting };
 }
 
 export type TastingDraft = ReturnType<typeof useTastingDraft>;
@@ -74,6 +78,7 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
           />
         </View>
       )}
+      <DateField label={draft.kind === 'cellar' ? 'Added on' : 'Tasted on'} value={draft.date} onChange={draft.setDate} />
       {showVintage ? (
         <Field label="Vintage" mono value={draft.vintage} onChangeText={draft.setVintage} placeholder="2019 or NV" autoCapitalize="characters" maxLength={4} />
       ) : null}
@@ -143,11 +148,11 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
 }
 
 /** Stand-alone form (wine page): the fields plus a save button. */
-export function TastingForm({ wineId, vintage, scanId, suggestedTags, onSaved }: {
-  wineId: number; vintage?: string | null; scanId?: number; suggestedTags?: string[]; onSaved: () => void;
+export function TastingForm({ wineId, vintage, scanId, suggestedTags, kind, onSaved }: {
+  wineId: number; vintage?: string | null; scanId?: number; suggestedTags?: string[]; kind?: TastingKind; onSaved: (kind: TastingKind) => void;
 }) {
   const api = useApi();
-  const draft = useTastingDraft(vintage);
+  const draft = useTastingDraft(vintage, kind);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -156,7 +161,7 @@ export function TastingForm({ wineId, vintage, scanId, suggestedTags, onSaved }:
     setError(null);
     try {
       await api.addTasting({ wineId, scanId, ...draft.toTasting() });
-      onSaved();
+      onSaved(draft.kind);
     } catch (e) {
       setError(e);
     } finally {

@@ -190,10 +190,13 @@ export function RatingDots({ value, onChange, size = 22 }: { value: number | nul
             {fill ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: fill === 1 ? '100%' : '50%', backgroundColor: colors.accent }} /> : null}
           </View>
         );
+        // Two halves per dot: the left half gives n - 0.5, the right half n.
         return onChange ? (
-          <Pressable key={n} accessibilityRole="button" accessibilityLabel={`Rate ${n}`} hitSlop={4} onPress={() => onChange(value === n ? n - 0.5 : n)}>
+          <View key={n} style={{ width: size, height: size }}>
             {dot}
-          </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Rate ${n - 0.5}`} hitSlop={{ top: 6, bottom: 6, left: 3 }} onPress={() => onChange(n - 0.5)} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: size / 2 }} />
+            <Pressable accessibilityRole="button" accessibilityLabel={`Rate ${n}`} hitSlop={{ top: 6, bottom: 6, right: 3 }} onPress={() => onChange(n)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: size / 2 }} />
+          </View>
         ) : (
           <View key={n}>{dot}</View>
         );

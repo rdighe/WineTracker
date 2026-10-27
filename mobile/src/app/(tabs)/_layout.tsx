@@ -2,17 +2,17 @@ import { Redirect, Tabs } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { GlassIcon, ScanIcon, SearchIcon, SparkleIcon } from '../../components/icons';
+import { BottleIcon, GlassIcon, PlusIcon, SparkleIcon } from '../../components/icons';
 import { colors, fonts } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
 const ICONS: Record<string, (p: { color: string; size?: number }) => React.ReactElement> = {
-  index: ScanIcon,
+  index: PlusIcon,
+  cellar: BottleIcon,
   tastings: GlassIcon,
   recommendations: SparkleIcon,
-  search: SearchIcon,
 };
 
 /** Floating frosted pill, inset from the screen edges. */
@@ -30,7 +30,7 @@ function PillTabBar({ state, descriptors, navigation }: TabBarProps) {
       {state.routes.map((route, index) => {
         const focused = state.index === index;
         const title = descriptors[route.key]?.options.title ?? route.name;
-        const Icon = ICONS[route.name] ?? ScanIcon;
+        const Icon = ICONS[route.name] ?? PlusIcon;
         const color = focused ? colors.accent : colors.muted;
         return (
           <Pressable
@@ -65,10 +65,10 @@ export default function TabLayout() {
   if (!signedIn) return <Redirect href="/sign-in" />;
   return (
     <Tabs tabBar={(props) => <PillTabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}>
-      <Tabs.Screen name="index" options={{ title: 'Scan' }} />
-      <Tabs.Screen name="tastings" options={{ title: 'My wines' }} />
+      <Tabs.Screen name="index" options={{ title: 'Add wine' }} />
+      <Tabs.Screen name="cellar" options={{ title: 'My Cellar' }} />
+      <Tabs.Screen name="tastings" options={{ title: 'My Tastings' }} />
       <Tabs.Screen name="recommendations" options={{ title: 'For you' }} />
-      <Tabs.Screen name="search" options={{ title: 'Search' }} />
     </Tabs>
   );
 }

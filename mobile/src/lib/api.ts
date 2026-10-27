@@ -55,6 +55,8 @@ export function createApi(authHeader: AuthHeader) {
     confirmScan: (scanId: number, choice: { wineId: number } | { newWine: { producer: string; name: string; region?: string } }) =>
       request<{ wineId: number; wine: Wine }>(`/api/scans/${scanId}/confirm`, json('POST', choice)),
     search: (q: string) => request<{ results: Candidate[] }>(`/api/wines/search?q=${encodeURIComponent(q)}`),
+    /** A wine that isn't in the catalog, added by hand. */
+    createWine: (w: { producer: string; name: string; region?: string; country?: string }) => request<Wine>('/api/wines', json('POST', w)),
     wine: (id: number) => request<{ wine: Wine; prices: PriceSummary[] }>(`/api/wines/${id}`),
     prices: (id: number, vintage?: string | null) =>
       request<PricesResponse>(`/api/wines/${id}/prices${vintage ? `?vintage=${encodeURIComponent(vintage)}` : ''}`),
@@ -64,12 +66,14 @@ export function createApi(authHeader: AuthHeader) {
     addTasting: (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
-      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null;
+      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string;
     }) => request<{ tastingId: number }>('/api/tastings', json('POST', t)),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
-    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null }) =>
+    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null }) =>
       request<unknown>(`/api/tastings/${id}`, json('PATCH', patch)),
     deleteTasting: (id: number) => request<void>(`/api/tastings/${id}`, { method: 'DELETE' }),
+    /** Out of the cellar; a rating or notes on it stay, as a tasting. */
+    removeFromCellar: (id: number) => request<{ kept: boolean }>(`/api/tastings/${id}/remove-from-cellar`, json('POST', {})),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
     recommendations: (opts: { bestValue?: boolean; colour?: string; maxPrice?: number } = {}) => {
       const q = new URLSearchParams();

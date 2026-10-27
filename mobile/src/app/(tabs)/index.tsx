@@ -1,6 +1,7 @@
 /**
- * Scan: photo of a label -> read on the phone (Apple Vision) and matched by the
- * API -> "Is this it?" with what you paid, a rating and notes -> logged.
+ * Add Wine: photograph a label -> read on the phone (Apple Vision) and matched
+ * by the API -> "Is this it?" with what you paid, a rating and notes -> logged.
+ * Or search the catalog / add a wine by hand (components/AddSearch.tsx).
  * Lineup mode: one photo of several bottles -> every label read by the API ->
  * confirm them all at once (components/LineupReview.tsx).
  */
@@ -8,7 +9,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { BackIcon, CheckIcon, PhotosIcon, SearchIcon } from '../../components/icons';
+import { SearchBar, SearchResults } from '../../components/AddSearch';
+import { BackIcon, CheckIcon, PhotosIcon } from '../../components/icons';
 import { LineupReview } from '../../components/LineupReview';
 import { TastingFields, useTastingDraft } from '../../components/TastingForm';
 import { Button, Card, Chip, ErrorText, Eyebrow, Field, IconButton, Mono, Muted, Screen, Segmented, colors, fonts, glow, styles } from '../../components/ui';
@@ -31,6 +33,9 @@ export default function ScanScreen() {
   const api = useApi();
   const [step, setStep] = useState<Step>({ kind: 'idle' });
   const [mode, setMode] = useState<Mode>('single');
+  // Searching: the search bar moves to the top and the results replace the camera panel.
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   async function pick(fromCamera: boolean) {
@@ -73,9 +78,20 @@ export default function ScanScreen() {
   const lineup = mode === 'lineup';
 
   const scanning = step.kind === 'scanning';
+  if (searching) {
+    return (
+      <Screen keyboardShouldPersistTaps="handled">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <SearchBar value={query} onChangeText={setQuery} autoFocus />
+          <Button title="Cancel" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => { setQuery(''); setSearching(false); }} />
+        </View>
+        <SearchResults query={query} />
+      </Screen>
+    );
+  }
   return (
     <Screen scrollEnabled={false}>
-      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>WineTracker</Text>
+      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>Add wine</Text>
 
       <Viewfinder uri={scanning ? step.uri : null} lines={scanning ? step.lines : []} active={scanning} onPress={() => !scanning && pick(true)} />
 
@@ -89,22 +105,11 @@ export default function ScanScreen() {
       ) : null}
       <ErrorText error={error} />
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 28 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <IconButton label="Choose from photos" size={52} onPress={() => !scanning && pick(false)}>
           <PhotosIcon color={colors.text} />
         </IconButton>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Scan label"
-          disabled={scanning}
-          onPress={() => pick(true)}
-          style={({ pressed }) => [{ width: 78, height: 78, borderRadius: 39, borderWidth: 2, borderColor: colors.accent, padding: 5, ...glow }, (pressed || scanning) && { opacity: 0.6 }]}
-        >
-          <View style={{ flex: 1, borderRadius: 39, backgroundColor: colors.accent }} />
-        </Pressable>
-        <IconButton label="Search instead" size={52} onPress={() => router.push('/search')}>
-          <SearchIcon color={colors.text} />
-        </IconButton>
+        <SearchBar value={query} onChangeText={(q) => { setQuery(q); setSearching(true); }} onFocus={() => setSearching(true)} />
       </View>
     </Screen>
   );
@@ -214,7 +219,7 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
       if (confirmedId !== selected.wineId) await api.confirmScan(scan.scanId, { wineId: selected.wineId });
       await api.addTasting({ wineId: selected.wineId, scanId: scan.scanId, ...tasting });
       onDone();
-      router.push(tasting.kind === 'cellar' ? '/tastings?show=cellar' : '/tastings');
+      router.push(tasting.kind === 'cellar' ? '/cellar' : '/tastings');
     } catch (e) {
       setError(e);
     } finally {

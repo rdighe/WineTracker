@@ -22,3 +22,17 @@ export function priceChange(paid: number | null, now: number | null): string | n
   const pct = Math.round(((now - paid) / paid) * 100);
   return `${pct > 0 ? '+' : ''}${pct}%`;
 }
+
+/** Today as YYYY-MM-DD, in the phone's time zone. */
+export function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-03-07" -> "7 Mar 2026". */
+export function shortDate(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : '';
+}

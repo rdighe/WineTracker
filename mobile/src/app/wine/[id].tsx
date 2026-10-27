@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { BackIcon, BookmarkIcon } from '../../components/icons';
-import { TastingForm } from '../../components/TastingForm';
+import { TastingForm, type TastingKind } from '../../components/TastingForm';
 import { WineAbout, useWineInfo } from '../../components/WineAbout';
 import { WineThumb } from '../../components/WineThumb';
 import { Button, Card, ErrorText, Eyebrow, IconButton, Mono, Muted, Screen, colors, fonts } from '../../components/ui';
@@ -14,7 +14,8 @@ import { useApi } from '../../lib/useApi';
 const capitalize = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
 export default function WineScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // add=cellar|tasted (and vintage): open the form straight away, from My Cellar / My Tastings.
+  const { id, add, vintage: addVintage } = useLocalSearchParams<{ id: string; add?: string; vintage?: string }>();
   const wineId = Number(id);
   const api = useApi();
   const [wine, setWine] = useState<Wine | null>(null);
@@ -23,7 +24,7 @@ export default function WineScreen() {
   const [prices, setPrices] = useState<PricesResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [logging, setLogging] = useState(false);
+  const [logging, setLogging] = useState<TastingKind | null>(add === 'cellar' || add === 'tasted' ? add : null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -190,11 +191,14 @@ export default function WineScreen() {
       <ErrorText error={error} />
 
       {logging ? (
-        <TastingForm wineId={wineId} vintage={vintage} suggestedTags={about?.info?.descriptors} onSaved={() => { setLogging(false); setMessage('Tasting saved'); }} />
+        <TastingForm key={logging} wineId={wineId} vintage={vintage ?? (addVintage || null)} kind={logging} suggestedTags={about?.info?.descriptors} onSaved={(k) => { setLogging(null); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }} />
       ) : (
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Button title="Refresh prices" variant="secondary" busy={busy} onPress={refresh} style={{ flex: 1 }} />
-          <Button title="Log tasting" onPress={() => setLogging(true)} style={{ flex: 1 }} />
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Button title="Add to cellar" onPress={() => setLogging('cellar')} style={{ flex: 1 }} />
+            <Button title="Log tasting" onPress={() => setLogging('tasted')} style={{ flex: 1 }} />
+          </View>
+          <Button title="Refresh prices" variant="secondary" busy={busy} onPress={refresh} />
         </View>
       )}
     </Screen>

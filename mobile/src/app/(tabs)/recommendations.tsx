@@ -57,7 +57,7 @@ export default function Recommendations() {
                 ))}
               </View>
               <Mono style={{ fontSize: 12, color: colors.muted }}>{data.rated} of {data.needed} rated</Mono>
-              <Button title="Scan a bottle" onPress={() => router.push('/')} />
+              <Button title="Add a wine" onPress={() => router.push('/')} />
             </Card>
           ) : (
             <View style={{ alignSelf: 'flex-start' }}>

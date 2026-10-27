@@ -82,3 +82,35 @@ describe('tastings API', () => {
     expect((await request(a).delete(`/api/saved/${wineId}`).set('Authorization', 'Dev r')).status).toBe(204);
   });
 });
+
+describe('removing a wine from the cellar', () => {
+  const as = (r: request.Test, who = 'rohan') => r.set('Authorization', `Dev ${who}`);
+
+  it('keeps the tasting records, and keeps notes written on the cellar entry as a tasting', async () => {
+    const a = app();
+    const wineId = await createWine(db, { producer: 'Lafleur', name: '', source: 'lwin' });
+    const add = async (body: object) => (await as(request(a).post('/api/tastings')).send({ wineId, ...body })).body.tastingId as number;
+    const bare = await add({ kind: 'cellar', bottles: 3, vintage: '2015', tastedOn: '2026-03-01' });
+    const noted = await add({ kind: 'cellar', bottles: 1, vintage: '2016', rating: 4.5, notes: 'Bought at the estate' });
+    const tasted = await add({ kind: 'tasted', vintage: '2015', rating: 5, notes: 'Violets', tastedOn: '2026-05-02' });
+
+    expect((await as(request(a).post(`/api/tastings/${bare}/remove-from-cellar`))).status).toBe(200);
+    expect((await as(request(a).post(`/api/tastings/${noted}/remove-from-cellar`))).body).toEqual({ kept: true });
+    const left = (await as(request(a).get('/api/tastings'))).body.tastings;
+    expect(left.map((t: { tasting_id: number; kind: string; bottles: number | null }) => [t.tasting_id, t.kind, t.bottles]).sort()).toEqual(
+      [[noted, 'tasted', null], [tasted, 'tasted', null]].sort()
+    );
+    // Not a cellar entry (any more), or someone else's: nothing to remove.
+    expect((await as(request(a).post(`/api/tastings/${tasted}/remove-from-cellar`))).status).toBe(400);
+    expect((await as(request(a).post(`/api/tastings/${tasted}/remove-from-cellar`), 'someone-else')).status).toBe(404);
+  });
+
+  it('lets the date of any entry be changed', async () => {
+    const a = app();
+    const wineId = await createWine(db, { producer: 'Ridge', name: 'Monte Bello', source: 'lwin' });
+    const id = (await as(request(a).post('/api/tastings')).send({ wineId, kind: 'cellar', bottles: 2 })).body.tastingId;
+    expect((await as(request(a).patch(`/api/tastings/${id}`)).send({ tastedOn: '2025-12-24' })).status).toBe(200);
+    const [t] = (await as(request(a).get('/api/tastings'))).body.tastings;
+    expect(t).toMatchObject({ tasted_on: '2025-12-24', kind: 'cellar', bottles: 2 });
+  });
+});

@@ -105,6 +105,26 @@ export async function deleteTasting(db: Db, userId: number, tastingId: number): 
 }
 
 /**
+ * Take a cellar entry out of the cellar. Tasting records stay: an entry that
+ * carries a rating, notes or tags becomes a tasting (they were written about
+ * the wine); a bare cellar entry is deleted. Returns null when the entry isn't
+ * the user's, 'not_cellar' when it isn't in the cellar.
+ */
+export async function removeFromCellar(db: Db, userId: number, tastingId: number): Promise<{ kept: boolean } | null | 'not_cellar'> {
+  const { rows } = await db.query('SELECT kind, rating, notes, tags FROM tastings WHERE tasting_id = $1 AND user_id = $2', [tastingId, userId]);
+  const t = rows[0];
+  if (!t) return null;
+  if (t.kind !== 'cellar') return 'not_cellar';
+  const hasNotes = t.rating !== null || Boolean(t.notes?.trim()) || (Array.isArray(t.tags) && t.tags.length > 0);
+  if (!hasNotes) {
+    await deleteTasting(db, userId, tastingId);
+    return { kept: false };
+  }
+  await db.query(`UPDATE tastings SET kind = 'tasted', bottles = NULL, updated_at = NOW() WHERE tasting_id = $1 AND user_id = $2`, [tastingId, userId]);
+  return { kept: true };
+}
+
+/**
  * Tastings with the wine, what was paid (per 750 ml), and the market price
  * now for the same vintage (falling back to all vintages).
  */

@@ -20,7 +20,7 @@ import { refreshPrices } from '../prices/refresh.js';
 import { aggregateWines } from '../prices/aggregate.js';
 import { createAuthenticator, type AuthOptions } from '../auth/auth.js';
 import { googleRoutes, type GoogleOptions } from '../auth/google.js';
-import { createTasting, deleteTasting, listTastings, updateTasting } from '../tastings/tastings.js';
+import { createTasting, deleteTasting, listTastings, removeFromCellar, updateTasting } from '../tastings/tastings.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { importVivino } from '../imports/vivino.js';
 import { recommend } from '../recs/recommend.js';
@@ -352,6 +352,15 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     const id = parse(idParam, req.params.id);
     if (!(await deleteTasting(db, req.user!.userId, id))) throw new HttpError(404, 'tasting not found');
     res.status(204).end();
+  }));
+
+  // Out of the cellar; ratings and notes stay as a tasting.
+  app.post('/api/tastings/:id/remove-from-cellar', auth.requireUser, wrap(async (req, res) => {
+    const id = parse(idParam, req.params.id);
+    const r = await removeFromCellar(db, req.user!.userId, id);
+    if (r === null) throw new HttpError(404, 'tasting not found');
+    if (r === 'not_cellar') throw new HttpError(400, 'not a cellar entry');
+    res.json(r);
   }));
 
   // ── Imports ──────────────────────────────────────────────────────────────

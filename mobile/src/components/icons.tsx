@@ -71,3 +71,20 @@ export function BookmarkIcon({ color, size = 18, filled }: IconProps & { filled?
     </Svg>
   );
 }
+
+export function PlusIcon({ color, size, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round">
+      <Path d="M12 5v14M5 12h14" />
+    </Svg>
+  );
+}
+
+/** A wine bottle: the cellar. */
+export function BottleIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M10 2.5h4M10.5 2.5v4.2c0 .9-.6 1.5-1.4 2.1C8 9.6 7.5 10.6 7.5 12v8a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5v-8c0-1.4-.5-2.4-1.6-3.2-.8-.6-1.4-1.2-1.4-2.1V2.5M7.5 14h9" />
+    </Svg>
+  );
+}
