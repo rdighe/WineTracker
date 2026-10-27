@@ -6,7 +6,10 @@
   "build": {
     "production": {
       "environment": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://winetracker-api.onrender.com"
+      }
     }
   },
   "submit": {
