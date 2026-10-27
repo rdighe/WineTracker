@@ -82,6 +82,10 @@ export interface Tasting {
   tasting_id: number;
   wine_id: number;
   display_name: string;
+  producer: string;
+  colour: string;
+  grape: string;
+  wine_type: string;
   region: string;
   sub_region?: string;
   country: string;
@@ -123,4 +127,25 @@ export interface Recommendation {
   nMerchants: number;
   score: number;
   reasons: string[];
+}
+
+/** Researched background for a wine (see ../../src/llm/types.ts). Any field may be empty. */
+export interface WineInfo {
+  summary: string;
+  tastingNotes: { appearance: string; nose: string; palate: string; finish: string };
+  descriptors: string[];
+  foodPairings: string[];
+  serving: { temperature: string; decant: string; drinkingWindow: string };
+  producer: { history: string; founded: string; location: string; website: string };
+  vineyard: string;
+  specs: { grapes: string; abv: string; aging: string; vinification: string; soil: string; production: string };
+  sources: { title: string; url: string }[];
+  /** False: from the model's general knowledge, not a web search. */
+  grounded: boolean;
+}
+
+export interface InfoResponse {
+  /** none: not researched yet (sign in to start); unavailable: the server can't research. */
+  status: 'ready' | 'pending' | 'failed' | 'none' | 'unavailable';
+  info: WineInfo | null;
 }

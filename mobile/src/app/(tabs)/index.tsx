@@ -1,6 +1,8 @@
 /**
  * Scan: photo of a label -> read on the phone (Apple Vision) and matched by the
  * API -> "Is this it?" with what you paid, a rating and notes -> logged.
+ * Lineup mode: one photo of several bottles -> every label read by the API ->
+ * confirm them all at once (components/LineupReview.tsx).
  */
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -8,24 +10,28 @@ import { useEffect, useState } from 'react';
 import { Alert, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import LabelText from '../../../modules/label-text';
 import { BackIcon, CheckIcon, PhotosIcon, SearchIcon } from '../../components/icons';
+import { LineupReview } from '../../components/LineupReview';
 import { TastingFields, useTastingDraft } from '../../components/TastingForm';
-import { Button, Card, Chip, ErrorText, Eyebrow, Field, IconButton, Mono, Muted, Screen, colors, fonts, glow, styles } from '../../components/ui';
+import { Button, Card, Chip, ErrorText, Eyebrow, Field, IconButton, Mono, Muted, Screen, Segmented, colors, fonts, glow, styles } from '../../components/ui';
 import { ApiError } from '../../lib/api';
 import { dollarsExact, wineTitle } from '../../lib/format';
-import { prepareLabelPhoto, readLabelText } from '../../lib/photo';
+import { LINEUP_MAX_SIDE, prepareLabelPhoto, readLabelText } from '../../lib/photo';
 import type { Candidate, PriceSummary, ScanResult, Wine } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
+type Mode = 'single' | 'lineup';
 type Step =
   | { kind: 'idle' }
   | { kind: 'scanning'; uri: string; lines: string[] }
-  | { kind: 'review'; uri: string; scan: ScanResult };
+  | { kind: 'review'; uri: string; scan: ScanResult }
+  | { kind: 'lineup'; uri: string; scans: ScanResult[] };
 
 const RETICLE = { w: 236, h: 316 };
 
 export default function ScanScreen() {
   const api = useApi();
   const [step, setStep] = useState<Step>({ kind: 'idle' });
+  const [mode, setMode] = useState<Mode>('single');
   const [error, setError] = useState<unknown>(null);
 
   async function pick(fromCamera: boolean) {
@@ -41,6 +47,13 @@ export default function ScanScreen() {
     const asset = res.assets[0];
     setStep({ kind: 'scanning', uri: asset.uri, lines: [] });
     try {
+      if (mode === 'lineup') {
+        // Several labels in one photo: the phone's text reader would run them together, so the API reads them.
+        const photo = await prepareLabelPhoto(asset, LINEUP_MAX_SIDE);
+        const { scans } = await api.scanLineup(photo);
+        setStep({ kind: 'lineup', uri: asset.uri, scans });
+        return;
+      }
       const photo = await prepareLabelPhoto(asset);
       const ocrText = await readLabelText(photo.uri);
       if (ocrText) setStep({ kind: 'scanning', uri: asset.uri, lines: ocrText.split('\n') });
@@ -55,23 +68,35 @@ export default function ScanScreen() {
   if (step.kind === 'review') {
     return <Review uri={step.uri} scan={step.scan} onDone={() => setStep({ kind: 'idle' })} />;
   }
+  if (step.kind === 'lineup') {
+    return <LineupReview uri={step.uri} scans={step.scans} onDone={() => setStep({ kind: 'idle' })} />;
+  }
+  const lineup = mode === 'lineup';
 
   const scanning = step.kind === 'scanning';
   return (
     <Screen scrollEnabled={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>WineTracker</Text>
-        <StatusPill dot>{LabelText ? 'Reading on device' : 'Reading in the cloud'}</StatusPill>
+        <StatusPill dot>{LabelText && !lineup ? 'Reading on device' : 'Reading in the cloud'}</StatusPill>
       </View>
 
       <Viewfinder uri={scanning ? step.uri : null} lines={scanning ? step.lines : []} active={scanning} onPress={() => !scanning && pick(true)} />
 
       <View style={{ alignItems: 'center', gap: 6 }}>
         <Text style={{ fontFamily: fonts.semibold, fontSize: 20, letterSpacing: -0.2, color: colors.text }}>
-          {scanning ? 'Reading the label…' : 'Point at the front label'}
+          {scanning ? (lineup ? 'Reading the labels…' : 'Reading the label…') : lineup ? 'Line the bottles up' : 'Point at the front label'}
         </Text>
-        <Muted>{scanning ? 'One moment.' : LabelText ? 'Hold steady. We read it on your iPhone first.' : 'A clear, straight-on photo works best.'}</Muted>
+        <Muted style={{ textAlign: 'center' }}>
+          {scanning
+            ? lineup ? 'This takes a few seconds per bottle.' : 'One moment.'
+            : lineup ? 'Side by side, front labels facing you, up to 12 bottles.'
+              : LabelText ? 'Hold steady. We read it on your iPhone first.' : 'A clear, straight-on photo works best.'}
+        </Muted>
       </View>
+      {!scanning ? (
+        <Segmented options={[{ key: 'single', label: 'One bottle' }, { key: 'lineup', label: 'Lineup' }]} value={mode} onChange={setMode} />
+      ) : null}
       <ErrorText error={error} />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 28 }}>
@@ -124,6 +149,8 @@ function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines
     return () => loop.stop();
   }, [active, sweep]);
 
+  // Short phones (iPhone SE) also need room for the mode switch and the shutter below.
+  const panel = Math.min(430, height * 0.5, height - 400);
   const corner = { position: 'absolute' as const, width: 34, height: 34, borderColor: colors.accent };
   const chips = lines.map((l) => l.trim()).filter((l) => l && l.length <= 28).slice(0, 6);
   return (
@@ -131,12 +158,12 @@ function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines
       accessibilityRole="button"
       accessibilityLabel={uri ? 'Label photo' : 'Take a photo of a label'}
       onPress={onPress}
-      style={{ height: Math.min(430, height * 0.5), borderRadius: 28, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+      style={{ height: panel, borderRadius: 28, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
     >
       {uri ? (
         <Image source={{ uri }} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: 0.85 }} resizeMode="cover" />
       ) : null}
-      <View style={{ width: RETICLE.w, height: Math.min(RETICLE.h, height * 0.5 - 90) }}>
+      <View style={{ width: RETICLE.w, height: Math.min(RETICLE.h, panel - 90) }}>
         <View style={[corner, { left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2, borderTopLeftRadius: 14 }]} />
         <View style={[corner, { right: 0, top: 0, borderRightWidth: 2, borderTopWidth: 2, borderTopRightRadius: 14 }]} />
         <View style={[corner, { left: 0, bottom: 0, borderLeftWidth: 2, borderBottomWidth: 2, borderBottomLeftRadius: 14 }]} />
@@ -144,7 +171,7 @@ function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines
         <Animated.View
           style={{
             position: 'absolute', left: 16, right: 16, top: 0, height: 1, backgroundColor: colors.accent, opacity: 0.85, ...glow, shadowOpacity: 0.9, shadowRadius: 8,
-            transform: [{ translateY: sweep.interpolate({ inputRange: [0, 1], outputRange: [12, Math.min(RETICLE.h, height * 0.5 - 90) - 12] }) }],
+            transform: [{ translateY: sweep.interpolate({ inputRange: [0, 1], outputRange: [12, Math.min(RETICLE.h, panel - 90) - 12] }) }],
           }}
         />
       </View>

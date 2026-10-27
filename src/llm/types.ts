@@ -1,5 +1,5 @@
 /**
- * Provider-agnostic interface for the three LLM jobs in WineTracker. Callers
+ * Provider-agnostic interface for the LLM jobs in WineTracker. Callers
  * depend only on this file; providers (Gemini, OpenRouter; others later)
  * live next to it and are picked in index.ts.
  */
@@ -36,12 +36,49 @@ export interface WineQuery {
   bottleMl?: number;
 }
 
+/** What we know about a wine before researching it. */
+export interface WineInfoQuery {
+  displayName: string;
+  producer: string;
+  region: string;
+  country: string;
+  grape: string;
+  colour: string;
+}
+
+/**
+ * Researched background for a wine (not a vintage): tasting notes, the
+ * producer's story, technical specs. Every field may be empty: the model is
+ * told to leave out what it can't back up.
+ */
+export interface WineInfo {
+  summary: string;
+  tastingNotes: { appearance: string; nose: string; palate: string; finish: string };
+  /** Short tasting descriptors ("black cherry", "graphite"), offered as tags. */
+  descriptors: string[];
+  foodPairings: string[];
+  serving: { temperature: string; decant: string; drinkingWindow: string };
+  producer: { history: string; founded: string; location: string; website: string };
+  /** Vineyards, site and terroir. */
+  vineyard: string;
+  specs: { grapes: string; abv: string; aging: string; vinification: string; soil: string; production: string };
+  /** Catalog facts, used to fill blanks on catalog entries created from shop listings. */
+  wine: { colour: string; wineType: string; country: string; region: string; subRegion: string; grape: string };
+  sources: { title: string; url: string }[];
+  /** True when the model searched the web; false when it answered from what it already knew. */
+  grounded: boolean;
+}
+
 export interface LlmProvider {
   readonly name: string;
   /** Read a wine label photo. */
   readLabel(image: Buffer, mimeType: string): Promise<LabelRead>;
+  /** Read every bottle label in a photo of several bottles, left to right. Providers that can't, leave it out. */
+  readLabels?(image: Buffer, mimeType: string): Promise<LabelRead[]>;
   /** Search the web for current US retail offers for one wine. */
   searchPrices(q: WineQuery): Promise<WebPriceHit[]>;
+  /** Research a wine's tasting notes, producer and specs. Providers that can't, leave it out. */
+  researchWine?(q: WineInfoQuery): Promise<WineInfo>;
 }
 
 export class ProviderUnavailableError extends Error {

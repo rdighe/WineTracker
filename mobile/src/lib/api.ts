@@ -1,6 +1,6 @@
 /** Small typed client for the WineTracker API. */
 import { getApiUrl } from './config';
-import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting } from './types';
+import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -48,6 +48,10 @@ export function createApi(authHeader: AuthHeader) {
       if (!imageBase64) throw new ApiError(0, 'could not read the photo');
       return request<ScanResult>('/api/scans', json('POST', { imageBase64, mimeType: photo.mimeType ?? 'image/jpeg', ocrText: photo.ocrText }));
     },
+    /** A photo of several bottles: one scan per label, left to right. */
+    scanLineup(photo: { base64: string; mimeType: string }) {
+      return request<{ scans: ScanResult[] }>('/api/scans/lineup', json('POST', { imageBase64: photo.base64, mimeType: photo.mimeType }));
+    },
     confirmScan: (scanId: number, choice: { wineId: number } | { newWine: { producer: string; name: string; region?: string } }) =>
       request<{ wineId: number; wine: Wine }>(`/api/scans/${scanId}/confirm`, json('POST', choice)),
     search: (q: string) => request<{ results: Candidate[] }>(`/api/wines/search?q=${encodeURIComponent(q)}`),
@@ -55,7 +59,8 @@ export function createApi(authHeader: AuthHeader) {
     prices: (id: number, vintage?: string | null) =>
       request<PricesResponse>(`/api/wines/${id}/prices${vintage ? `?vintage=${encodeURIComponent(vintage)}` : ''}`),
     refreshPrices: (id: number, vintage?: string | null) => request<{ prices: PriceSummary[] }>(`/api/wines/${id}/prices/refresh`, json('POST', { vintage: vintage ?? null })),
-    tastings: () => request<{ tastings: Tasting[] }>('/api/tastings'),
+    tastings: () => request<{ tastings: Tasting[] }>('/api/tastings?limit=1000'),
+    wineInfo: (id: number) => request<InfoResponse>(`/api/wines/${id}/info`),
     addTasting: (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;

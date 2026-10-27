@@ -3,7 +3,8 @@
  * that every field is checked and coerced here, never trusted.
  */
 import { z } from 'zod';
-import type { LabelRead, WebPriceHit } from './types.js';
+import { MAX_LINEUP } from './prompts.js';
+import type { LabelRead, WebPriceHit, WineInfo } from './types.js';
 
 const str = (max: number) => z.preprocess((v) => (v == null ? '' : String(v)), z.string()).transform((s) => s.replace(/\s+/g, ' ').trim().slice(0, max));
 
@@ -84,4 +85,74 @@ export function sanitizePriceHits(raw: unknown): WebPriceHit[] {
     });
   }
   return out;
+}
+
+/** Labels read from a lineup photo: {"bottles": [...]} (or a bare array); unreadable entries dropped. */
+export function sanitizeLabels(raw: unknown): LabelRead[] | null {
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' && Array.isArray((raw as { bottles?: unknown }).bottles) ? (raw as { bottles: unknown[] }).bottles : null;
+  if (!list) return null;
+  return list.map(sanitizeLabel).filter((l): l is LabelRead => l !== null).slice(0, MAX_LINEUP);
+}
+
+const obj = <T extends z.ZodRawShape>(shape: T) => z.preprocess((v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {}), z.object(shape));
+const list = (maxItems: number, maxLen: number) =>
+  z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())).transform((a) =>
+    [...new Set(a.map((x) => (typeof x === 'string' ? x.replace(/\s+/g, ' ').trim().slice(0, maxLen) : '')).filter(Boolean))].slice(0, maxItems)
+  );
+
+const infoSchema = z.object({
+  summary: str(800),
+  tasting_notes: obj({ appearance: str(300), nose: str(500), palate: str(500), finish: str(300) }),
+  descriptors: list(12, 30),
+  food_pairings: list(8, 80),
+  serving: obj({ temperature: str(40), decant: str(120), drinking_window: str(120) }),
+  producer: obj({ history: str(1200), founded: str(20), location: str(120), website: str(200) }),
+  vineyard: str(800),
+  specs: obj({ grapes: str(200), abv: str(20), aging: str(300), vinification: str(400), soil: str(200), production: str(80) }),
+  wine: obj({ colour: str(10), wine_type: str(12), country: str(60), region: str(80), sub_region: str(80), grape: str(80) }),
+  sources: z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())),
+});
+
+const webUrl = (s: string): string => {
+  try {
+    const u = new URL(s);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : '';
+  } catch {
+    return '';
+  }
+};
+
+export function sanitizeWineInfo(raw: unknown, grounded: boolean): WineInfo | null {
+  const r = infoSchema.safeParse(raw ?? {});
+  if (!r.success) return null;
+  const d = r.data;
+  const colour = d.wine.colour.toLowerCase().replace('rosé', 'rose');
+  const type = d.wine.wine_type.toLowerCase();
+  const sources: WineInfo['sources'] = [];
+  for (const s of d.sources) {
+    const o = (s && typeof s === 'object' ? s : {}) as { title?: unknown; url?: unknown };
+    const url = webUrl(String(o.url ?? ''));
+    if (url && !sources.some((x) => x.url === url)) sources.push({ title: String(o.title ?? '').trim().slice(0, 120) || new URL(url).hostname, url });
+  }
+  const info: WineInfo = {
+    summary: d.summary,
+    tastingNotes: d.tasting_notes,
+    descriptors: [...new Set(d.descriptors.map((t) => t.toLowerCase()))],
+    foodPairings: d.food_pairings,
+    serving: { temperature: d.serving.temperature, decant: d.serving.decant, drinkingWindow: d.serving.drinking_window },
+    producer: { ...d.producer, website: webUrl(d.producer.website) },
+    vineyard: d.vineyard,
+    specs: d.specs,
+    wine: {
+      colour: ['red', 'white', 'rose'].includes(colour) ? colour : '',
+      wineType: ['still', 'sparkling', 'fortified', 'dessert'].includes(type) ? type : '',
+      country: d.wine.country, region: d.wine.region, subRegion: d.wine.sub_region, grape: d.wine.grape,
+    },
+    // Without a web search, "sources" are links the model recalls, not pages it read.
+    sources: grounded ? sources.slice(0, 8) : [],
+    grounded,
+  };
+  // A reply with nothing in it is a failed research, not an empty wine.
+  const said = [info.summary, ...Object.values(info.tastingNotes), info.producer.history, info.vineyard, ...Object.values(info.specs)].some(Boolean);
+  return said ? info : null;
 }

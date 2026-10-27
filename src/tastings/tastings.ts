@@ -110,7 +110,7 @@ export async function deleteTasting(db: Db, userId: number, tastingId: number): 
  */
 export async function listTastings(db: Db, userId: number, opts: { limit?: number; before?: number } = {}) {
   const { rows } = await db.query(
-    `SELECT t.tasting_id, t.wine_id, w.display_name, w.producer, w.region, w.sub_region, w.country, w.colour, t.vintage_key,
+    `SELECT t.tasting_id, t.wine_id, w.display_name, w.producer, w.region, w.sub_region, w.country, w.colour, w.grape, w.wine_type, t.vintage_key,
             t.rating::float AS rating, t.notes, t.tags, t.price_paid_cents, t.price_context, t.bottle_ml, t.location,
             to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on, t.kind, t.bottles, t.setting, w.image_url,
             CASE WHEN t.price_paid_cents IS NULL THEN NULL ELSE round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END AS paid_750_cents,
@@ -123,7 +123,7 @@ export async function listTastings(db: Db, userId: number, opts: { limit?: numbe
       WHERE t.user_id = $1 AND ($2::bigint IS NULL OR t.tasting_id < $2)
       ORDER BY t.tasted_on DESC, t.tasting_id DESC
       LIMIT $3`,
-    [userId, opts.before ?? null, Math.min(opts.limit ?? 50, 200)]
+    [userId, opts.before ?? null, Math.min(opts.limit ?? 50, 1000)]
   );
   return rows;
 }

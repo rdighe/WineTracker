@@ -4,6 +4,7 @@ import { File } from 'expo-file-system';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { FlatList, Platform, Pressable, RefreshControl, Text, View } from 'react-native';
+import { WineFilters, activeCount, applyFilters, type Filters } from '../../components/WineFilters';
 import { WineThumb } from '../../components/WineThumb';
 import { Button, Card, ErrorText, Eyebrow, Mono, Muted, RatingDots, Segmented, Title, colors, fonts, styles, useScreenPadding } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
@@ -26,6 +27,8 @@ export default function MyWines() {
   const [showPicked, setShow] = useState<Show | null>(null);
   const show: Show = showPicked ?? (params.show === 'cellar' || params.show === 'tasted' ? params.show : 'all');
   const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState<Filters>({});
   const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
@@ -41,12 +44,14 @@ export default function MyWines() {
   }, [api]);
   useFocusEffect(useCallback(() => void load(), [load]));
 
+  const shown = useMemo(() => (items ?? []).filter((t) => show === 'all' || t.kind === show), [items, show]);
+  const narrowed = Boolean(query.trim()) || activeCount(filters) > 0;
   const visible = useMemo(() => {
-    const list = (items ?? []).filter((t) => show === 'all' || t.kind === show);
+    const list = applyFilters(shown, query, filters);
     if (sort === 'value') list.sort((a, b) => (change(b) ?? -Infinity) - (change(a) ?? -Infinity));
     if (sort === 'rating') list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
     return list;
-  }, [items, sort, show]);
+  }, [shown, query, filters, sort]);
 
   // Totals over the visible entries that have both a price paid and a market price now (cellar: per bottle x bottles).
   const n = (t: Tasting) => (t.kind === 'cellar' ? t.bottles ?? 1 : 1);
@@ -73,6 +78,7 @@ export default function MyWines() {
             <Segmented small options={[{ key: 'all', label: 'All' }, { key: 'cellar', label: 'Cellar' }, { key: 'tasted', label: 'Tasted' }]} value={show} onChange={setShow} />
             <Segmented small options={[{ key: 'recent', label: 'Recent' }, { key: 'value', label: 'Value' }, { key: 'rating', label: 'Rating' }]} value={sort} onChange={setSort} />
           </View>
+          {items?.length ? <WineFilters items={shown} query={query} onQuery={setQuery} filters={filters} onFilters={setFilters} /> : null}
           {priced.length > 0 && (
             <Card style={{ flexDirection: 'row', paddingHorizontal: 20 }}>
               <Stat label={show === 'cellar' ? 'Cost' : 'You paid'} value={dollars(paid)} />
@@ -84,7 +90,12 @@ export default function MyWines() {
         </View>
       }
       ListEmptyComponent={
-        items ? (
+        items && narrowed && shown.length ? (
+          <View style={{ gap: 10, alignItems: 'flex-start' }}>
+            <Muted>No wines match.</Muted>
+            <Button title="Clear search and filters" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => { setQuery(''); setFilters({}); }} />
+          </View>
+        ) : items ? (
           <Muted>{show === 'cellar' ? 'No bottles in your cellar yet. Scan one and choose "In my cellar".' : 'Nothing here yet. Scan a label to log your first wine.'}</Muted>
         ) : null
       }

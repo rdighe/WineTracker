@@ -7,11 +7,13 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import LabelText from '../../modules/label-text';
 
 const MAX_SIDE = 1280;
+/** A lineup photo keeps more pixels: each label is a small part of it. */
+export const LINEUP_MAX_SIDE = 2400;
 
-export async function prepareLabelPhoto(photo: { uri: string; width: number; height: number }): Promise<{ uri: string; base64: string; mimeType: string }> {
+export async function prepareLabelPhoto(photo: { uri: string; width: number; height: number }, maxSide = MAX_SIDE): Promise<{ uri: string; base64: string; mimeType: string }> {
   const ctx = ImageManipulator.manipulate(photo.uri);
   const longest = Math.max(photo.width, photo.height);
-  if (longest > MAX_SIDE) ctx.resize(photo.width >= photo.height ? { width: MAX_SIDE } : { height: MAX_SIDE });
+  if (longest > maxSide) ctx.resize(photo.width >= photo.height ? { width: maxSide } : { height: maxSide });
   const image = await ctx.renderAsync();
   const saved = await image.saveAsync({ compress: 0.7, format: SaveFormat.JPEG, base64: true });
   if (!saved.base64) throw new Error('could not read the photo');

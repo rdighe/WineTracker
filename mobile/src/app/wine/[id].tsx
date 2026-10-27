@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { BackIcon, BookmarkIcon } from '../../components/icons';
 import { TastingForm } from '../../components/TastingForm';
+import { WineAbout, useWineInfo } from '../../components/WineAbout';
 import { WineThumb } from '../../components/WineThumb';
 import { Button, Card, ErrorText, Eyebrow, IconButton, Mono, Muted, Screen, colors, fonts } from '../../components/ui';
 import { dollarsExact as dollars, wineTitle } from '../../lib/format';
@@ -27,6 +28,7 @@ export default function WineScreen() {
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [allVintages, setAllVintages] = useState(false);
+  const about = useWineInfo(wineId);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +161,8 @@ export default function WineScreen() {
         </Card>
       )}
 
+      <WineAbout res={about} />
+
       {prices && prices.offers.length > 0 && (
         <Card style={{ paddingHorizontal: 20, gap: 4 }}>
           <Eyebrow>Where to buy</Eyebrow>
@@ -185,7 +189,7 @@ export default function WineScreen() {
       <ErrorText error={error} />
 
       {logging ? (
-        <TastingForm wineId={wineId} vintage={vintage} onSaved={() => { setLogging(false); setMessage('Tasting saved'); }} />
+        <TastingForm wineId={wineId} vintage={vintage} suggestedTags={about?.info?.descriptors} onSaved={() => { setLogging(false); setMessage('Tasting saved'); }} />
       ) : (
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Button title="Refresh prices" variant="secondary" busy={busy} onPress={refresh} style={{ flex: 1 }} />

@@ -127,6 +127,11 @@ export async function mergeWines(db: Db, fromId: number, toId: number): Promise<
      SELECT $2, alias_norm, source FROM wine_aliases WHERE wine_id = $1 ON CONFLICT DO NOTHING`,
     [fromId, toId]
   );
+  // Keep researched background when the wine kept has none of its own.
+  await db.query(
+    'UPDATE wine_info SET wine_id = $2 WHERE wine_id = $1 AND NOT EXISTS (SELECT 1 FROM wine_info WHERE wine_id = $2)',
+    [fromId, toId]
+  );
   await addAlias(db, toId, from.display_name, 'merge');
   await db.query('DELETE FROM wines WHERE wine_id = $1', [fromId]);
 }

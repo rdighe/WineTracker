@@ -28,6 +28,8 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/prices/refresh.ts` | On-demand refresh: re-check known shop pages + LLM web search, verifying each hit on the shop's own page |
 | `src/prices/sites.ts` | Retailers for the bulk crawl, with each site's terms-of-service status |
 | `src/auth/` | Google sign-in (`google.ts`) and session tokens (`auth.ts`); dev sign-in for local use |
+| `src/catalog/info.ts` | Wine background research (tasting notes, producer, specs), once per wine, in the background |
+| `src/catalog/twins.ts` | Merges copies of one wine created from shop listings (`npm run dedupe -- twins`) |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
 | `src/recs/` | Taste profile from ratings (grape, appellation, region, producer, style, price range) and recommendations |
 | `src/api/app.ts` | REST API |
@@ -144,10 +146,12 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 |---|---|---|---|
 | GET | `/api/health` | | |
 | POST | `/api/scans` | multipart `image` (jpeg/png/webp/heic, ≤ 8 MB) or JSON `{imageBase64, mimeType}`; optional `ocrText` | → `{scanId, read, outcome, vintage, bottleMl, candidates}`; with `ocrText` the wine is often identified without the LLM |
+| POST | `/api/scans/lineup` | same photo body (several bottles in one photo) | → `{scans: [...]}`, one scan per label read, left to right; confirm each like a single scan |
 | POST | `/api/scans/:id/confirm` | `{wineId}` or `{newWine: {producer, name, region, …}}` | learns an alias |
 | GET | `/api/wines/search?q=` | | ranked matches |
 | POST | `/api/wines` | `{producer, name, …}` | user-created wine |
 | GET | `/api/wines/:id` | | wine + price summaries per vintage |
+| GET | `/api/wines/:id/info` | | researched tasting notes, producer history, spec sheet → `{status: ready\|pending\|failed\|none\|unavailable, info}`; a signed-in request starts the research (also started when a wine is added) |
 | GET | `/api/wines/:id/prices?vintage=2019` | | summary, daily history, current offers |
 | POST | `/api/wines/:id/prices/refresh` | `{vintage}` | on-demand refresh, throttled to once per 12 h per wine+vintage |
 | POST | `/api/wines/:id/prices/report` | `{price, vintage, bottleMl, context: retail\|restaurant, merchant, observedAt}` | price at tasting |

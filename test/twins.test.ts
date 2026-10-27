@@ -65,6 +65,7 @@ describe('mergeTwins', () => {
     }
     const user = (await db.query(`INSERT INTO users (auth_sub, email) VALUES ('google:1', 'a@b.c') RETURNING user_id`)).rows[0].user_id;
     await db.query(`INSERT INTO tastings (user_id, wine_id, vintage_key) VALUES ($1, $2, '2018')`, [user, c]);
+    await db.query(`INSERT INTO wine_info (wine_id, status, info) VALUES ($1, 'ready', '{"summary": "Margaux third growth"}')`, [c]);
 
     expect((await mergeTwins(db, { dryRun: true })).length).toBe(2);
     expect(await wines()).toBe(3);
@@ -74,6 +75,7 @@ describe('mergeTwins', () => {
     const vintages = (await db.query(`SELECT vintage_key FROM wine_prices WHERE wine_id = $1 AND vintage_key <> '*' ORDER BY 1`, [a])).rows.map((r) => r.vintage_key);
     expect(vintages).toEqual(['2009', '2016', '2018']);
     expect((await db.query('SELECT wine_id FROM tastings')).rows).toEqual([{ wine_id: a }]);
+    expect((await db.query('SELECT wine_id FROM wine_info')).rows).toEqual([{ wine_id: a }]);
   });
 
   it('keeps the catalog entry, and leaves generic names and two catalog entries alone', async () => {

@@ -39,7 +39,7 @@ export function useTastingDraft(initialVintage?: string | null) {
 
 export type TastingDraft = ReturnType<typeof useTastingDraft>;
 
-export function TastingFields({ draft, showVintage }: { draft: TastingDraft; showVintage?: boolean }) {
+export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draft: TastingDraft; showVintage?: boolean; suggestedTags?: string[] }) {
   const [tagInput, setTagInput] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(Boolean(draft.notes));
   const addTag = () => {
@@ -125,6 +125,16 @@ export function TastingFields({ draft, showVintage }: { draft: TastingDraft; sho
         )}
         {!noteOpen ? <Button title="+ Note" variant="pill" onPress={() => setNoteOpen(true)} style={{ borderStyle: 'dashed', borderColor: colors.line2 }} /> : null}
       </View>
+      {suggestedTags.some((t) => !draft.tags.includes(t)) ? (
+        <View style={{ gap: 8 }}>
+          <Eyebrow style={{ fontSize: 10 }}>Typical notes · tap to add</Eyebrow>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {suggestedTags.filter((t) => !draft.tags.includes(t)).map((t) => (
+              <Chip key={t} onPress={() => draft.setTags([...draft.tags, t])}>+ {t}</Chip>
+            ))}
+          </View>
+        </View>
+      ) : null}
       {noteOpen ? (
         <Field label="Notes" value={draft.notes} onChangeText={draft.setNotes} placeholder="What stood out?" multiline style={{ height: 96, paddingTop: 12, textAlignVertical: 'top' }} />
       ) : null}
@@ -133,8 +143,8 @@ export function TastingFields({ draft, showVintage }: { draft: TastingDraft; sho
 }
 
 /** Stand-alone form (wine page): the fields plus a save button. */
-export function TastingForm({ wineId, vintage, scanId, onSaved }: {
-  wineId: number; vintage?: string | null; scanId?: number; onSaved: () => void;
+export function TastingForm({ wineId, vintage, scanId, suggestedTags, onSaved }: {
+  wineId: number; vintage?: string | null; scanId?: number; suggestedTags?: string[]; onSaved: () => void;
 }) {
   const api = useApi();
   const draft = useTastingDraft(vintage);
@@ -156,7 +166,7 @@ export function TastingForm({ wineId, vintage, scanId, onSaved }: {
 
   return (
     <View style={{ gap: 12 }}>
-      <TastingFields draft={draft} showVintage />
+      <TastingFields draft={draft} showVintage suggestedTags={suggestedTags} />
       <ErrorText error={error} />
       <Button title={draft.kind === 'cellar' ? 'Add to cellar' : 'Save tasting'} onPress={save} busy={busy} />
     </View>

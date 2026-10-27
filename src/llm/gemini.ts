@@ -6,9 +6,9 @@
  * GEMINI_MODEL puts a specific model first.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT } from './prompts.js';
-import { sanitizeLabel, sanitizePriceHits } from './sanitize.js';
-import type { LabelRead, LlmProvider, WebPriceHit, WineQuery } from './types.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, researchPrompt } from './prompts.js';
+import { sanitizeLabel, sanitizeLabels, sanitizePriceHits, sanitizeWineInfo } from './sanitize.js';
+import type { LabelRead, LlmProvider, WebPriceHit, WineInfo, WineInfoQuery, WineQuery } from './types.js';
 
 type FetchFn = typeof fetch;
 
@@ -121,6 +121,31 @@ export class GeminiProvider implements LlmProvider {
       (m) => this.generate(m, parts, { grounded: false, json: true }),
       (text) => sanitizeLabel(extractJson(text, 'object'))
     );
+  }
+
+  readLabels(image: Buffer, mimeType: string): Promise<LabelRead[]> {
+    const parts = [{ inline_data: { mime_type: mimeType, data: image.toString('base64') } }, { text: LINEUP_PROMPT }];
+    return this.firstGood(
+      (m) => this.generate(m, parts, { grounded: false, json: true }),
+      (text) => sanitizeLabels(extractJson(text, 'object') ?? extractJson(text, 'array'))
+    );
+  }
+
+  /**
+   * With Google Search grounding when the key allows it (sources are real
+   * pages); otherwise from the model's own knowledge, marked grounded: false.
+   */
+  async researchWine(q: WineInfoQuery): Promise<WineInfo> {
+    const ask = (grounded: boolean) =>
+      this.firstGood(
+        (m) => this.generate(m, [{ text: researchPrompt(q, grounded) }], { grounded, json: !grounded }),
+        (text) => sanitizeWineInfo(extractJson(text, 'object'), grounded)
+      );
+    try {
+      return await ask(true);
+    } catch {
+      return ask(false);
+    }
   }
 
   searchPrices(q: WineQuery): Promise<WebPriceHit[]> {

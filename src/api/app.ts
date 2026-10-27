@@ -13,7 +13,8 @@ import { createWine, getWine } from '../catalog/wines.js';
 import { matchWine } from '../match/matcher.js';
 import { per750 } from '../lib/listing.js';
 import { ProviderUnavailableError, type LlmProvider } from '../llm/types.js';
-import { confirmScan, scanLabel, ScanError } from '../scan/scan.js';
+import { confirmScan, scanLabel, scanLineup, ScanError } from '../scan/scan.js';
+import { createInfoResearcher, getWineInfo, type InfoResearcher } from '../catalog/info.js';
 import type { PoliteFetcher } from '../prices/fetcher.js';
 import { refreshPrices } from '../prices/refresh.js';
 import { aggregateWines } from '../prices/aggregate.js';
@@ -34,6 +35,8 @@ export interface AppDeps {
   allowedOrigins?: string[];
   /** Number of proxies in front of the app (Render: 1), so rate limits see the client IP. */
   trustProxy?: number;
+  /** Wine background research (default: one using `provider`); tests pass their own to await it. */
+  infoResearcher?: InfoResearcher;
   /** Override limits (tests). */
   limits?: { scansPerHour?: number; refreshesPerHour?: number; requestsPer15Min?: number };
 }
@@ -83,7 +86,8 @@ const tastingBody = z.object({
   bottles: z.number().int().min(1).max(9999).nullable().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {} }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher }: AppDeps) {
+  const research = infoResearcher ?? createInfoResearcher(db, provider);
   const app = express();
   app.set('trust proxy', trustProxy);
   app.use(helmet());
@@ -118,7 +122,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   // Scans may carry a base64 photo in JSON (React Native's fetch can't always
   // send a file part), so that one route gets a larger body limit.
   const smallJson = express.json({ limit: '100kb' });
-  app.use((req, res, next) => (req.path === '/api/scans' || req.path === '/api/import/vivino' ? next() : smallJson(req, res, next)));
+  const bigBody = new Set(['/api/scans', '/api/scans/lineup', '/api/import/vivino']);
+  app.use((req, res, next) => (bigBody.has(req.path) ? next() : smallJson(req, res, next)));
   const scanJson = express.json({ limit: '12mb' });
   const importJson = express.json({ limit: '8mb' });
   const importLimit = limiter(60 * 60_000, 20);
@@ -135,7 +140,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
 
   // ── Label scans ──────────────────────────────────────────────────────────
   // The photo comes as multipart field "image", or as JSON {imageBase64, mimeType}; optional "ocrText".
-  app.post('/api/scans', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
+  // The photo comes as multipart field "image", or as JSON {imageBase64, mimeType}.
+  function photo(req: Request): { buffer: Buffer; mimetype: string } {
     let file: { buffer: Buffer; mimetype: string } | undefined = req.file;
     if (!file && typeof req.body?.imageBase64 === 'string') {
       const m = /^data:([^;,]+);base64,/.exec(req.body.imageBase64);
@@ -145,11 +151,25 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     }
     if (!file) throw new HttpError(400, 'an image is required (multipart field "image" or JSON "imageBase64")');
     if (!IMAGE_TYPES.has(file.mimetype)) throw new HttpError(415, `unsupported image type ${file.mimetype}`);
+    return file;
+  }
+
+  // Optional "ocrText": label text read on the phone.
+  app.post('/api/scans', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
+    const file = photo(req);
     // Text the phone's OCR read off the label: lets the server identify the wine without the LLM.
     const ocrText = typeof req.body?.ocrText === 'string' ? req.body.ocrText : undefined;
     const result = await scanLabel(db, provider, file.buffer, file.mimetype, { ocrText });
     if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, result.scanId]);
     res.status(201).json(result);
+  }));
+
+  // A photo of several bottles: one scan per label read, left to right.
+  app.post('/api/scans/lineup', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
+    const file = photo(req);
+    const scans = await scanLineup(db, provider, file.buffer, file.mimetype);
+    if (req.user && scans.length) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = ANY($2)', [req.user.userId, scans.map((x) => x.scanId)]);
+    res.status(201).json({ scans });
   }));
 
   app.post('/api/scans/:id/confirm', wrap(async (req, res) => {
@@ -216,6 +236,16 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     if (!wine) throw new HttpError(404, 'wine not found');
     maybeQueueWineImage(db, wine);
     res.json({ wine, prices: await priceSummary(db, wineId) });
+  }));
+
+  // Researched background: tasting notes, producer, specs. A signed-in visitor
+  // starts the research if it hasn't been done; the app polls while 'pending'.
+  app.get('/api/wines/:id/info', auth.optionalUser, wrap(async (req, res) => {
+    const wineId = parse(idParam, req.params.id);
+    if (!(await getWine(db, wineId))) throw new HttpError(404, 'wine not found');
+    if (req.user) await research.request(wineId);
+    const found = await getWineInfo(db, wineId);
+    res.json({ status: found?.status ?? (research.available ? 'none' : 'unavailable'), info: found?.status === 'ready' ? found.info : null });
   }));
 
   // ── Prices ───────────────────────────────────────────────────────────────
@@ -290,7 +320,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
 
   // ── Tastings ─────────────────────────────────────────────────────────────
   app.get('/api/tastings', auth.requireUser, wrap(async (req, res) => {
-    const limit = parse(z.coerce.number().int().min(1).max(200).default(50), req.query.limit ?? undefined);
+    const limit = parse(z.coerce.number().int().min(1).max(1000).default(50), req.query.limit ?? undefined);
     const before = req.query.before === undefined ? undefined : parse(idParam, req.query.before);
     res.json({ tastings: await listTastings(db, req.user!.userId, { limit, before }) });
   }));
@@ -307,6 +337,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     // market price, so there is nothing to re-aggregate.
     const tastingId = await createTasting(db, req.user!.userId, b);
     maybeQueueWineImage(db, wine, b.vintage);
+    void research.request(wine.wine_id).catch((err) => console.error('wine info request failed:', err));
     res.status(201).json({ tastingId });
   }));
 
@@ -385,7 +416,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   // ── Errors ───────────────────────────────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError || err instanceof ScanError) return void res.status(err.status).json({ error: err.message });
-    if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: 'label reading is not configured (no LLM provider)' });
+    if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: err.message });
     if (err instanceof multer.MulterError) return void res.status(400).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'internal error' });

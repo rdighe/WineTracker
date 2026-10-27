@@ -10,9 +10,9 @@
  * price refreshes re-check known shop pages only.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT } from './prompts.js';
-import { sanitizeLabel } from './sanitize.js';
-import { ProviderUnavailableError, type LabelRead, type LlmProvider } from './types.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, researchPrompt } from './prompts.js';
+import { sanitizeLabel, sanitizeLabels, sanitizeWineInfo } from './sanitize.js';
+import { ProviderUnavailableError, type LabelRead, type LlmProvider, type WineInfo, type WineInfoQuery } from './types.js';
 
 type FetchFn = typeof fetch;
 
@@ -104,6 +104,25 @@ export class OpenRouterProvider implements LlmProvider {
     return this.firstGood(
       (m) => this.chat(m, content),
       (text) => sanitizeLabel(extractJson(text, 'object'))
+    );
+  }
+
+  readLabels(image: Buffer, mimeType: string): Promise<LabelRead[]> {
+    const content = [
+      { type: 'text', text: LINEUP_PROMPT },
+      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image.toString('base64')}` } },
+    ];
+    return this.firstGood(
+      (m) => this.chat(m, content),
+      (text) => sanitizeLabels(extractJson(text, 'object') ?? extractJson(text, 'array'))
+    );
+  }
+
+  /** From the model's own knowledge: free models have no web search. */
+  researchWine(q: WineInfoQuery): Promise<WineInfo> {
+    return this.firstGood(
+      (m) => this.chat(m, [{ type: 'text', text: researchPrompt(q, false) }]),
+      (text) => sanitizeWineInfo(extractJson(text, 'object'), false)
     );
   }
 

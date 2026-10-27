@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import { addAlias, createWine, getWine, type NewWine } from '../catalog/wines.js';
 import { matchWine, type MatchResult } from '../match/matcher.js';
-import type { LabelRead, LlmProvider } from '../llm/types.js';
+import { ProviderUnavailableError, type LabelRead, type LlmProvider } from '../llm/types.js';
 import { normalize } from '../lib/normalize.js';
 import { matchLabelText } from '../match/text-match.js';
 import { learnLabelText, matchLearned } from './learned.js';
@@ -58,6 +58,36 @@ async function freeMatch(db: Db, ocrText: string): Promise<{ wineId: number; vin
   return null;
 }
 
+type Candidates = ScanResult['candidates'];
+
+async function saveScan(
+  db: Db, sha256: string, read: LabelRead, outcome: MatchResult['outcome'], candidates: Candidates, source: string, ocrText: string | null
+): Promise<ScanResult> {
+  const { rows } = await db.query(
+    `INSERT INTO scans (image_sha256, extracted, candidates, outcome, chosen_wine_id, provider, ocr_text)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING scan_id`,
+    [sha256, JSON.stringify(read), JSON.stringify(candidates), outcome, outcome === 'auto' ? candidates[0]!.wineId : null, source, ocrText]
+  );
+  return { scanId: rows[0].scan_id as number, read, outcome, vintage: read.vintage || null, bottleMl: read.bottleMl, candidates: outcome === 'new' ? [] : candidates, source };
+}
+
+/** Match a model's read of one label to the catalog. */
+async function identify(db: Db, read: LabelRead): Promise<{ outcome: MatchResult['outcome']; candidates: Candidates }> {
+  const match = await matchLabel(db, read);
+  // A label the model itself is unsure about is never auto-attached.
+  const outcome = match.outcome === 'auto' && read.confidence < 0.6 ? 'choose' : match.outcome;
+  const candidates = match.candidates.slice(0, MAX_CANDIDATES_SHOWN).map((c) => ({
+    wineId: c.wine.wine_id,
+    displayName: c.wine.display_name,
+    region: c.wine.region,
+    country: c.wine.country,
+    score: Math.round(c.score * 1000) / 1000,
+  }));
+  return { outcome, candidates };
+}
+
+const sha = (image: Buffer) => createHash('sha256').update(image).digest('hex');
+
 export async function scanLabel(
   db: Db,
   provider: LlmProvider,
@@ -65,16 +95,8 @@ export async function scanLabel(
   mimeType: string,
   opts: { ocrText?: string } = {}
 ): Promise<ScanResult> {
-  const sha256 = createHash('sha256').update(image).digest('hex');
+  const sha256 = sha(image);
   const ocrText = opts.ocrText?.trim().slice(0, MAX_OCR_TEXT) || null;
-  const save = async (read: LabelRead, outcome: MatchResult['outcome'], candidates: ScanResult['candidates'], source: string) => {
-    const { rows } = await db.query(
-      `INSERT INTO scans (image_sha256, extracted, candidates, outcome, chosen_wine_id, provider, ocr_text)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING scan_id`,
-      [sha256, JSON.stringify(read), JSON.stringify(candidates), outcome, outcome === 'auto' ? candidates[0]!.wineId : null, source, ocrText]
-    );
-    return { scanId: rows[0].scan_id as number, read, outcome, vintage: read.vintage || null, bottleMl: read.bottleMl, candidates: outcome === 'new' ? [] : candidates, source };
-  };
 
   const cached = await db.query(
     `SELECT extracted FROM scans
@@ -91,23 +113,30 @@ export async function scanLabel(
         country: wine.country, grape: wine.grape, colour: wine.colour, bottleMl: null, rawText: ocrText, confidence: 0.9,
       };
       const candidates = [{ wineId: wine.wine_id, displayName: wine.display_name, region: wine.region, country: wine.country, score: 1 }];
-      return save(read, 'auto', candidates, free.via);
+      return saveScan(db, sha256, read, 'auto', candidates, free.via, ocrText);
     }
   }
 
   // Matching always re-runs: it is free and picks up aliases learned since.
   const read: LabelRead = cached.rows[0]?.extracted ?? (await provider.readLabel(image, mimeType));
-  const match = await matchLabel(db, read);
-  // A label the model itself is unsure about is never auto-attached.
-  const outcome = match.outcome === 'auto' && read.confidence < 0.6 ? 'choose' : match.outcome;
-  const candidates = match.candidates.slice(0, MAX_CANDIDATES_SHOWN).map((c) => ({
-    wineId: c.wine.wine_id,
-    displayName: c.wine.display_name,
-    region: c.wine.region,
-    country: c.wine.country,
-    score: Math.round(c.score * 1000) / 1000,
-  }));
-  return save(read, outcome, candidates, provider.name);
+  const { outcome, candidates } = await identify(db, read);
+  return saveScan(db, sha256, read, outcome, candidates, provider.name, ocrText);
+}
+
+/**
+ * A photo of several bottles: the model reads every label, left to right, and
+ * each bottle becomes its own scan (confirmed separately, like a single scan).
+ */
+export async function scanLineup(db: Db, provider: LlmProvider, image: Buffer, mimeType: string): Promise<ScanResult[]> {
+  if (!provider.readLabels) throw new ProviderUnavailableError('Reading several labels at once is not available on this server');
+  const sha256 = sha(image);
+  const out: ScanResult[] = [];
+  for (const read of await provider.readLabels(image, mimeType)) {
+    const { outcome, candidates } = await identify(db, read);
+    // Its own provider tag, so single-label scans of this photo don't reuse these reads.
+    out.push(await saveScan(db, sha256, read, outcome, candidates, `${provider.name}:lineup`, null));
+  }
+  return out;
 }
 
 export class ScanError extends Error {
