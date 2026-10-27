@@ -49,9 +49,16 @@ export function createInfoResearcher(db: Db, provider: LlmProvider, log: (msg: s
     try {
       const wine = await getWine(db, wineId);
       if (!wine || !provider.researchWine) throw new Error('nothing to research');
+      // The label of the latest scan confirmed as this wine, if any.
+      const { rows: scans } = await db.query(
+        `SELECT COALESCE(NULLIF(ocr_text, ''), extracted->>'rawText') AS text FROM scans
+          WHERE chosen_wine_id = $1 AND COALESCE(NULLIF(ocr_text, ''), extracted->>'rawText', '') <> ''
+          ORDER BY confirmed_at DESC NULLS LAST LIMIT 1`,
+        [wineId]
+      );
       const info = await provider.researchWine({
         displayName: wine.display_name, producer: wine.producer, region: wine.sub_region || wine.region,
-        country: wine.country, grape: wine.grape, colour: wine.colour,
+        country: wine.country, grape: wine.grape, colour: wine.colour, labelText: scans[0]?.text ?? undefined,
       });
       await db.query(`UPDATE wine_info SET status = 'ready', info = $2, provider = $3, error = '', updated_at = NOW() WHERE wine_id = $1`, [wineId, JSON.stringify(info), provider.name]);
       await fillBlanks(db, wineId, info.wine);

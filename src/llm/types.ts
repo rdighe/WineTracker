@@ -44,6 +44,8 @@ export interface WineInfoQuery {
   country: string;
   grape: string;
   colour: string;
+  /** Text read off a label of this wine, when someone scanned it: tells apart wines that share a name. */
+  labelText?: string;
 }
 
 /**

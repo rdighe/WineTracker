@@ -32,17 +32,19 @@ Rules for each bottle:
 If there are no wine labels, return {"bottles": []}.`;
 
 /** Research brief for a wine; the vintage is left out on purpose (the result is shared by every vintage). */
-export function researchPrompt(q: { displayName: string; producer: string; region: string; country: string; grape: string; colour: string }, grounded: boolean): string {
+export function researchPrompt(q: { displayName: string; producer: string; region: string; country: string; grape: string; colour: string; labelText?: string }, grounded: boolean): string {
   const known = [
     `Wine: ${q.displayName}`,
     q.producer && `Producer: ${q.producer}`,
     (q.region || q.country) && `From: ${[q.region, q.country].filter(Boolean).join(', ')}`,
     q.grape && `Grape: ${q.grape}`,
     q.colour && `Colour: ${q.colour}`,
+    q.labelText && `Text on its label: ${q.labelText.slice(0, 400)}`,
   ].filter(Boolean).join('\n');
   return `${grounded ? 'Search the web and research' : 'From what you know, describe'} this wine for a wine lover's cellar app.
 ${known}
 
+Several wines can share a name: use the producer and the label text to research the right one.
 Cover the wine in general, not one vintage. Use the producer's own site, importers' spec sheets, and reputable reviews.
 Only state facts you can back up${grounded ? ' with a page you found' : ''}; leave a field "" (or [] for lists) when unsure. Never invent numbers.
 Reply with ONLY a JSON object with these keys (plain text values, no markdown):

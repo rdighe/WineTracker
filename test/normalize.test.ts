@@ -30,4 +30,10 @@ describe('tokensMatch', () => {
     expect(tokensMatch('cos', 'cas')).toBe(false);
     expect(editDistance('kitten', 'sitting', 3)).toBe(3);
   });
+
+  it('keeps numbered cuvees as one word', () => {
+    expect(normalize('N°2, Domaine Lafleur')).toBe('no2 domaine lafleur');
+    expect(normalize('Nº 2 de Lafleur')).toBe('no2 de lafleur');
+    expect(identityTokens('N°2, Lafleur, Pomerol')).toContain('no2');
+  });
 });

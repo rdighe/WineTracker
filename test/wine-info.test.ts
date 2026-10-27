@@ -109,6 +109,20 @@ describe('wine info API', () => {
     expect(researchWine).toHaveBeenCalledTimes(1);
   });
 
+  it('researches with the text of a scanned label, so wines that share a name are told apart', async () => {
+    const researchWine = vi.fn(async (): Promise<WineInfo> => info);
+    const { app, researcher } = setup(researchWine);
+    const wineId = await createWine(db, { producer: '', name: 'Les Perrières', source: 'user' });
+    await db.query(
+      `INSERT INTO scans (image_sha256, extracted, candidates, outcome, chosen_wine_id, provider, confirmed_at)
+       VALUES ('x', $1, '[]', 'new', $2, 'fake', NOW())`,
+      [JSON.stringify(label({ producer: 'Les Perrières', rawText: 'Les Perrières SOCIÉTÉ CIVILE DU CHÂTEAU LAFLEUR 2023' })), wineId]
+    );
+    await request(app).get(`/api/wines/${wineId}/info`).set(user);
+    await researcher.drained();
+    expect(researchWine).toHaveBeenCalledWith(expect.objectContaining({ labelText: expect.stringContaining('CHÂTEAU LAFLEUR') }));
+  });
+
   it('says so when the server cannot research', async () => {
     const { app } = setup();
     const wineId = await createWine(db, { producer: 'Ridge', name: 'Monte Bello', source: 'lwin' });

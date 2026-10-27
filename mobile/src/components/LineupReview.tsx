@@ -164,7 +164,7 @@ function BottleRow({ n, row, kind, failed, onChange }: { n: number; row: Row; ki
         <View style={{ gap: 6 }}>
           <Eyebrow style={{ fontSize: 10 }}>{scan.outcome === 'choose' ? 'Which wine? Check this one' : 'Which wine?'}</Eyebrow>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {scan.candidates.slice(0, 4).map((x, j) => (
+            {scan.candidates.map((x, j) => (
               <Chip key={x.wineId} tone={pick === j ? 'gold' : 'plain'} onPress={() => onChange({ pick: j })}>{x.displayName}</Chip>
             ))}
             {readName(scan) ? <Chip tone={pick === -1 ? 'gold' : 'plain'} onPress={() => onChange({ pick: -1 })}>None: add as new</Chip> : null}

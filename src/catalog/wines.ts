@@ -88,6 +88,20 @@ export async function upsertLwinWine(db: Db, w: NewWine & { lwin: string }): Pro
   );
 }
 
+/** Change a wine's descriptive fields; the search fields (producer_norm, search_norm, tokens) follow. */
+export async function updateWine(db: Db, wineId: number, patch: Partial<Omit<NewWine, 'source' | 'lwin'>>): Promise<void> {
+  const cur = await getWine(db, wineId);
+  if (!cur) return;
+  const w: NewWine = { ...cur, ...patch, display_name: patch.display_name ?? (patch.producer !== undefined || patch.name !== undefined ? undefined : cur.display_name) };
+  const r = row(w);
+  await db.query(
+    `UPDATE wines SET producer = $2, name = $3, display_name = $4, country = $5, region = $6, sub_region = $7, colour = $8,
+            wine_type = $9, grape = $10, classification = $11, producer_norm = $12, search_norm = $13, tokens = $14, updated_at = NOW()
+      WHERE wine_id = $1`,
+    [wineId, ...r.slice(1, 11), ...r.slice(12)]
+  );
+}
+
 export async function addAlias(db: Db, wineId: number, alias: string, source: string): Promise<void> {
   const a = normalize(alias);
   if (a.length < 3) return;

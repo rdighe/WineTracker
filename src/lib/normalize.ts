@@ -29,6 +29,7 @@ export function normalize(input: unknown): string {
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[’'`]/g, '')        // d'Yquem -> dyquem, matching how it is usually typed
+    .replace(/\bn(?:\s*°|o\.?)\s*(\d+)\b/g, 'no$1')  // "N°2", "Nº 2", "No. 2" (numbered cuvees) stay one word: "no2"
     .replace(/&/g, ' and ')
     .replace(/æ/g, 'ae')
     .replace(/œ/g, 'oe')

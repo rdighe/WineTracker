@@ -10,7 +10,8 @@ import type { Db } from '../db/pool.js';
 import { addAlias, createWine, getWine, type NewWine } from '../catalog/wines.js';
 import { matchWine, type MatchResult } from '../match/matcher.js';
 import { ProviderUnavailableError, type LabelRead, type LlmProvider } from '../llm/types.js';
-import { normalize } from '../lib/normalize.js';
+import { identityTokens, normalize } from '../lib/normalize.js';
+import { THRESHOLDS } from '../match/score.js';
 import { matchLabelText } from '../match/text-match.js';
 import { learnLabelText, matchLearned } from './learned.js';
 
@@ -27,13 +28,37 @@ export interface ScanResult {
   source: string;
 }
 
+/** Candidates this close to the best one count as tied. */
+const TIE = 0.05;
+
+/**
+ * Several wines share a name ("Les Perrieres" is a Lafleur wine and four
+ * Burgundy vineyards); the label's small print often names the estate
+ * ("Societe civile du Chateau Lafleur"). When exactly one of the tied
+ * candidates has its producer printed on the label, it is the one.
+ */
+function preferProducerOnLabel(result: MatchResult, rawText: string): MatchResult {
+  const top = result.candidates[0];
+  if (!top || result.outcome === 'auto') return result;
+  const printed = new Set(identityTokens(rawText));
+  const tied = result.candidates.filter((c) => top.score - c.score <= TIE);
+  const named = tied.filter((c) => {
+    const producer = identityTokens(c.wine.producer);
+    return producer.length > 0 && producer.every((t) => printed.has(t));
+  });
+  if (tied.length < 2 || named.length !== 1) return result;
+  const pick = named[0]!;
+  return { outcome: pick.score >= THRESHOLDS.auto ? 'auto' : result.outcome, candidates: [pick, ...result.candidates.filter((c) => c !== pick)] };
+}
+
 /** Match on the structured fields first; fall back to including all label text. */
 export async function matchLabel(db: Db, read: LabelRead): Promise<MatchResult> {
   const fields = [read.producer, read.name, read.region, read.grape].filter(Boolean).join(' ');
   const primary = await matchWine(db, { text: fields, producer: read.producer || undefined, name: read.name || undefined, colour: read.colour || undefined });
   if (primary.outcome === 'auto' || !read.rawText) return primary;
   const withRaw = await matchWine(db, { text: `${fields} ${read.rawText}`, producer: read.producer || undefined, colour: read.colour || undefined });
-  return (withRaw.candidates[0]?.score ?? 0) > (primary.candidates[0]?.score ?? 0) ? withRaw : primary;
+  const best = (withRaw.candidates[0]?.score ?? 0) > (primary.candidates[0]?.score ?? 0) ? withRaw : primary;
+  return preferProducerOnLabel(best, read.rawText);
 }
 
 /** Earlier reads of the exact same photo are reused for this long (retries, re-uploads). */

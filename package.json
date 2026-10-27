@@ -16,7 +16,8 @@
     "worker": "tsx src/worker.ts",
     "images": "tsx scripts/backfill-images.ts",
     "copy-user-data": "tsx scripts/copy-user-data.ts",
-    "dedupe": "tsx scripts/duplicates.ts"
+    "dedupe": "tsx scripts/duplicates.ts",
+    "curate": "tsx scripts/curate.ts"
   },
   "repository": {
     "type": "git",
