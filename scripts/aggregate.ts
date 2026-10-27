@@ -5,8 +5,8 @@
  *   tsx scripts/aggregate.ts --out-of-stock  # also every wine with out-of-stock offers in the last year
  *                                            # (after the out-of-stock fallback rule changed)
  *
- * --out-of-stock skips wines recomputed in the last day, so an interrupted run
- * can simply be started again.
+ * --out-of-stock skips wines already recomputed under the new rule (since
+ * migration 012 was applied), so an interrupted run can simply be started again.
  */
 import { createPool } from '../src/db/pool.js';
 import { aggregateWines, staleWineIds } from '../src/prices/aggregate.js';
@@ -16,7 +16,8 @@ const ids = new Set(await staleWineIds(db));
 if (process.argv.includes('--out-of-stock')) {
   const { rows } = await db.query(
     `SELECT w.wine_id FROM wines w
-      WHERE (w.prices_computed_at IS NULL OR w.prices_computed_at < NOW() - INTERVAL '1 day')
+      WHERE (w.prices_computed_at IS NULL
+             OR w.prices_computed_at < (SELECT applied_at FROM schema_migrations WHERE name = '012_out_of_stock_prices.sql'))
         AND EXISTS (SELECT 1 FROM price_observations o
                      WHERE o.wine_id = w.wine_id AND o.in_stock = FALSE AND o.observed_at > NOW() - INTERVAL '365 days')
       ORDER BY w.wine_id`
