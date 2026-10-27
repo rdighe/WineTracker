@@ -13,7 +13,8 @@
  * write {"from": id, "to": id} for pairs that are the same wine (to = the
  * entry to keep). apply merges them and re-aggregates prices.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync as writeFile } from 'node:fs';
+import { dirname } from 'node:path';
 import { createPool, withTransaction } from '../src/db/pool.js';
 import { mergeWines } from '../src/catalog/wines.js';
 import { matchWine } from '../src/match/matcher.js';
@@ -27,6 +28,12 @@ function styleWords(title: string): string {
   const words = new Set(normalize(title).split(' '));
   return ['vintage', 'millesime', 'extra', 'nature', 'zero', 'rose', 'blanc', 'demi', 'sec', 'doux', 'late']
     .filter((w) => words.has(w)).join(' ');
+}
+
+/** Write a log/export, creating its folder (data/review/ is git-ignored, so absent on a fresh deploy). */
+function writeFileSync(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFile(path, text);
 }
 
 const args = process.argv.slice(2);
