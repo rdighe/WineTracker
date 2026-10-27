@@ -6,6 +6,7 @@
  *   tsx scripts/duplicates.ts apply decisions.jsonl
  *   tsx scripts/duplicates.ts auto-merge [log.jsonl]  # merge pairs the matcher is sure about
  *   tsx scripts/duplicates.ts auto-merge --dry-run [log.jsonl]  # only log what it would merge
+ *   tsx scripts/duplicates.ts twins [--dry-run] [log.jsonl]  # merge identical copies (src/catalog/twins.ts)
  *
  * Export lists, for every crawl/llm-created wine, the closest other wine when
  * its score is in the "plausible but not certain" band. Review each line and
@@ -19,6 +20,7 @@ import { matchWine } from '../src/match/matcher.js';
 import { THRESHOLDS } from '../src/match/score.js';
 import { normalize } from '../src/lib/normalize.js';
 import { aggregateWines } from '../src/prices/aggregate.js';
+import { mergeTwins } from '../src/catalog/twins.js';
 
 /** Words that tell a cuvee's versions apart but are not identity tokens: "Roederer Brut" vs "Roederer Vintage Brut". */
 function styleWords(title: string): string {
@@ -97,6 +99,12 @@ if (mode === 'export') {
   const ids = dryRun ? [] : [...touched];
   for (let i = 0; i < ids.length; i += 500) await aggregateWines(db, ids.slice(i, i + 500));
   console.log(`${dryRun ? 'would merge' : 'auto-merged'} ${lines.length} duplicate wines -> ${log}`);
+} else if (mode === 'twins') {
+  // Copies of one wine with the same title (one per vintage listing, from before the matcher fix).
+  const log = file ?? 'data/review/twins-merged.jsonl';
+  const merges = await mergeTwins(db, { dryRun });
+  writeFileSync(log, merges.map((m) => JSON.stringify(m)).join('\n') + '\n');
+  console.log(`${dryRun ? 'would merge' : 'merged'} ${merges.length} copies into ${new Set(merges.map((m) => m.to)).size} wines -> ${log}`);
 } else if (mode === 'apply' && file) {
   const decisions = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { from: number; to: number });
   const touched = new Set<number>();
@@ -107,7 +115,7 @@ if (mode === 'export') {
   await aggregateWines(db, [...touched]);
   console.log(`merged ${decisions.length} wines`);
 } else {
-  console.error('usage: tsx scripts/duplicates.ts export [out.jsonl] | apply decisions.jsonl');
+  console.error('usage: tsx scripts/duplicates.ts export [out.jsonl] | apply decisions.jsonl | auto-merge [--dry-run] | twins [--dry-run]');
   process.exitCode = 1;
 }
 await db.end();

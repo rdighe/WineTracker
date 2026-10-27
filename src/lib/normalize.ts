@@ -70,6 +70,9 @@ const YEAR_RE = /^(1[89]\d\d|20\d\d)$/;
 // they are often part of a name ("Bin 389", "Ranch 32", "Chapter 24").
 const SIZE_TOKEN_RE = /^\d+(\.\d+)?(ml|l|cl|oz|ltr|lt)$|^(187|375|500|750|1000|1500|3000)$|^\d+\.\d+$/;
 
+/** A vintage year or a bottle size ("750ml", "1.5l", "375"). */
+export const isYearOrSize = (t: string) => YEAR_RE.test(t) || SIZE_TOKEN_RE.test(t);
+
 /** Identity tokens: normalized words minus stopwords, descriptors, years and sizes. */
 // Style phrases: "Red Rhone Blend" says what kind of wine, not which one.
 const STYLE_PHRASE_RE = /\b(rhone|bordeaux|burgundy|super tuscan) (blend|style)\b/g;

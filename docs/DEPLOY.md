@@ -121,3 +121,20 @@ cron jobs connect over Render's private network and don't need it.
 - Pushing to the deployed branch redeploys the API; new migrations run when it starts.
 - Your Mac's local database keeps working for development (`npm run dev`, Dev sign-in).
 - If search feels slow, upgrade the database plan in place (Render → winetracker-db → Change plan).
+
+## Merging duplicate wines
+
+Shop listings sometimes create a second entry for a wine the catalog already has. Until 2026-10-27, once a wine
+had two identical entries, every new vintage listing created another, so a wine's vintages were spread over many
+entries with one vintage each. To merge them (from your Mac, with the Render database URL as in step 3):
+
+```sh
+DATABASE_URL="$RENDER_DB?sslmode=require" npm run dedupe -- twins --dry-run   # lists what it would merge
+DATABASE_URL="$RENDER_DB?sslmode=require" npm run dedupe -- twins
+DATABASE_URL="$RENDER_DB?sslmode=require" npm run dedupe -- auto-merge --dry-run   # then: shop entries -> catalog entries
+```
+
+`twins` only merges entries whose titles agree word for word (years and bottle sizes aside), keeps the catalog
+(LWIN) entry when there is one, and moves prices, tastings and saved wines along. Read the `--dry-run` output in
+`data/review/` before running `auto-merge` for real: it uses the matcher, so check a sample.
+

@@ -92,6 +92,24 @@ describe('aggregateWines', () => {
     const daily = await db.query(`SELECT COUNT(*)::int AS n FROM wine_price_daily WHERE vintage_key = '2019'`);
     expect(daily.rows[0].n).toBe(3);
   });
+
+  it('keeps vintages only offered in the past year next to ones offered this month', async () => {
+    const wineId = await createWine(db, { producer: 'Opus One', name: '', source: 'lwin' });
+    const m = await ensureMerchant(db, 'shop.test');
+    const day = (d: number) => new Date(Date.now() - d * 86400000);
+    const add = (url: string, title: string, cents: number, d: number) =>
+      ingestOffer(db, { merchantId: m, merchantName: 's', url, offer: offer(title, cents) }, { createWines: false, observedAt: day(d) });
+    await add('https://shop.test/a', 'Opus One 2021', 45000, 2);
+    await add('https://shop.test/b', 'Opus One 2015', 60000, 90);
+    await add('https://shop.test/c', 'Opus One 2015', 62000, 120);
+    await aggregateWines(db, [wineId]);
+    const { rows } = await db.query('SELECT vintage_key, median_cents, n_observations, window_days FROM wine_prices ORDER BY vintage_key');
+    expect(rows).toEqual([
+      { vintage_key: '*', median_cents: 45000, n_observations: 1, window_days: 30 },
+      { vintage_key: '2015', median_cents: 61000, n_observations: 2, window_days: 365 },
+      { vintage_key: '2021', median_cents: 45000, n_observations: 1, window_days: 30 },
+    ]);
+  });
 });
 
 describe('refreshPrices', () => {

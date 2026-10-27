@@ -1,8 +1,11 @@
 /**
  * Market price per wine + vintage from raw observations.
  *
- *  - Window: last 30 days; if a wine has nothing that recent, last 365 days
- *    (window_days records which one was used, so the UI can say "as of").
+ *  - Window, per vintage (and for all vintages together): last 30 days; if
+ *    that vintage has nothing that recent, last 365 days (window_days records
+ *    which one was used, so the UI can say "as of"). Shops sell the current
+ *    release daily while older vintages turn up now and then; a per-wine
+ *    window would hide those older vintages as soon as one fresh offer arrived.
  *  - One vote per offer: only the latest observation per listing/URL counts,
  *    so a shop crawled daily doesn't outweigh one crawled monthly.
  *  - Outliers (mis-sized bottles, typos, mismatched wines) are dropped with a
@@ -63,27 +66,30 @@ interface ObsRow {
 export async function aggregateWines(db: Db, wineIds: number[]): Promise<void> {
   for (const wineId of wineIds) {
     await db.query('DELETE FROM wine_prices WHERE wine_id = $1', [wineId]);
-    for (const days of WINDOWS) {
-      const { rows } = await db.query<ObsRow>(
-        `SELECT DISTINCT ON (COALESCE(listing_id::text, url, observation_id::text), vintage_key)
-                vintage_key, unit_750_cents,
-                COALESCE(merchant_id::text, regexp_replace(url, '^https?://(www\\.)?([^/]+).*$', '\\2')) AS merchant_key,
-                observed_at
-           FROM price_observations
-          WHERE wine_id = $1 AND currency = 'USD' AND context = 'retail' AND source_type <> 'user'
-            AND observed_at > NOW() - make_interval(days => $2)
-            AND (in_stock IS DISTINCT FROM FALSE)
-          ORDER BY COALESCE(listing_id::text, url, observation_id::text), vintage_key, observed_at DESC`,
-        [wineId, days]
-      );
-      if (!rows.length) continue;
-      const groups = new Map<string, ObsRow[]>();
-      for (const r of rows) {
-        if (r.vintage_key) groups.set(r.vintage_key, [...(groups.get(r.vintage_key) ?? []), r]);
-        groups.set('*', [...(groups.get('*') ?? []), r]);
-      }
-      for (const [vintageKey, obs] of groups) {
-        const s = summarize(obs.map((o) => o.unit_750_cents));
+    const longest = WINDOWS[WINDOWS.length - 1]!;
+    const { rows } = await db.query<ObsRow>(
+      `SELECT DISTINCT ON (COALESCE(listing_id::text, url, observation_id::text), vintage_key)
+              vintage_key, unit_750_cents,
+              COALESCE(merchant_id::text, regexp_replace(url, '^https?://(www\\.)?([^/]+).*$', '\\2')) AS merchant_key,
+              observed_at
+         FROM price_observations
+        WHERE wine_id = $1 AND currency = 'USD' AND context = 'retail' AND source_type <> 'user'
+          AND observed_at > NOW() - make_interval(days => $2)
+          AND (in_stock IS DISTINCT FROM FALSE)
+        ORDER BY COALESCE(listing_id::text, url, observation_id::text), vintage_key, observed_at DESC`,
+      [wineId, longest]
+    );
+    const groups = new Map<string, ObsRow[]>();
+    for (const r of rows) {
+      if (r.vintage_key) groups.set(r.vintage_key, [...(groups.get(r.vintage_key) ?? []), r]);
+      groups.set('*', [...(groups.get('*') ?? []), r]);
+    }
+    for (const [vintageKey, all] of groups) {
+      // The shortest window with offers for this vintage wins.
+      for (const days of WINDOWS) {
+        const since = Date.now() - days * 86400000;
+        const obs = all.filter((o) => +o.observed_at > since);
+        const s = obs.length ? summarize(obs.map((o) => o.unit_750_cents)) : null;
         if (!s) continue;
         await db.query(
           `INSERT INTO wine_prices (wine_id, vintage_key, median_cents, p10_cents, p90_cents, n_observations, n_merchants,
@@ -92,8 +98,8 @@ export async function aggregateWines(db: Db, wineIds: number[]): Promise<void> {
           [wineId, vintageKey, s.median, s.p10, s.p90, s.n, new Set(obs.map((o) => o.merchant_key)).size, days,
            new Date(Math.max(...obs.map((o) => +o.observed_at)))]
         );
+        break;
       }
-      break; // the shortest window with data wins
     }
 
     // Daily history (all observations, not just the window).

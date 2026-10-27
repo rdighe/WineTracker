@@ -13,7 +13,7 @@
  */
 import { colourFromGrape, isGrapeToken } from '../lib/grapes.js';
 import { isBroadPlaceToken } from '../lib/places.js';
-import { identityTokens, normalize, tokensMatch } from '../lib/normalize.js';
+import { identityTokens, isYearOrSize, normalize, STOPWORDS, tokensMatch } from '../lib/normalize.js';
 
 export interface MatchQuery {
   text: string;               // full text: title, or label fields joined
@@ -192,8 +192,30 @@ export function scoreCandidates(q: MatchQuery, candidates: CandidateWine[], opts
     return best;
   });
   // Ties: prefer the wine whose own name words are all in the query - for
-  // "Duo de Conseillante Pomerol", the second wine over the grand vin.
-  return scored.sort((a, b) => b.score - a.score || b.detail.nameWords - a.detail.nameWords);
+  // "Duo de Conseillante Pomerol", the second wine over the grand vin. Then,
+  // between copies of one wine, the catalog (LWIN) entry, else the oldest.
+  return scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      b.detail.nameWords - a.detail.nameWords ||
+      Number(b.wine.source === 'lwin') - Number(a.wine.source === 'lwin') ||
+      a.wine.wine_id - b.wine.wine_id
+  );
+}
+
+/**
+ * Entries that are copies of one wine share this key: every word of the
+ * display name except years, bottle sizes and stopwords, in any order. Style
+ * words stay ("Brut" vs "Vintage Brut" vs "Brut Rose" are different wines).
+ * Shop-created copies all carry the shop's title, so they agree exactly.
+ * Generic names ("Pinot Noir", "Napa Valley Red") get no key, because
+ * different producers' wines are titled that way.
+ */
+export function twinKey(w: Pick<CandidateWine, 'display_name'>): string | null {
+  const ident = identityTokens(w.display_name);
+  if (!ident.length || ident.every((t) => isGrapeToken(t) || isBroadPlaceToken(t))) return null;
+  const words = new Set(normalize(w.display_name).split(' ').filter((t) => t && !STOPWORDS.has(t) && !isYearOrSize(t)));
+  return [...words].sort().join(' ');
 }
 
 export type MatchOutcome = 'auto' | 'choose' | 'new';
@@ -206,8 +228,12 @@ export const THRESHOLDS = { auto: 0.85, autoMargin: 0.08, choose: 0.5 };
  * new:    nothing close - offer to create a new wine.
  */
 export function decide(scored: ScoredCandidate[]): MatchOutcome {
-  const [first, second] = scored;
+  const [first] = scored;
   if (!first || first.score < THRESHOLDS.choose) return 'new';
+  // Copies of the leading wine are not rivals: measure the margin to the best
+  // different wine. (Otherwise two copies tie, the crawl creates a third, and so on.)
+  const key = twinKey(first.wine);
+  const second = scored.slice(1).find((c) => !key || twinKey(c.wine) !== key);
   const margin = first.score - (second?.score ?? 0);
   if (first.score >= THRESHOLDS.auto && margin >= THRESHOLDS.autoMargin) return 'auto';
   return 'choose';

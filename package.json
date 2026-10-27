@@ -15,7 +15,8 @@
     "import:web-prices": "tsx scripts/import-web-prices.ts",
     "worker": "tsx src/worker.ts",
     "images": "tsx scripts/backfill-images.ts",
-    "copy-user-data": "tsx scripts/copy-user-data.ts"
+    "copy-user-data": "tsx scripts/copy-user-data.ts",
+    "dedupe": "tsx scripts/duplicates.ts"
   },
   "repository": {
     "type": "git",
