@@ -54,6 +54,12 @@
     "experiments": {
       "typedRoutes": true
     },
-    "backgroundColor": "#0D0A0E"
+    "backgroundColor": "#0D0A0E",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1af27cfa-3aa3-41bf-ba27-2f368f18fa57"
+      }
+    }
   }
 }
