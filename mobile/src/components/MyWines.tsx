@@ -27,6 +27,8 @@ interface Group {
   rows: Tasting[];
   cellar: Tasting[];
   tasted: Tasting[];
+  /** What My Tastings lists: tastings, and cellar entries the user rated or wrote notes on. */
+  notes: Tasting[];
   latest: string;
   bottles: number;
   /** Most recent rating given. */
@@ -45,6 +47,7 @@ function group(rows: Tasting[]): Group[] {
       rows: sorted,
       cellar,
       tasted: sorted.filter((t) => t.kind !== 'cellar'),
+      notes: sorted.filter((t) => t.kind !== 'cellar' || t.rating != null || Boolean(t.notes?.trim())),
       latest: sorted[0]!.tasted_on,
       bottles: cellar.reduce((s, t) => s + (t.bottles ?? 1), 0),
       rating: sorted.find((t) => t.rating != null)?.rating ?? null,
@@ -94,7 +97,7 @@ export function MyWines({ mode }: { mode: Mode }) {
   }, [api]);
   useFocusEffect(useCallback(() => void load(), [load]));
 
-  const groups = useMemo(() => group(rows ?? []).filter((g) => (mode === 'cellar' ? g.cellar.length > 0 : g.tasted.length > 0)), [rows, mode]);
+  const groups = useMemo(() => group(rows ?? []).filter((g) => (mode === 'cellar' ? g.cellar.length > 0 : g.notes.length > 0)), [rows, mode]);
   const narrowed = Boolean(query.trim()) || activeCount(filters) > 0;
   const visible = useMemo(() => {
     // A wine shows when anything recorded about it matches.
@@ -196,11 +199,13 @@ function Badge({ children }: { children: ReactNode }) {
 function WineEntry({ g, mode, open, onToggle, onChanged }: { g: Group; mode: Mode; open: boolean; onToggle: () => void; onChanged: () => Promise<void> }) {
   const w = g.wine;
   const vintages = [...new Set(g.cellar.map((t) => t.vintage_key ?? 'NV'))].sort().reverse();
-  const market = (mode === 'cellar' ? g.cellar : g.tasted).find((t) => t.market_now_cents)?.market_now_cents ?? null;
-  const summary = mode === 'cellar'
-    ? `${g.bottles} ${g.bottles === 1 ? 'bottle' : 'bottles'} · ${vintages.join(', ')}`
-    : `Tasted ${g.tasted.length === 1 ? 'once' : `${g.tasted.length} times`} · ${shortDate(g.tasted[0]?.tasted_on)}`;
-  const firstVintage = (mode === 'cellar' ? g.cellar : g.tasted)[0]?.vintage_key ?? '';
+  const market = (mode === 'cellar' ? g.cellar : g.notes).find((t) => t.market_now_cents)?.market_now_cents ?? null;
+  const ratedInCellar = g.notes.filter((t) => t.kind === 'cellar').length;
+  const tastedLine = g.tasted.length
+    ? `Tasted ${g.tasted.length === 1 ? 'once' : `${g.tasted.length} times`}${ratedInCellar ? ' · rated in your cellar' : ''} · ${shortDate(g.tasted[0]?.tasted_on)}`
+    : `Rated in your cellar · ${shortDate(g.notes[0]?.tasted_on)}`;
+  const summary = mode === 'cellar' ? `${g.bottles} ${g.bottles === 1 ? 'bottle' : 'bottles'} · ${vintages.join(', ')}` : tastedLine;
+  const firstVintage = (mode === 'cellar' ? g.cellar : g.notes)[0]?.vintage_key ?? '';
 
   return (
     <Card style={{ marginBottom: 12, padding: 16, gap: 12 }}>
@@ -240,7 +245,9 @@ function WineEntry({ g, mode, open, onToggle, onChanged }: { g: Group; mode: Mod
             </Muted>
           ) : null}
           <Section title={mode === 'cellar' ? 'Your tasting notes' : 'Tastings'}>
-            {g.tasted.length ? g.tasted.map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={onChanged} />) : <Muted style={{ fontSize: 12 }}>Not tasted yet.</Muted>}
+            {(mode === 'cellar' ? g.tasted : g.notes).length
+              ? (mode === 'cellar' ? g.tasted : g.notes).map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={onChanged} />)
+              : <Muted style={{ fontSize: 12 }}>Not tasted yet.</Muted>}
           </Section>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <Button title="+ Tasting" variant="pill" onPress={() => router.push(`/wine/${g.wineId}?add=tasted&vintage=${encodeURIComponent(firstVintage)}`)} />
@@ -369,11 +376,11 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
           <Mono style={{ color: colors.gold }}>{t.vintage_key ?? 'NV'}</Mono>
-          {t.setting ? <Badge>{SETTING_LABEL[t.setting].toUpperCase()}</Badge> : null}
+          {t.kind === 'cellar' ? <Badge>{`CELLAR · ${t.bottles ?? 1}`}</Badge> : t.setting ? <Badge>{SETTING_LABEL[t.setting].toUpperCase()}</Badge> : null}
           {t.price_paid_cents ? <Muted style={{ fontSize: 12 }}>{dollars(t.price_paid_cents)}{t.price_context === 'restaurant' ? ' (restaurant)' : ''}</Muted> : null}
         </View>
       </View>
-      <DateEdit t={t} onChanged={onChanged} label="Tasted" />
+      <DateEdit t={t} onChanged={onChanged} label={t.kind === 'cellar' ? 'Added' : 'Tasted'} />
       <RatingDots value={t.rating} size={20} onChange={(rating) => run(() => api.updateTasting(t.tasting_id, { rating }))} />
       {t.notes ? <Text style={{ fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: colors.text2 }}>{t.notes}</Text> : null}
       {t.tags?.length ? (
@@ -381,7 +388,9 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
           {t.tags.map((tag) => <Chip key={tag} tone="tag">{tag}</Chip>)}
         </View>
       ) : null}
-      <View style={{ alignSelf: 'flex-start' }}>
+      {t.kind === 'cellar' ? (
+        <Muted style={{ fontSize: 12 }}>Rated when added to your cellar. The bottles are managed in My Cellar.</Muted>
+      ) : <View style={{ alignSelf: 'flex-start' }}>
         <Button
           title="Delete tasting"
           variant="pill"
@@ -392,7 +401,7 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
             }
           }}
         />
-      </View>
+      </View>}
       <ErrorText error={error} />
     </View>
   );
