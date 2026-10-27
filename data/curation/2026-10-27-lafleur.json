@@ -11,8 +11,8 @@
   "update": [
     { "id": 65257, "producer": "Lafleur", "name": "", "display_name": "Lafleur", "region": "Bordeaux", "sub_region": "Pomerol", "country": "France", "colour": "red", "grape": "Merlot, Cabernet Franc" },
     { "id": 165890, "producer": "Lafleur", "name": "N°2", "display_name": "N°2, Lafleur, Pomerol" },
-    { "id": 65450, "producer": "Lafleur", "name": "Les Pensees", "display_name": "Les Pensees de Lafleur, Pomerol", "region": "Bordeaux", "sub_region": "Pomerol", "country": "France", "colour": "red" },
-    { "id": 75680, "producer": "Lafleur", "name": "Les Perrieres", "display_name": "Les Perrieres, Lafleur", "region": "Bordeaux", "country": "France", "colour": "red", "grape": "" },
+    { "id": 65450, "producer": "Lafleur", "name": "Les Pensées", "display_name": "Les Pensées de Lafleur, Pomerol", "region": "Bordeaux", "sub_region": "Pomerol", "country": "France", "colour": "red" },
+    { "id": 75680, "producer": "Lafleur", "name": "Les Perrières", "display_name": "Les Perrières, Lafleur", "region": "Bordeaux", "country": "France", "colour": "red", "grape": "" },
     { "id": 102069, "producer": "Lafleur", "name": "Les Champs Libres", "display_name": "Les Champs Libres, Lafleur", "region": "Bordeaux", "country": "France", "colour": "white" },
     { "id": 65152, "producer": "Chateau Grand Village", "name": "", "display_name": "Chateau Grand Village, Bordeaux Superieur", "region": "Bordeaux", "sub_region": "Bordeaux Superieur", "country": "France", "colour": "red" },
     { "id": 65735, "producer": "Chateau Grand Village", "name": "Blanc", "display_name": "Chateau Grand Village Blanc, Bordeaux", "region": "Bordeaux", "country": "France", "colour": "white" }
@@ -24,7 +24,7 @@
     { "id": 65257, "alias": "Chateau Lafleur" },
     { "id": 65257, "alias": "Domaine Lafleur" },
     { "id": 102069, "alias": "Chateau Lafleur Les Champs Libres" },
-    { "id": 75680, "alias": "Les Perrieres de Lafleur" },
+    { "id": 75680, "alias": "Les Perrières de Lafleur" },
     { "id": 65152, "alias": "Chateau Grand Village" }
   ],
   "remove": [298568]
