@@ -59,7 +59,6 @@ export default function MyWines() {
   const paid = priced.reduce((s, t) => s + t.paid_750_cents! * n(t), 0);
   const worth = priced.reduce((s, t) => s + t.market_now_cents! * n(t), 0);
   const pct = paid ? ((worth - paid) / paid) * 100 : 0;
-  const bottles = visible.filter((t) => t.kind === 'cellar').reduce((s, t) => s + (t.bottles ?? 1), 0);
 
   return (
     <FlatList
@@ -71,7 +70,7 @@ export default function MyWines() {
       ListHeaderComponent={
         <View style={{ gap: 16 }}>
           <View>
-            <Eyebrow>{items ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'}${bottles ? ` · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} in the cellar` : ''}` : ' '}</Eyebrow>
+            <Eyebrow>{items ? `${visible.length} ${visible.length === 1 ? 'Wine' : 'Wines'} Tracked` : ' '}</Eyebrow>
             <Title style={{ marginTop: 4 }}>My wines</Title>
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>

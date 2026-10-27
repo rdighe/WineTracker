@@ -8,7 +8,7 @@ import { dollars } from '../../lib/format';
 import type { Recommendation } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
-type Filter = 'all' | 'value' | 'red' | 'white';
+type Filter = 'all' | 'value' | 'red' | 'white' | 'other';
 
 export default function Recommendations() {
   const api = useApi();
@@ -22,7 +22,7 @@ export default function Recommendations() {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.recommendations({ bestValue: filter === 'value', colour: filter === 'red' || filter === 'white' ? filter : undefined }));
+      setData(await api.recommendations({ bestValue: filter === 'value', colour: filter === 'red' || filter === 'white' || filter === 'other' ? filter : undefined }));
     } catch (e) {
       setError(e);
     } finally {
@@ -63,7 +63,7 @@ export default function Recommendations() {
             <View style={{ alignSelf: 'flex-start' }}>
               <Segmented
                 small
-                options={[{ key: 'all', label: 'All' }, { key: 'value', label: 'Best value' }, { key: 'red', label: 'Red' }, { key: 'white', label: 'White' }]}
+                options={[{ key: 'all', label: 'All' }, { key: 'value', label: 'Best value' }, { key: 'red', label: 'Red' }, { key: 'white', label: 'White' }, { key: 'other', label: 'Other' }]}
                 value={filter}
                 onChange={setFilter}
               />

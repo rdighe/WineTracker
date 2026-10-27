@@ -6,7 +6,7 @@ import { createWine } from '../src/catalog/wines.js';
 import { NullProvider } from '../src/llm/index.js';
 import { PoliteFetcher } from '../src/prices/fetcher.js';
 import { buildProfile, explain, scoreWine } from '../src/recs/profile.js';
-import { wineFeatures } from '../src/recs/features.js';
+import { wineCategory, wineFeatures } from '../src/recs/features.js';
 import { closeDb, resetDb, testDb } from './helpers.js';
 
 describe('taste profile', () => {
@@ -34,10 +34,49 @@ describe('taste profile', () => {
     const b = scoreWine(p, otherSb, 3000);
     expect(a.score).toBeGreaterThan(0);
     expect(b.score).toBeLessThan(0);
-    expect(explain(a.contributions)[0]).toMatch(/^You rated (2 Nebbiolo wines|1 Barolo wine|2 Piedmont wines) highly$/);
+    expect(explain(a.contributions)[0]).toMatch(/^Tastes of what you like: /);
+    expect(explain(a.contributions)[1]).toMatch(/^You rated (2 Nebbiolo wines|1 Barolo wine|2 Piedmont wines) highly$/);
     expect(explain([{ kind: 'country', value: 'italy', amount: 1, liked: 2 }])).toEqual(['You rated 2 wines from Italy highly']);
     // Way above the usual price range costs points
     expect(scoreWine(p, other, 60000).score).toBeLessThan(a.score);
+  });
+});
+
+describe('flavour and category', () => {
+  const f = (o: Record<string, string>, notes?: { descriptors?: string[]; text?: string }) =>
+    wineFeatures({ wine_id: 1, display_name: '', producer: '', grape: '', colour: '', wine_type: '', region: '', sub_region: '', country: '', ...o }, notes);
+
+  it('recommends by flavour before region', () => {
+    const cornas = f({ display_name: 'Clape Cornas', grape: 'Syrah', region: 'Rhone', sub_region: 'Cornas', country: 'France', colour: 'red' }, { descriptors: ['black pepper', 'olive', 'blackberry'] });
+    const crozes = f({ display_name: 'Graillot Crozes-Hermitage', grape: 'Syrah', region: 'Rhone', sub_region: 'Crozes-Hermitage', country: 'France', colour: 'red' }, { text: 'Peppery, smoked meat and black fruit.' });
+    const sancerre = f({ display_name: 'Vacheron Sancerre', grape: 'Sauvignon Blanc', region: 'Loire', sub_region: 'Sancerre', country: 'France', colour: 'white' }, { descriptors: ['lemon', 'grass', 'chalk'] });
+    const p = buildProfile([
+      { features: cornas, rating: 5, priceCents: 6000 },
+      { features: crozes, rating: 4.5, priceCents: 4000 },
+      { features: sancerre, rating: 2.5, priceCents: 3500 },
+    ]);
+    // A peppery Washington Syrah vs a honeyed white from the same corner of the Rhone.
+    const washington = f({ display_name: 'Cayuse Cailloux Syrah', grape: 'Syrah', region: 'Washington', country: 'USA', colour: 'red' }, { descriptors: ['black pepper', 'olive', 'smoked meat'] });
+    const rhoneWhite = f({ display_name: 'Chave Hermitage Blanc', grape: 'Marsanne', region: 'Rhone', sub_region: 'Hermitage', country: 'France', colour: 'white' }, { descriptors: ['honey', 'apricot', 'almond'] });
+    const w = scoreWine(p, washington, 5000);
+    expect(w.score).toBeGreaterThan(scoreWine(p, rhoneWhite, 5000).score);
+    expect(explain(w.contributions)[0]).toMatch(/^Tastes of what you like: .*(black fruit|spicy|savory)/);
+  });
+
+  it('falls back to the grape\'s typical flavours without notes', () => {
+    expect(Object.keys(f({ display_name: 'Some Sancerre', grape: 'Sauvignon Blanc' }).flavours!)).toEqual(expect.arrayContaining(['citrus', 'herbal']));
+    expect(Object.keys(f({ display_name: 'X' }, { descriptors: ['blackberry', 'graphite'] }).flavours!).sort()).toEqual(['black_fruit', 'mineral']);
+  });
+
+  it('files sparkling, rosé, sweet and fortified wines under "other", and reads colour from the appellation', () => {
+    expect(wineCategory(f({ display_name: 'Krug Grande Cuvee Champagne', colour: 'white' }))).toBe('other');
+    expect(wineCategory(f({ display_name: 'Domaine Ott Rose', colour: 'rose' }))).toBe('other');
+    expect(wineCategory(f({ display_name: 'Chateau Climens Sauternes', colour: 'white' }))).toBe('other');
+    expect(wineCategory(f({ display_name: 'Taylor Fladgate 20 Year Tawny Port' }))).toBe('other');
+    expect(wineCategory(f({ display_name: 'Chateau Smith Haut Lafitte - Pessac', sub_region: 'Pessac-Leognan' }))).toBe('red');
+    expect(wineCategory(f({ display_name: 'Fontaine Gagnard Pommard Clos De Rugiens 1er Cru' }))).toBe('red');
+    expect(wineCategory(f({ display_name: 'Raveneau Chablis', colour: 'white' }))).toBe('white');
+    expect(wineCategory(f({ display_name: 'Mystery Cuvee' }))).toBe('');
   });
 });
 
@@ -83,5 +122,34 @@ describe('recommendations API', () => {
     expect(ids).not.toContain(dud);
     expect(ids).not.toContain(t1); // already tasted
     expect(recs.body.items[0].reasons.length).toBeGreaterThan(0);
+  });
+
+  it('filters red / white / other, and leaves out non-wines and wines nobody has in stock', async () => {
+    const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
+    const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const rated = [
+      await priced({ producer: 'Vietti', name: 'Barolo', grape: 'Nebbiolo', colour: 'red', source: 'lwin' }, 6000),
+      await priced({ producer: 'Raveneau', name: 'Chablis', grape: 'Chardonnay', colour: 'white', source: 'lwin' }, 9000),
+      await priced({ producer: 'Bollinger', name: 'Special Cuvee Champagne', colour: 'white', wine_type: 'sparkling', source: 'lwin' }, 7000),
+    ];
+    for (const wineId of rated) expect((await as(request(app).post('/api/tastings')).send({ wineId, rating: 4.5 })).status).toBe(201);
+    const red = await priced({ producer: 'GD Vajra', name: 'Barolo Albe', grape: 'Nebbiolo', colour: 'red', source: 'lwin' }, 5500);
+    const white = await priced({ producer: 'Dauvissat', name: 'Chablis', grape: 'Chardonnay', colour: 'white', source: 'lwin' }, 8000);
+    const fizz = await priced({ producer: 'Krug', name: 'Grande Cuvee Champagne', colour: 'white', source: 'lwin' }, 7500);
+    const rose = await priced({ producer: 'Domaine Tempier', name: 'Bandol Rose', colour: 'rose', source: 'lwin' }, 5000);
+    const whiskey = await priced({ producer: '', name: 'High West Bourbon Barrel Nebbiolo', grape: 'Nebbiolo', colour: 'red', source: 'crawl' }, 6000);
+    const soldOut = await priced({ producer: 'Giacosa', name: 'Barolo Falletto', grape: 'Nebbiolo', colour: 'red', source: 'lwin' }, 30000);
+    await db.query(`UPDATE wine_prices SET out_of_stock_only = true WHERE wine_id = $1`, [soldOut]);
+
+    const ids = async (colour?: string) =>
+      (await as(request(app).get(`/api/recommendations${colour ? `?colour=${colour}` : ''}`))).body.items.map((i: { wineId: number }) => i.wineId).sort();
+    expect(await ids('red')).toEqual([red]);
+    expect(await ids('white')).toEqual([white]);
+    expect(await ids('other')).toEqual([fizz, rose].sort());
+    expect(await ids('rose')).toEqual([fizz, rose].sort());
+    const all = await ids();
+    expect(all).not.toContain(whiskey);
+    expect(all).not.toContain(soldOut);
   });
 });

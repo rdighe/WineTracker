@@ -6,6 +6,10 @@
  *    which one was used, so the UI can say "as of"). Shops sell the current
  *    release daily while older vintages turn up now and then; a per-wine
  *    window would hide those older vintages as soon as one fresh offer arrived.
+ *  - Out-of-stock offers count only when that vintage has no in-stock offer
+ *    in either window: then they still say what the wine sells for
+ *    (out_of_stock_only records it). Each listing's latest observation
+ *    decides whether it is in stock.
  *  - One vote per offer: only the latest observation per listing/URL counts,
  *    so a shop crawled daily doesn't outweigh one crawled monthly.
  *  - Outliers (mis-sized bottles, typos, mismatched wines) are dropped with a
@@ -60,6 +64,7 @@ interface ObsRow {
   unit_750_cents: number;
   merchant_key: string;
   observed_at: Date;
+  in_stock: boolean | null;
 }
 
 /** Recompute wine_prices and wine_price_daily for the given wines. */
@@ -71,11 +76,10 @@ export async function aggregateWines(db: Db, wineIds: number[]): Promise<void> {
       `SELECT DISTINCT ON (COALESCE(listing_id::text, url, observation_id::text), vintage_key)
               vintage_key, unit_750_cents,
               COALESCE(merchant_id::text, regexp_replace(url, '^https?://(www\\.)?([^/]+).*$', '\\2')) AS merchant_key,
-              observed_at
+              observed_at, in_stock
          FROM price_observations
         WHERE wine_id = $1 AND currency = 'USD' AND context = 'retail' AND source_type <> 'user'
           AND observed_at > NOW() - make_interval(days => $2)
-          AND (in_stock IS DISTINCT FROM FALSE)
         ORDER BY COALESCE(listing_id::text, url, observation_id::text), vintage_key, observed_at DESC`,
       [wineId, longest]
     );
@@ -85,18 +89,20 @@ export async function aggregateWines(db: Db, wineIds: number[]): Promise<void> {
       groups.set('*', [...(groups.get('*') ?? []), r]);
     }
     for (const [vintageKey, all] of groups) {
-      // The shortest window with offers for this vintage wins.
+      // In-stock offers first; within that, the shortest window with offers wins.
+      const inStock = all.filter((o) => o.in_stock !== false);
+      const outOfStockOnly = inStock.length === 0;
       for (const days of WINDOWS) {
         const since = Date.now() - days * 86400000;
-        const obs = all.filter((o) => +o.observed_at > since);
+        const obs = (outOfStockOnly ? all : inStock).filter((o) => +o.observed_at > since);
         const s = obs.length ? summarize(obs.map((o) => o.unit_750_cents)) : null;
         if (!s) continue;
         await db.query(
           `INSERT INTO wine_prices (wine_id, vintage_key, median_cents, p10_cents, p90_cents, n_observations, n_merchants,
-                                    window_days, latest_observed_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+                                    window_days, latest_observed_at, out_of_stock_only)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
           [wineId, vintageKey, s.median, s.p10, s.p90, s.n, new Set(obs.map((o) => o.merchant_key)).size, days,
-           new Date(Math.max(...obs.map((o) => +o.observed_at)))]
+           new Date(Math.max(...obs.map((o) => +o.observed_at))), outOfStockOnly]
         );
         break;
       }

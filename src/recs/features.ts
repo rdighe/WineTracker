@@ -4,6 +4,7 @@
  * created wines often have no grape/colour fields).
  */
 import { colourFromGrape, findGrape } from '../lib/grapes.js';
+import { wineFlavours, type FlavourProfile } from './flavours.js';
 import { normalize } from '../lib/normalize.js';
 
 export type FeatureKind = 'grape' | 'appellation' | 'region' | 'country' | 'producer' | 'colour' | 'style';
@@ -21,7 +22,16 @@ export interface WineRow {
   country: string;
 }
 
-export type Features = Partial<Record<FeatureKind, string>>;
+export type Features = Partial<Record<FeatureKind, string>> & {
+  /** Flavour families from tasting notes, else typical of the grape/style (src/recs/flavours.ts). */
+  flavours?: FlavourProfile;
+};
+
+/** Researched notes for a wine, when it has some (wine_info). */
+export interface WineNotes {
+  descriptors?: string[];
+  text?: string;
+}
 
 // Classic appellations name the place, not the grape. When a wine records
 // no grape, its appellation tells us (for profiles only, not matching).
@@ -49,7 +59,7 @@ function grapeFromAppellation(text: string, colour: string): string {
 
 const COUNTRY_ALIASES: Record<string, string> = { 'united states': 'usa', us: 'usa', 'united states of america': 'usa', italia: 'italy', espana: 'spain' };
 
-export function wineFeatures(w: WineRow): Features {
+export function wineFeatures(w: WineRow, notes?: WineNotes | null): Features {
   const text = normalize(`${w.display_name} ${w.grape}`);
   const s = ` ${text} `;
   const place = normalize(`${w.sub_region} ${w.display_name}`);
@@ -57,8 +67,10 @@ export function wineFeatures(w: WineRow): Features {
     : / (brut|champagne|sparkling|cremant|prosecco|cava|spumante|sekt) /.test(s) ? 'sparkling'
     : / (port|sherry|madeira|marsala) /.test(s) ? 'fortified'
     : / (sauternes|tokaji|late harvest|ice wine|eiswein|beerenauslese) /.test(s) ? 'dessert' : 'still';
-  const colour = w.colour || (/ (rose|rosado|rosato) /.test(s) ? 'rose' : / (blanc|bianco|white) /.test(s) ? 'white' : colourFromGrape(text));
-  const grape = normalize(w.grape) || findGrape(text) || grapeFromAppellation(place, colour);
+  const named = w.colour || (/ (rose|rosado|rosato) /.test(s) ? 'rose' : / (blanc|bianco|white) /.test(s) ? 'white' : colourFromGrape(text));
+  const grape = normalize(w.grape) || findGrape(text) || grapeFromAppellation(place, named);
+  // "Pessac", "Pommard": no grape in the name, but the appellation implies one, and so a colour.
+  const colour = named || colourFromGrape(grape);
   const country = normalize(w.country);
   const f: Features = {
     grape: grape || undefined,
@@ -68,6 +80,14 @@ export function wineFeatures(w: WineRow): Features {
     producer: normalize(w.producer) || undefined,
     colour: colour || undefined,
     style,
+    flavours: wineFlavours(grape || undefined, style, notes),
   };
   return f;
+}
+
+/** For you's colour filter: still reds, still whites, and everything else (rosé, sparkling, sweet, fortified). '' = unknown. */
+export function wineCategory(f: Features): 'red' | 'white' | 'other' | '' {
+  if (f.style && f.style !== 'still') return 'other';
+  if (f.colour === 'rose') return 'other';
+  return f.colour === 'red' || f.colour === 'white' ? f.colour : '';
 }

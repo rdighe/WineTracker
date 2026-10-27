@@ -121,6 +121,7 @@ export default function WineScreen() {
               <Mono style={{ fontSize: 11, color: colors.muted }}>{dollars(summary.p10_cents)} low</Mono>
               <Mono style={{ fontSize: 11, color: colors.muted }}>{dollars(summary.p90_cents)} high</Mono>
             </View>
+            {summary.out_of_stock_only ? <Muted style={{ fontSize: 12 }}>Out of stock everywhere: this is what shops listed it at.</Muted> : null}
             {summary.window_days > 30 ? <Muted style={{ fontSize: 12 }}>Based on the last year (nothing more recent).</Muted> : null}
           </>
         ) : (

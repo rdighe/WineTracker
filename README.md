@@ -31,7 +31,7 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/catalog/info.ts` | Wine background research (tasting notes, producer, specs), once per wine, in the background |
 | `src/catalog/twins.ts` | Merges copies of one wine created from shop listings (`npm run dedupe -- twins`) |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
-| `src/recs/` | Taste profile from ratings (grape, appellation, region, producer, style, price range) and recommendations |
+| `src/recs/` | Taste profile from ratings, led by flavour (tasting notes, your tags, else typical of the grape; `flavours.ts`), then grape, producer, place, style and price range; recommendations |
 | `src/api/app.ts` | REST API |
 
 ## Data model (short)
@@ -159,7 +159,7 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | GET/POST | `/api/tastings` | `{wineId, vintage, rating (0.5–5), notes, tags, pricePaid, priceContext, tastedOn, scanId, kind: tasted\|cellar, bottles}` | auth; list includes paid vs market now and the wine's photo |
 | PATCH/DELETE | `/api/tastings/:id` | partial tasting | auth, own tastings only |
 | GET, PUT/DELETE | `/api/saved`, `/api/saved/:wineId` | | watch list (auth) |
-| GET | `/api/recommendations?bestValue=&colour=&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal |
+| GET | `/api/recommendations?bestValue=&colour=red\|white\|other&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal; in-stock wines only |
 | POST | `/api/import/vivino` | `{csv}` (a Vivino data export, ≤ 8 MB) | auth; matches each row, adds unknown wines as the user's own; re-importing adds nothing |
 
 Scan outcomes: `auto` (confident, attach directly), `choose` (show the candidates), `new` (offer to create the wine).

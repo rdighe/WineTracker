@@ -6,8 +6,10 @@
  * since anything we showed wouldn't be personal.
  */
 import type { Db } from '../db/pool.js';
+import { parseTitle } from '../lib/listing.js';
 import { normalize } from '../lib/normalize.js';
-import { wineFeatures, type WineRow } from './features.js';
+import { wineCategory, wineFeatures, type WineNotes, type WineRow } from './features.js';
+import { mergeFlavours, textFlavours, type Flavour } from './flavours.js';
 import { buildProfile, explain, scoreWine, type Profile } from './profile.js';
 
 export const MIN_RATED = 3;
@@ -15,7 +17,8 @@ const PER_PRODUCER = 2;
 
 export interface RecOptions {
   limit?: number;
-  colour?: 'red' | 'white' | 'rose';
+  /** Still reds, still whites, or everything else (rosé, sparkling, sweet, fortified). */
+  colour?: 'red' | 'white' | 'other';
   maxPriceCents?: number;
   bestValue?: boolean;
 }
@@ -32,18 +35,31 @@ export interface Recommendation {
 }
 
 const WINE_COLS = `w.wine_id, w.display_name, w.producer, w.grape, w.colour, w.wine_type, w.region, w.sub_region, w.country`;
+// Researched notes (src/catalog/info.ts), when the wine has them.
+const NOTES_COLS = `i.info->'descriptors' AS descriptors,
+  concat_ws(' ', i.info->'tastingNotes'->>'nose', i.info->'tastingNotes'->>'palate', i.info->'tastingNotes'->>'finish') AS notes_text`;
+const NOTES_JOIN = `LEFT JOIN wine_info i ON i.wine_id = w.wine_id AND i.status = 'ready'`;
+
+const notesOf = (r: { descriptors?: unknown; notes_text?: string | null }): WineNotes | null =>
+  Array.isArray(r.descriptors) || r.notes_text ? { descriptors: Array.isArray(r.descriptors) ? r.descriptors.map(String) : [], text: r.notes_text ?? '' } : null;
 
 export async function loadProfile(db: Db, userId: number): Promise<{ profile: Profile; tasted: Set<number> }> {
   const { rows } = await db.query(
-    `SELECT ${WINE_COLS}, t.rating::float AS rating,
+    `SELECT ${WINE_COLS}, t.rating::float AS rating, t.tags, t.notes AS own_notes, ${NOTES_COLS},
             COALESCE(p.median_cents, CASE WHEN t.price_paid_cents IS NOT NULL THEN round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END) AS price
        FROM tastings t JOIN wines w USING (wine_id)
        LEFT JOIN wine_prices p ON p.wine_id = t.wine_id AND p.vintage_key = '*' AND p.currency = 'USD'
+       ${NOTES_JOIN}
       WHERE t.user_id = $1`,
     [userId]
   );
   const tasted = new Set<number>(rows.map((r) => r.wine_id));
-  const rated = rows.filter((r) => r.rating != null).map((r) => ({ features: wineFeatures(r as WineRow), rating: r.rating, priceCents: r.price }));
+  const rated = rows.filter((r) => r.rating != null).map((r) => {
+    const features = wineFeatures(r as WineRow, notesOf(r));
+    // What the user noted themselves counts most: it is what they tasted.
+    const own = Object.fromEntries(Object.keys(textFlavours(...(r.tags ?? []), r.own_notes)).map((k) => [k as Flavour, 1.5]));
+    return { features: { ...features, flavours: mergeFlavours(features.flavours ?? {}, own) }, rating: r.rating, priceCents: r.price };
+  });
   return { profile: buildProfile(rated), tasted };
 }
 
@@ -55,7 +71,8 @@ export type RecResult =
 export async function recommend(db: Db, userId: number, opts: RecOptions = {}): Promise<RecResult> {
   const limit = Math.min(opts.limit ?? 20, 100);
   const { profile, tasted } = await loadProfile(db, userId);
-  const filters: string[] = [`p.vintage_key = '*'`, `p.currency = 'USD'`];
+  // Only wines a shop has in stock.
+  const filters: string[] = [`p.vintage_key = '*'`, `p.currency = 'USD'`, `NOT p.out_of_stock_only`];
   const params: unknown[] = [];
   if (opts.maxPriceCents) {
     params.push(opts.maxPriceCents);
@@ -68,16 +85,19 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
   // memory is ~100 ms). Move this to a precomputed table if the catalog grows
   // past a few hundred thousand priced wines.
   const { rows } = await db.query(
-    `SELECT ${WINE_COLS}, p.median_cents, p.n_merchants FROM wine_prices p JOIN wines w USING (wine_id)
+    `SELECT ${WINE_COLS}, p.median_cents, p.n_merchants, ${NOTES_COLS}
+       FROM wine_prices p JOIN wines w USING (wine_id)
+       ${NOTES_JOIN}
       WHERE ${filters.join(' AND ')}`,
     params
   );
 
   const scored = rows
-    .filter((r) => !tasted.has(r.wine_id))
+    // Shops also sell spirits, beer and water; some of those ended up in the catalog.
+    .filter((r) => !tasted.has(r.wine_id) && parseTitle(r.display_name).isWine)
     .map((r) => {
-      const f = wineFeatures(r as WineRow);
-      if (opts.colour && f.colour !== opts.colour) return null;
+      const f = wineFeatures(r as WineRow, notesOf(r));
+      if (opts.colour && wineCategory(f) !== opts.colour) return null;
       const s = scoreWine(profile, f, r.median_cents);
       // Best value: favour cheaper wines among good matches.
       const score = opts.bestValue ? s.score - 0.35 * Math.log(r.median_cents / 1000) : s.score;

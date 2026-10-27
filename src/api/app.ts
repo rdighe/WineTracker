@@ -64,7 +64,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 
 async function priceSummary(db: pg.Pool, wineId: number) {
   const { rows } = await db.query(
-    `SELECT vintage_key, median_cents, p10_cents, p90_cents, n_observations, n_merchants, window_days, latest_observed_at
+    `SELECT vintage_key, median_cents, p10_cents, p90_cents, n_observations, n_merchants, window_days, latest_observed_at, out_of_stock_only
        FROM wine_prices WHERE wine_id = $1 ORDER BY vintage_key = '*' DESC, vintage_key DESC`,
     [wineId]
   );
@@ -397,16 +397,24 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     const q = parse(
       z.object({
         limit: z.coerce.number().int().min(1).max(100).optional(),
-        colour: z.enum(['red', 'white', 'rose']).optional(),
+        // 'rose' is what older app versions send for rosé; it now means "other".
+        colour: z.enum(['red', 'white', 'other', 'rose']).optional(),
         maxPrice: z.coerce.number().positive().max(100000).optional(),
         bestValue: z.enum(['true', 'false']).optional(),
       }),
       req.query
     );
+    // Rated wines without researched notes: look them up, so their flavours sharpen the profile next time.
+    const { rows: unresearched } = await db.query(
+      `SELECT DISTINCT t.wine_id FROM tastings t LEFT JOIN wine_info i USING (wine_id)
+        WHERE t.user_id = $1 AND t.rating IS NOT NULL AND i.wine_id IS NULL LIMIT 10`,
+      [req.user!.userId]
+    );
+    for (const r of unresearched) void research.request(r.wine_id).catch(() => {});
     res.json(
       await recommend(db, req.user!.userId, {
         limit: q.limit,
-        colour: q.colour,
+        colour: q.colour === 'rose' ? 'other' : q.colour,
         maxPriceCents: q.maxPrice ? Math.round(q.maxPrice * 100) : undefined,
         bestValue: q.bestValue === 'true',
       })

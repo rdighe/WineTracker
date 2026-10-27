@@ -34,6 +34,10 @@ describe('parseTitle', () => {
     expect(p('Wine.com Gift Card').isWine).toBe(false);
     expect(p('Carpano Botanic Bitter 1L').isWine).toBe(false);
     expect(p('Dolin Dry Vermouth de Chambery 750ml').isWine).toBe(false);
+    for (const t of ['Crystal Geyser Water', 'Avua Cachaca Balsamo', "Jack Daniel's", 'Rey Campero Espadin Joven', 'Left Coast Voo Doo American Stout 16oz Can', 'Topo Chico Sparkling Mineral Water'])
+      expect(p(t).isWine, t).toBe(false);
+    for (const t of ['Waterkloof Circumstance Syrah 2019', 'Porter Creek Pinot Noir 2021', 'Ostertag Riesling 2020', 'Domaine Ott Rose 2023'])
+      expect(p(t).isWine, t).toBe(true);
   });
   it('keeps the identity text in rest', () => {
     expect(p('Chateau Lynch-Bages 2015 750ml').rest).toBe('Chateau Lynch-Bages');

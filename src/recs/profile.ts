@@ -6,14 +6,24 @@
  * producer up, disliked ones push them down. Votes are shrunk toward zero for
  * features seen only once, so one great bottle doesn't dominate.
  *
+ * Flavour comes first: each rated wine also votes for its flavour families
+ * (black fruit, earthy, high acidity... from its tasting notes and the
+ * user's own tags and notes, else typical of its grape), and candidates are
+ * scored on how much of what the user likes they taste of. Place features
+ * (appellation, region, country) weigh less, so suggestions reach beyond the
+ * regions the user already knows.
+ *
  * Price: the user's comfortable range is the log-price spread of wines they
  * rated at or above their mean (market price, else what they paid).
  */
 import { FEATURE_KINDS, type FeatureKind, type Features } from './features.js';
+import { flavourLabel, type Flavour } from './flavours.js';
 
 export const KIND_WEIGHT: Record<FeatureKind, number> = {
-  grape: 1.0, appellation: 1.0, region: 0.7, producer: 0.8, country: 0.4, colour: 0.6, style: 0.6,
+  grape: 0.8, appellation: 0.5, region: 0.35, producer: 0.6, country: 0.2, colour: 0.5, style: 0.6,
 };
+/** Weight of the flavour match as a whole (spread over a wine's flavours). */
+export const FLAVOUR_WEIGHT = 1.6;
 const SHRINK = 1; // pseudo-count pulling single observations toward 0
 
 export interface RatedWine {
@@ -32,6 +42,7 @@ export interface Profile {
   meanRating: number;
   n: number;
   features: Record<FeatureKind, Map<string, FeatureStat>>;
+  flavours: Map<Flavour, FeatureStat>;
   price: { mu: number; sigma: number } | null; // log(cents)
 }
 
@@ -43,9 +54,17 @@ export function buildProfile(rated: RatedWine[]): Profile {
     FeatureKind,
     Map<string, { s: number; c: number; liked: number }>
   >;
+  const flavourSums = new Map<Flavour, { s: number; c: number; liked: number }>();
   for (const r of rated) {
     // A small bonus for every tasting: choosing a wine is itself a signal.
     const v = r.rating - meanRating + 0.15;
+    for (const [fl, w] of Object.entries(r.features.flavours ?? {}) as [Flavour, number][]) {
+      const cur = flavourSums.get(fl) ?? { s: 0, c: 0, liked: 0 };
+      cur.s += v * w;
+      cur.c += w;
+      if (r.rating >= meanRating && r.rating >= 3.5) cur.liked += 1;
+      flavourSums.set(fl, cur);
+    }
     for (const k of FEATURE_KINDS) {
       const val = r.features[k];
       if (!val) continue;
@@ -59,6 +78,8 @@ export function buildProfile(rated: RatedWine[]): Profile {
   for (const k of FEATURE_KINDS) {
     for (const [val, { s, c, liked }] of sums[k]) features[k].set(val, { weight: s / (c + SHRINK), liked, count: c });
   }
+  const flavours = new Map<Flavour, FeatureStat>();
+  for (const [fl, { s, c, liked }] of flavourSums) flavours.set(fl, { weight: s / (c + SHRINK), liked, count: c });
   const logs = rated.filter((r) => r.priceCents && r.rating >= meanRating).map((r) => Math.log(r.priceCents!));
   let price: Profile['price'] = null;
   if (logs.length) {
@@ -66,11 +87,11 @@ export function buildProfile(rated: RatedWine[]): Profile {
     const sd = Math.sqrt(logs.reduce((a, b) => a + (b - mu) ** 2, 0) / logs.length);
     price = { mu, sigma: Math.max(sd, 0.35) }; // at least ~±40% comfort band
   }
-  return { meanRating, n, features, price };
+  return { meanRating, n, features, flavours, price };
 }
 
 export interface Contribution {
-  kind: FeatureKind | 'price';
+  kind: FeatureKind | 'price' | 'flavour';
   value: string;
   amount: number;
   liked: number;
@@ -92,6 +113,16 @@ export function scoreWine(p: Profile, f: Features, priceCents: number | null): W
     score += amount;
     contributions.push({ kind: k, value: val, amount, liked: stat.liked });
   }
+  // Flavour: what the user likes, weighted by how strongly the wine shows it.
+  // Divided by sqrt(count) so a wine with a long list of notes isn't favoured for that alone.
+  const fl = Object.entries(f.flavours ?? {}) as [Flavour, number][];
+  for (const [key, w] of fl) {
+    const stat = p.flavours.get(key);
+    if (!stat) continue;
+    const amount = (stat.weight * FLAVOUR_WEIGHT * w) / Math.sqrt(fl.length);
+    score += amount;
+    contributions.push({ kind: 'flavour', value: key, amount, liked: stat.liked });
+  }
   if (p.price && priceCents) {
     const z = (Math.log(priceCents) - p.price.mu) / p.price.sigma;
     // Free inside the comfort band, then an increasing penalty (pricier hurts more than cheaper).
@@ -107,9 +138,11 @@ export function scoreWine(p: Profile, f: Features, priceCents: number | null): W
 const title = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 const wines = (n: number) => (n === 1 ? 'wine' : 'wines');
 
-/** One-line reasons from the strongest positive contributions. */
+/** One-line reasons from the strongest positive contributions: flavours first. */
 export function explain(contributions: Contribution[]): string[] {
-  return contributions
+  const liked = contributions.filter((c) => c.kind === 'flavour' && c.amount > 0.03 && c.liked > 0).slice(0, 3);
+  const flavour = liked.length ? [`Tastes of what you like: ${liked.map((c) => flavourLabel(c.value)).join(', ')}`] : [];
+  return [...flavour, ...contributions
     .filter((c) => c.amount > 0.05 && c.liked > 0 && (c.kind === 'grape' || c.kind === 'appellation' || c.kind === 'region' || c.kind === 'producer' || c.kind === 'country'))
     .slice(0, 2)
     .map((c) =>
@@ -118,5 +151,5 @@ export function explain(contributions: Contribution[]): string[] {
         : c.kind === 'producer'
           ? `You rated ${c.liked} ${wines(c.liked)} by ${title(c.value)} highly`
           : `You rated ${c.liked} ${title(c.value)} ${wines(c.liked)} highly`
-    );
+    )].slice(0, 2);
 }

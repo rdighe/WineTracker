@@ -42,6 +42,8 @@ export interface PriceSummary {
   n_merchants: number;
   window_days: number;
   latest_observed_at: string;
+  /** No shop has this in stock: the price comes from out-of-stock listings. */
+  out_of_stock_only?: boolean;
 }
 
 export interface Wine {

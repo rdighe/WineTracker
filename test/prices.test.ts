@@ -93,6 +93,27 @@ describe('aggregateWines', () => {
     expect(daily.rows[0].n).toBe(3);
   });
 
+  it('uses out-of-stock prices only for vintages with no in-stock offer, and says so', async () => {
+    const wineId = await createWine(db, { producer: 'Opus One', name: '', source: 'lwin' });
+    const m = await ensureMerchant(db, 'shop.test');
+    const day = (d: number) => new Date(Date.now() - d * 86400000);
+    const add = (url: string, title: string, cents: number, d: number, inStock: boolean) =>
+      ingestOffer(db, { merchantId: m, merchantName: 's', url, offer: offer(title, cents, { inStock }) }, { createWines: false, observedAt: day(d) });
+    await add('https://shop.test/a', 'Opus One 2019', 40000, 2, true);
+    await add('https://shop.test/b', 'Opus One 2019', 90000, 1, false);   // ignored: 2019 is in stock elsewhere
+    await add('https://shop.test/c', 'Opus One 2013', 50000, 3, false);   // the only 2013 offer
+    await add('https://shop.test/d', 'Opus One 2012', 47000, 200, true);  // in stock last year beats out of stock now
+    await add('https://shop.test/e', 'Opus One 2012', 80000, 5, false);
+    await aggregateWines(db, [wineId]);
+    const { rows } = await db.query('SELECT vintage_key, median_cents, window_days, out_of_stock_only FROM wine_prices ORDER BY vintage_key');
+    expect(rows).toEqual([
+      { vintage_key: '*', median_cents: 40000, window_days: 30, out_of_stock_only: false },
+      { vintage_key: '2012', median_cents: 47000, window_days: 365, out_of_stock_only: false },
+      { vintage_key: '2013', median_cents: 50000, window_days: 30, out_of_stock_only: true },
+      { vintage_key: '2019', median_cents: 40000, window_days: 30, out_of_stock_only: false },
+    ]);
+  });
+
   it('keeps vintages only offered in the past year next to ones offered this month', async () => {
     const wineId = await createWine(db, { producer: 'Opus One', name: '', source: 'lwin' });
     const m = await ensureMerchant(db, 'shop.test');

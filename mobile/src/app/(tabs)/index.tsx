@@ -8,7 +8,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import LabelText from '../../../modules/label-text';
 import { BackIcon, CheckIcon, PhotosIcon, SearchIcon } from '../../components/icons';
 import { LineupReview } from '../../components/LineupReview';
 import { TastingFields, useTastingDraft } from '../../components/TastingForm';
@@ -76,24 +75,15 @@ export default function ScanScreen() {
   const scanning = step.kind === 'scanning';
   return (
     <Screen scrollEnabled={false}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>WineTracker</Text>
-        <StatusPill dot>{LabelText && !lineup ? 'Reading on device' : 'Reading in the cloud'}</StatusPill>
-      </View>
+      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>WineTracker</Text>
 
       <Viewfinder uri={scanning ? step.uri : null} lines={scanning ? step.lines : []} active={scanning} onPress={() => !scanning && pick(true)} />
 
-      <View style={{ alignItems: 'center', gap: 6 }}>
-        <Text style={{ fontFamily: fonts.semibold, fontSize: 20, letterSpacing: -0.2, color: colors.text }}>
-          {scanning ? (lineup ? 'Reading the labels…' : 'Reading the label…') : lineup ? 'Line the bottles up' : 'Point at the front label'}
-        </Text>
-        <Muted style={{ textAlign: 'center' }}>
-          {scanning
-            ? lineup ? 'This takes a few seconds per bottle.' : 'One moment.'
-            : lineup ? 'Side by side, front labels facing you, up to 12 bottles.'
-              : LabelText ? 'Hold steady. We read it on your iPhone first.' : 'A clear, straight-on photo works best.'}
-        </Muted>
-      </View>
+      <Text style={{ fontFamily: fonts.semibold, fontSize: lineup ? 17 : 20, lineHeight: lineup ? 23 : 26, letterSpacing: -0.2, color: colors.text, textAlign: 'center' }}>
+        {scanning
+          ? lineup ? 'Reading the labels…' : 'Reading the label…'
+          : lineup ? 'Line up to 12 bottles side by side with all details visible' : 'Point at the front label'}
+      </Text>
       {!scanning ? (
         <Segmented options={[{ key: 'single', label: 'One bottle' }, { key: 'lineup', label: 'Lineup' }]} value={mode} onChange={setMode} />
       ) : null}
@@ -120,10 +110,9 @@ export default function ScanScreen() {
   );
 }
 
-function StatusPill({ children, dot, check }: { children: string; dot?: boolean; check?: boolean }) {
+function StatusPill({ children, check }: { children: string; check?: boolean }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface }}>
-      {dot ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent, ...glow }} /> : null}
       {check ? <CheckIcon color={colors.accent} /> : null}
       <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.muted }}>{children}</Text>
     </View>
