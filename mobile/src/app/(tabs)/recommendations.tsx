@@ -15,6 +15,7 @@ import { ExpandingSheet, measure, type Rect } from '../../components/ExpandingSh
 import { Glass } from '../../components/Glass';
 import { RefreshIcon, SearchIcon, SparkleIcon } from '../../components/icons';
 import { RecSearchForm, describeSearch } from '../../components/RecSearchForm';
+import { Bone, Skeleton } from '../../components/Skeleton';
 import { WinePhoto } from '../../components/WineThumb';
 import { Button, Card, Chip, ErrorText, Field, Heading, Label, Muted, Title, radius, space, type, useTheme, wineStyleOf } from '../../components/ui';
 import type { WineStyle } from '../../components/theme';
@@ -41,7 +42,8 @@ export default function Recommendations() {
   const { c } = useTheme();
   const [view, setView] = useState<View_>({ kind: 'picks' });
   const [filter, setFilter] = useState<Filter>('all');
-  const [data, setData] = useState<RecommendationsResponse | null>(null);
+  // The answer, and which filter or search it answers: a list never shows under the wrong filter.
+  const [result, setResult] = useState<{ key: string; res: RecommendationsResponse } | null>(null);
   const [summary, setSummary] = useState<TasteSummary | null>(null);
   const [saved, setSaved] = useState<RecView[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,21 +52,27 @@ export default function Recommendations() {
   const [sheet, setSheet] = useState<{ origin: Rect; closing: boolean } | null>(null);
   const findButton = useRef<View>(null);
 
+  const searching = view.kind === 'search';
+  const listKey = searching ? `search-${JSON.stringify(view.criteria)}` : filter;
+  // Only the latest request's answer counts: tapping filters quickly never leaves an older list on screen.
+  const latest = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     setLoading(true);
     setError(null);
     try {
       const res = await api.recommendations(
         view.kind === 'search' ? view.criteria : filter === 'all' || filter === 'value' ? { bestValue: filter === 'value' } : { style: filter }
       );
-      setData(res);
+      if (mine !== latest.current) return;
+      setResult({ key: listKey, res });
       if (res.mode === 'profile' && res.summary) setSummary(res.summary);
     } catch (e) {
-      setError(e);
+      if (mine === latest.current) setError(e);
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
-  }, [api, filter, view]);
+  }, [api, filter, view, listKey]);
   const loadSaved = useCallback(() => {
     api.recViews().then((r) => setSaved(r.views), () => setSaved([]));
   }, [api]);
@@ -95,9 +103,11 @@ export default function Recommendations() {
   const closeSheet = () => setSheet((s) => (s ? { ...s, closing: true } : s));
   const sheetClosed = useCallback(() => setSheet(null), []);
 
+  const data = result?.res ?? null;
   const locked = data?.mode === 'locked';
-  const searching = view.kind === 'search';
-  const listKey = searching ? `search-${JSON.stringify(view.criteria)}` : filter;
+  // A new filter or search: placeholders until its own answer arrives.
+  const current = result?.key === listKey ? data : null;
+  const waiting = !current && !error;
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
@@ -106,7 +116,7 @@ export default function Recommendations() {
         contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120, gap: space[5] }}
         columnWrapperStyle={{ gap: space[3] }}
         numColumns={2}
-        data={data?.items ?? []}
+        data={current?.items ?? []}
         // Each filter's or search's list fades in as a new list.
         key={listKey}
         keyExtractor={(r) => `${listKey}-${r.wineId}`}
@@ -177,7 +187,7 @@ export default function Recommendations() {
             <ErrorText error={error} />
           </View>
         }
-        ListEmptyComponent={data?.mode === 'profile' && !loading ? (
+        ListEmptyComponent={waiting && !locked ? <CardBones /> : current?.mode === 'profile' && !loading ? (
           <Muted style={type.subhead}>
             {searching
               ? 'No wines in stock match that yet. Try a wider price range or fewer details.'
@@ -303,6 +313,25 @@ function LockedCard({ rated, needed }: { rated: number; needed: number }) {
       <Muted style={type.tabular}>{rated} of {needed} rated</Muted>
       <Button title="Add a wine" onPress={() => router.push('/')} />
     </Card>
+  );
+}
+
+/** Two rows of card-shaped placeholders while a filter or search loads. */
+function CardBones() {
+  return (
+    <Skeleton label="Finding wines">
+      {[0, 1].map((row) => (
+        <View key={row} style={{ flexDirection: 'row', gap: space[3] }}>
+          {[0, 1].map((col) => (
+            <View key={col} style={{ flex: 1, gap: space[2] }}>
+              <View style={{ aspectRatio: 4 / 5 }}><Bone height="100%" radius={radius.md} /></View>
+              <Bone width="85%" height={16} />
+              <Bone width="55%" />
+            </View>
+          ))}
+        </View>
+      ))}
+    </Skeleton>
   );
 }
 

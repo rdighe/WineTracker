@@ -3,10 +3,13 @@
  * listings we already crawl.
  *
  * Preference: a listing of the same wine and vintage, then the same wine in
- * any vintage, then another wine of the same producer and colour. Whatever is
- * picked must be a packshot on a white background - checked on the image
- * itself (the border is near-white and the frame is portrait or square), so a
- * lifestyle photo or banner is never used.
+ * any vintage, then another wine of the same producer and colour, as a
+ * packshot on a white background - checked on the image itself (the border is
+ * near-white and the frame is portrait or square). When none of those is a
+ * white packshot, the wine's own listing photo is still used if it's a
+ * reasonable product photo (portrait or square, not tiny): a photo of the
+ * actual bottle beats none. Another producer's wine is only ever used as a
+ * white packshot.
  */
 import sharp from 'sharp';
 import { config } from '../config.js';
@@ -29,6 +32,12 @@ export const RECHECK_DAYS = 7;
  * the frame isn't landscape. Lifestyle photos, coloured placeholders and
  * banners fail.
  */
+/** Portrait or square and big enough to show: a product photo rather than a banner or icon. */
+export async function isProductPhoto(image: Buffer): Promise<boolean> {
+  const meta = await sharp(image, { failOn: 'none' }).metadata();
+  return Boolean(meta.width && meta.height && meta.height >= 250 && meta.width >= 100 && meta.height / meta.width >= 0.9);
+}
+
 export async function isWhitePackshot(image: Buffer): Promise<boolean> {
   const img = sharp(image, { failOn: 'none' });
   const meta = await img.metadata();
@@ -104,14 +113,24 @@ export async function findWineImage(db: Db, wineId: number, vintage?: string | n
 
   const seen = new Set<string>();
   let tries = 0;
+  // The wine's own listing photo, if nothing better turns up.
+  let fallback: { url: string; match: ImageMatch } | null = null;
   for (const c of tiered) {
     if (seen.has(c.url) || tries >= MAX_TRIES) continue;
     seen.add(c.url);
     tries++;
     const buf = await download(c.url, fetchImpl);
-    if (!buf || !(await isWhitePackshot(buf).catch(() => false))) continue;
+    if (!buf) continue;
+    if (!(await isWhitePackshot(buf).catch(() => false))) {
+      if (!fallback && c.match !== 'producer' && (await isProductPhoto(buf).catch(() => false))) fallback = c;
+      continue;
+    }
     await db.query('UPDATE wines SET image_url = $2, image_match = $3, image_checked_at = NOW() WHERE wine_id = $1', [wineId, c.url, c.match]);
     return c.url;
+  }
+  if (fallback) {
+    await db.query('UPDATE wines SET image_url = $2, image_match = $3, image_checked_at = NOW() WHERE wine_id = $1', [wineId, fallback.url, fallback.match]);
+    return fallback.url;
   }
   await db.query('UPDATE wines SET image_checked_at = NOW() WHERE wine_id = $1', [wineId]);
   return null;

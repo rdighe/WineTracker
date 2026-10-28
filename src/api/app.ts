@@ -22,6 +22,7 @@ import { createAuthenticator, type AuthOptions } from '../auth/auth.js';
 import { googleRoutes, type GoogleOptions } from '../auth/google.js';
 import { createTasting, deleteTasting, listTastings, removeFromCellar, updateTasting } from '../tastings/tastings.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
+import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { recommend } from '../recs/recommend.js';
 
@@ -37,6 +38,8 @@ export interface AppDeps {
   trustProxy?: number;
   /** Wine background research (default: one using `provider`); tests pass their own to await it. */
   infoResearcher?: InfoResearcher;
+  /** Fetches shop images for /api/photo (tests pass a fake). */
+  photoFetch?: typeof fetch;
   /** Override limits (tests). */
   limits?: { scansPerHour?: number; refreshesPerHour?: number; requestsPer15Min?: number };
 }
@@ -86,7 +89,7 @@ const tastingBody = z.object({
   bottles: z.number().int().min(1).max(9999).nullable().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -116,6 +119,17 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
       keyGenerator: (req) => (req.user ? `u:${req.user.userId}` : ipKeyGenerator(req.ip ?? '')),
       message: { error: 'too many requests; try again later' },
     });
+  // A wine's photo, fetched from the shop once and kept (src/catalog/photos.ts). No sign-in: it's
+  // only ever a catalog photo, and image views can't send one. Ahead of the request limit: a list of
+  // wines asks for a photo per row, and the phone caches them.
+  app.get('/api/photo', wrap(async (req, res) => {
+    const url = parse(z.string().url().max(2000), req.query.u);
+    const photo = await getPhoto(db, url, photoFetch);
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (!photo) return void res.status(404).set('Cache-Control', 'public, max-age=3600').end();
+    res.set('Content-Type', photo.contentType).set('Cache-Control', 'public, max-age=604800').send(photo.bytes);
+  }));
+
   app.use('/api', limiter(15 * 60_000, limits.requestsPer15Min ?? 900));
   const scanLimit = limiter(60 * 60_000, limits.scansPerHour ?? 30);
   const refreshLimit = limiter(60 * 60_000, limits.refreshesPerHour ?? 30);

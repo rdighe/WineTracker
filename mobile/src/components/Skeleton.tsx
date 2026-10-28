@@ -40,7 +40,7 @@ export function Skeleton({ children, label = 'Loading' }: { children: ReactNode;
 }
 
 /** One placeholder block. */
-export function Bone({ width = '100%', height = 12, radius = 6, style }: { width?: DimensionValue; height?: number; radius?: number; style?: StyleProp<ViewStyle> }) {
+export function Bone({ width = '100%', height = 12, radius = 6, style }: { width?: DimensionValue; height?: DimensionValue; radius?: number; style?: StyleProp<ViewStyle> }) {
   const pulse = useContext(Pulse);
   const { c } = useTheme();
   return <Animated.View style={[{ width, height, borderRadius: radius, backgroundColor: c.fillQuiet, opacity: pulse ?? 1 }, style]} />;

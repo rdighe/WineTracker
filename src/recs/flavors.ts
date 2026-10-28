@@ -37,6 +37,8 @@ export type Flavor = keyof typeof FLAVORS;
 export type FlavorProfile = Partial<Record<Flavor, number>>;
 
 const ENTRIES = Object.entries(FLAVORS) as [Flavor, (typeof FLAVORS)[Flavor]][];
+/** Each family's words, normalized once and padded for whole-word matching. */
+const MATCHERS = ENTRIES.map(([key, { words }]) => [key, words.map((w) => ` ${normalize(w.replace(/-/g, ' '))} `)] as const);
 
 export const flavorLabel = (f: string) => (FLAVORS as Record<string, { label: string }>)[f]?.label ?? f;
 
@@ -44,8 +46,8 @@ export const flavorLabel = (f: string) => (FLAVORS as Record<string, { label: st
 export function textFlavors(...texts: (string | null | undefined)[]): FlavorProfile {
   const s = ` ${normalize(texts.filter(Boolean).join(' ').replace(/-/g, ' '))} `;
   const out: FlavorProfile = {};
-  for (const [key, { words }] of ENTRIES) {
-    if (words.some((w) => s.includes(` ${normalize(w.replace(/-/g, ' '))} `))) out[key] = 1;
+  for (const [key, words] of MATCHERS) {
+    if (words.some((w) => s.includes(w))) out[key] = 1;
   }
   // "Light" also appears in "light tannins"/"light oak"; only trust it with no sign of a big wine.
   if (out.light && out.full) delete out.light;

@@ -120,4 +120,42 @@ describe('reference photos', () => {
     expect(await findWineImage(db, lynch, '2016', fetch as unknown as typeof globalThis.fetch)).toBe('https://img.test/lb-2016.jpg');
     expect((await db.query('SELECT image_match FROM wines WHERE wine_id = $1', [lynch])).rows[0].image_match).toBe('vintage');
   });
+
+  it("uses the wine's own shop photo when no listing is a packshot on white, but never a banner", async () => {
+    const m = (await db.query(`INSERT INTO merchants (domain, name) VALUES ('shop2.test', 'Shop 2') ON CONFLICT (domain) DO UPDATE SET name = EXCLUDED.name RETURNING merchant_id`)).rows[0].merchant_id;
+    const wine = ids.get('opus-one')!;
+    await db.query(`INSERT INTO listings (merchant_id, url, title, wine_id, vintage_key, match_status, image_url) VALUES ($1, 'https://shop2.test/banner', 't', $2, NULL, 'auto', 'https://img.test/banner.jpg')`, [m, wine]);
+    const banner = await packshot('#202020', 900, 300);
+    const dark = await packshot('#202020');
+    let photos: Record<string, Buffer> = { banner };
+    const fetch = vi.fn(async (url: RequestInfo | URL) => new Response((photos[String(url).split('/').pop()!.replace('.jpg', '')] ?? null) as BodyInit | null, { headers: { 'content-type': 'image/jpeg' } }));
+    expect(await findWineImage(db, wine, null, fetch as unknown as typeof globalThis.fetch)).toBeNull();
+
+    await db.query(`INSERT INTO listings (merchant_id, url, title, wine_id, vintage_key, match_status, image_url) VALUES ($1, 'https://shop2.test/dark', 't', $2, NULL, 'auto', 'https://img.test/dark.jpg')`, [m, wine]);
+    photos = { banner, dark };
+    expect(await findWineImage(db, wine, null, fetch as unknown as typeof globalThis.fetch)).toBe('https://img.test/dark.jpg');
+  });
+
+  it('serves wine photos through the API, fetched once, and only for URLs that are a wine photo', async () => {
+    const wine = ids.get('caymus-ss')!;
+    await db.query(`UPDATE wines SET image_url = 'http://img.test/caymus.png' WHERE wine_id = $1`, [wine]);
+    const png = await sharp({ create: { width: 1200, height: 2400, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const photoFetch = vi.fn(async () => new Response(png, { headers: { 'content-type': 'image/png' } }));
+    const a = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, photoFetch: photoFetch as unknown as typeof fetch });
+    const get = (u: string) => request(a).get(`/api/photo?u=${encodeURIComponent(u)}`).buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+    const r = await get('http://img.test/caymus.png');
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toBe('image/jpeg');
+    expect(r.headers['cache-control']).toContain('max-age');
+    const meta = await sharp(r.body as Buffer).metadata();
+    expect([meta.width, meta.height]).toEqual([600, 1200]);
+    expect((await get('http://img.test/caymus.png')).status).toBe(200);
+    expect(photoFetch).toHaveBeenCalledTimes(1);
+    expect((await get('http://evil.test/anything.png')).status).toBe(404);
+    expect(photoFetch).toHaveBeenCalledTimes(1);
+  });
 });

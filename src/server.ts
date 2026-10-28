@@ -3,6 +3,7 @@ import { createPool } from './db/pool.js';
 import { createApp } from './api/app.js';
 import { createProvider } from './llm/index.js';
 import { PoliteFetcher } from './prices/fetcher.js';
+import { warmRecommendations } from './recs/recommend.js';
 
 const db = createPool();
 const provider = createProvider();
@@ -23,4 +24,10 @@ createApp({
   trustProxy: config.trustProxy,
 }).listen(config.port, () => {
   console.log(`WineTracker API on :${config.port} (LLM provider: ${provider.name})`);
+  // For you's candidate list takes a few seconds to build; do it now rather than on someone's first visit.
+  const t0 = Date.now();
+  warmRecommendations(db).then(
+    () => console.log(`Recommendations ready in ${Date.now() - t0} ms`),
+    (e) => console.error('Recommendations warm-up failed:', e)
+  );
 });

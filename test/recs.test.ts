@@ -6,6 +6,7 @@ import { createWine } from '../src/catalog/wines.js';
 import { NullProvider } from '../src/llm/index.js';
 import { PoliteFetcher } from '../src/prices/fetcher.js';
 import { buildProfile, explain, scoreWine } from '../src/recs/profile.js';
+import { forgetRecommendationCandidates } from '../src/recs/recommend.js';
 import { wineCategory, wineFeatures } from '../src/recs/features.js';
 import { closeDb, resetDb, testDb } from './helpers.js';
 
@@ -85,6 +86,7 @@ describe('recommendations API', () => {
   beforeEach(async () => {
     db = await testDb();
     await resetDb(db);
+    forgetRecommendationCandidates(db);
   });
   afterAll(closeDb);
 
@@ -187,6 +189,24 @@ describe('recommendations API', () => {
     expect(await only('white')).toEqual([[white, 'white']]);
     // A style the user disliked still lists when asked for.
     expect(await only('rose')).toEqual([[rose, 'rose']]);
+  });
+
+  it('keeps serving suggestions while new prices are worked in, then shows them', async () => {
+    const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
+    const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const neb = { grape: 'Nebbiolo', region: 'Piedmont', country: 'Italy', colour: 'red', source: 'lwin' as const };
+    for (const [i, name] of ['Barolo', 'Barbaresco', 'Langhe'].entries()) {
+      const id = await priced({ producer: `P${i}`, name, ...neb }, 5000);
+      await as(request(app).post('/api/tastings')).send({ wineId: id, rating: 5 });
+    }
+    const first = await priced({ producer: 'Vajra', name: 'Barolo Albe', ...neb }, 5500);
+    const ids = async () => (await as(request(app).get('/api/recommendations?style=red'))).body.items.map((i: { wineId: number }) => i.wineId);
+    expect(await ids()).toEqual([first]);
+    const added = await priced({ producer: 'Cavallotto', name: 'Barolo Bricco Boschis', ...neb }, 6000);
+    // The list in hand answers at once; the new wine is there once the rebuild lands.
+    expect(await ids()).toEqual([first]);
+    await vi.waitFor(async () => expect((await ids()).sort()).toEqual([first, added].sort()));
   });
 
   it('searches by styles, price, region, tasting notes and food, says what it is based on, and saves views', async () => {

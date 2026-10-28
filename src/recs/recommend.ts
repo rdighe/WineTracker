@@ -110,6 +110,87 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
   return { profile: buildProfile(rated), tasted, styles };
 }
 
+/**
+ * A priced wine with everything about it that doesn't depend on the user,
+ * worked out once: features, style, and normalized text for searches.
+ */
+interface Candidate {
+  r: WineRow & { median_cents: number; n_merchants: number; image_url: string | null; image_checked_at: Date | null; descriptors?: unknown; food_pairings?: unknown; notes_text?: string | null };
+  f: Features;
+  style: RecStyle | '';
+  /** Where it's from, normalized and padded, for region searches. */
+  place: string;
+  /** Researched descriptors and notes, normalized and padded, for tasting-note searches. */
+  notes: string;
+  /** Researched food pairings, as written and normalized. */
+  pairings: { text: string; norm: string }[];
+}
+
+/** Rebuilt when prices or researched notes change, and at least this often. */
+const CANDIDATES_TTL_MS = 10 * 60_000;
+const candidateCache = new WeakMap<Db, { key: string; at: number; list: Candidate[]; rebuilding: boolean }>();
+
+const CANDIDATES_KEY = `SELECT (SELECT count(*) || ':' || coalesce(max(computed_at)::text, '') FROM wine_prices)
+     || '|' || (SELECT count(*) || ':' || coalesce(max(updated_at)::text, '') FROM wine_info)
+     || '|' || (SELECT coalesce(max(wine_id), 0) FROM wines) AS key`;
+
+async function buildCandidates(db: Db): Promise<Candidate[]> {
+  const { rows } = await db.query(
+    `SELECT ${WINE_COLS}, w.image_url, w.image_checked_at, p.median_cents, p.n_merchants, ${NOTES_COLS}
+       FROM wine_prices p JOIN wines w USING (wine_id)
+       ${NOTES_JOIN}
+      WHERE p.vintage_key = '*' AND p.currency = 'USD' AND NOT p.out_of_stock_only`
+  );
+  // Shops also sell spirits, beer and water; some of those ended up in the catalog.
+  return rows.filter((r) => parseTitle(r.display_name).isWine).map((r): Candidate => {
+    const f = wineFeatures(r as WineRow, notesOf(r));
+    const pairings: string[] = Array.isArray(r.food_pairings) ? r.food_pairings.map(String) : [];
+    return {
+      r,
+      f,
+      style: recStyle(f),
+      place: ` ${normalize(`${r.display_name} ${r.sub_region} ${r.region} ${r.country}`)} `,
+      notes: ` ${normalize([...(Array.isArray(r.descriptors) ? r.descriptors.map(String) : []), r.notes_text ?? ''].join(' '))} `,
+      pairings: pairings.map((text) => ({ text, norm: ` ${normalize(text)} ` })),
+    };
+  });
+}
+
+/**
+ * Every in-stock priced wine (tens of thousands), worked out once and shared
+ * by every request: scoring is then the only per-request work, which keeps
+ * For you quick on a small server. When prices or notes change, the current
+ * list keeps serving while the new one is built in the background; only the
+ * very first request waits.
+ */
+async function candidates(db: Db): Promise<Candidate[]> {
+  const { rows: [k] } = await db.query(CANDIDATES_KEY);
+  const hit = candidateCache.get(db);
+  if (!hit) {
+    const list = await buildCandidates(db);
+    candidateCache.set(db, { key: k.key, at: Date.now(), list, rebuilding: false });
+    return list;
+  }
+  if ((hit.key !== k.key || Date.now() - hit.at > CANDIDATES_TTL_MS) && !hit.rebuilding) {
+    hit.rebuilding = true;
+    buildCandidates(db).then(
+      (list) => candidateCache.set(db, { key: k.key, at: Date.now(), list, rebuilding: false }),
+      () => { hit.rebuilding = false; }
+    );
+  }
+  return hit.list;
+}
+
+/** Build the candidate list ahead of the first request (at server start). */
+export async function warmRecommendations(db: Db): Promise<void> {
+  await candidates(db);
+}
+
+/** Forget the candidate list, so the next request builds it from what's in the database now (tests). */
+export function forgetRecommendationCandidates(db: Db): void {
+  candidateCache.delete(db);
+}
+
 export type RecResult =
   /** styles: what the user has liked, for the app's filter (best-liked first). */
   | { mode: 'profile'; items: Recommendation[]; styles: RecStyle[]; summary: ProfileSummary }
@@ -119,17 +200,6 @@ export type RecResult =
 export async function recommend(db: Db, userId: number, opts: RecOptions = {}): Promise<RecResult> {
   const limit = Math.min(opts.limit ?? 20, 100);
   const { profile, tasted, styles } = await loadProfile(db, userId);
-  // Only wines a shop has in stock.
-  const filters: string[] = [`p.vintage_key = '*'`, `p.currency = 'USD'`, `NOT p.out_of_stock_only`];
-  const params: unknown[] = [];
-  if (opts.maxPriceCents) {
-    params.push(opts.maxPriceCents);
-    filters.push(`p.median_cents <= $${params.length}`);
-  }
-  if (opts.minPriceCents) {
-    params.push(opts.minPriceCents);
-    filters.push(`p.median_cents >= $${params.length}`);
-  }
   const search = Boolean(opts.styles?.length || opts.minPriceCents || opts.maxPriceCents || opts.region?.trim() || opts.notes?.trim() || opts.food?.trim());
   const regionWords = normalize(opts.region ?? '').split(' ').filter(Boolean);
   const wanted = wantedTaste(opts.notes);
@@ -137,38 +207,24 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
 
   if (profile.n < MIN_RATED) return { mode: 'locked', rated: profile.n, needed: MIN_RATED, items: [] };
 
-  // Every priced wine is a candidate (tens of thousands - scoring them in
-  // memory is ~100 ms). Move this to a precomputed table if the catalog grows
-  // past a few hundred thousand priced wines.
-  const { rows } = await db.query(
-    `SELECT ${WINE_COLS}, w.image_url, w.image_checked_at, p.median_cents, p.n_merchants, ${NOTES_COLS}
-       FROM wine_prices p JOIN wines w USING (wine_id)
-       ${NOTES_JOIN}
-      WHERE ${filters.join(' AND ')}`,
-    params
-  );
-
-  const scored = rows
-    // Shops also sell spirits, beer and water; some of those ended up in the catalog.
-    .filter((r) => !tasted.has(r.wine_id) && parseTitle(r.display_name).isWine)
-    .map((r) => {
-      const f = wineFeatures(r as WineRow, notesOf(r));
+  const scored = (await candidates(db))
+    .map((c) => {
+      const { r, f, style } = c;
+      if (tasted.has(r.wine_id)) return null;
+      if (opts.maxPriceCents && r.median_cents > opts.maxPriceCents) return null;
+      if (opts.minPriceCents && r.median_cents < opts.minPriceCents) return null;
       if (opts.colour && wineCategory(f) !== opts.colour) return null;
-      const style = recStyle(f);
       if (opts.style && style !== opts.style) return null;
       if (opts.styles?.length && !opts.styles.includes(style as RecStyle)) return null;
-      if (regionWords.length) {
-        const place = ` ${normalize(`${r.display_name} ${r.sub_region} ${r.region} ${r.country}`)} `;
-        if (!regionWords.every((w) => place.includes(` ${w} `))) return null;
-      }
+      if (regionWords.length && !regionWords.every((w) => c.place.includes(` ${w} `))) return null;
       const s = scoreWine(profile, f, r.median_cents);
       // Best value: favour cheaper wines among good matches.
       let score = opts.bestValue ? s.score - 0.35 * Math.log(r.median_cents / 1000) : s.score;
       const extra: string[] = [];
       if (search) {
         // What was asked for counts more than the profile; the profile still breaks ties.
-        const taste = tasteMatch(wanted, f, r);
-        const food = foodMatch(foods, f, style, r);
+        const taste = tasteMatch(wanted, f, c.notes);
+        const food = foodMatch(foods, f, style, c.pairings);
         score = 0.6 * score + taste.score + food.score;
         extra.push(...taste.reasons, ...food.reasons);
         if (regionWords.length) extra.push(`From ${titleCase(r.sub_region || r.region || opts.region!)}`);
@@ -203,17 +259,26 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
   }
 
   const perProducer = new Map<string, number>();
-  const items: Recommendation[] = [];
+  const picked: typeof ordered = [];
   for (const x of ordered) {
     const key = normalize(x.r.producer) || `#${x.r.wine_id}`;
     const n = perProducer.get(key) ?? 0;
     if (n >= PER_PRODUCER) continue;
     perProducer.set(key, n + 1);
-    // No photo yet: look for one in the background, so it shows next time.
-    if (!x.r.image_url) maybeQueueWineImage(db, x.r);
-    items.push(toRec(x.r, x.style, x.score, x.reasons));
-    if (items.length >= limit) break;
+    picked.push(x);
+    if (picked.length >= limit) break;
   }
+  // Photos as they are now (the candidate list can be a few minutes old, and photos are found in the background).
+  const { rows: photos } = picked.length
+    ? await db.query('SELECT wine_id, image_url, image_checked_at FROM wines WHERE wine_id = ANY($1)', [picked.map((x) => x.r.wine_id)])
+    : { rows: [] };
+  const photo = new Map(photos.map((p) => [Number(p.wine_id), p]));
+  const items = picked.map((x) => {
+    const now = photo.get(Number(x.r.wine_id)) ?? x.r;
+    // No photo yet: look for one in the background, so it shows next time.
+    if (!now.image_url) maybeQueueWineImage(db, { wine_id: x.r.wine_id, image_url: now.image_url, image_checked_at: now.image_checked_at });
+    return toRec({ ...x.r, image_url: now.image_url }, x.style, x.score, x.reasons);
+  });
   return { mode: 'profile', items, styles, summary: summarize(profile, styles) };
 }
 
@@ -232,10 +297,10 @@ function wantedTaste(notes?: string): { flavors: Flavor[]; words: string[] } {
   return { flavors: Object.keys(textFlavors(notes)) as Flavor[], words: normalize(notes).split(' ').filter((w) => w.length >= 4) };
 }
 
-function tasteMatch(w: { flavors: Flavor[]; words: string[] }, f: Features, r: { descriptors?: unknown; notes_text?: string | null }) {
+/** `text`: the wine's researched descriptors and notes, normalized and padded with spaces. */
+function tasteMatch(w: { flavors: Flavor[]; words: string[] }, f: Features, text: string) {
   if (!w.flavors.length && !w.words.length) return { score: 0, reasons: [] as string[] };
   const hits = w.flavors.filter((k) => (f.flavors?.[k] ?? 0) > 0);
-  const text = ` ${normalize([...(Array.isArray(r.descriptors) ? r.descriptors.map(String) : []), r.notes_text ?? ''].join(' '))} `;
   const words = w.words.filter((x) => text.includes(` ${x} `));
   const score = 0.6 * hits.length + 0.4 * words.length;
   const named = [...new Set([...hits.map((k) => flavorLabel(k)), ...words])].slice(0, 3);
@@ -262,10 +327,9 @@ function foodHints(food?: string): { words: string[]; hints: typeof FOOD_HINTS }
   return { words, hints: FOOD_HINTS.filter((h) => h.words.some((x) => words.includes(x))) };
 }
 
-function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle | '', r: { food_pairings?: unknown }) {
+function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle | '', pairings: Candidate['pairings']) {
   if (!q.words.length) return { score: 0, reasons: [] as string[] };
-  const listed = Array.isArray(r.food_pairings) ? r.food_pairings.map(String) : [];
-  const said = listed.find((p) => q.words.some((w) => ` ${normalize(p)} `.includes(` ${w} `)));
+  const said = pairings.find((p) => q.words.some((w) => p.norm.includes(` ${w} `)))?.text;
   let score = said ? 1.2 : 0;
   for (const h of q.hints) {
     if (style && h.styles.includes(style)) score += 0.4;
