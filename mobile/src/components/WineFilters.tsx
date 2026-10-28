@@ -18,8 +18,8 @@ type Key = keyof Filters;
 /** Lowercase without accents, so "chateau" finds "Château". */
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-const COLOUR_LABEL: Record<string, string> = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', dessert: 'Dessert', fortified: 'Fortified' };
-const colours = (t: Tasting) => [t.colour, t.wine_type === 'still' ? '' : t.wine_type].filter(Boolean);
+const COLOR_LABEL: Record<string, string> = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', dessert: 'Dessert', fortified: 'Fortified' };
+const colors = (t: Tasting) => [t.colour, t.wine_type === 'still' ? '' : t.wine_type].filter(Boolean);
 const regionOf = (t: Tasting) => t.sub_region || t.region;
 /** "Cabernet Sauvignon, Merlot" -> both grapes. */
 const grapesOf = (t: Tasting) => (t.grape ?? '').split(/[,/&+]| and /).map((g) => g.replace(/\d+\s*%/g, '').trim()).filter(Boolean);
@@ -37,7 +37,7 @@ const vintageBucket = (v: string | null) => {
 };
 
 function matches(t: Tasting, f: Filters, words: string[]): boolean {
-  if (f.colour && !colours(t).includes(f.colour)) return false;
+  if (f.colour && !colors(t).includes(f.colour)) return false;
   if (f.country && t.country !== f.country) return false;
   if (f.region && regionOf(t) !== f.region) return false;
   if (f.grape && !grapesOf(t).includes(f.grape)) return false;
@@ -57,7 +57,7 @@ export function applyFilters(items: Tasting[], query: string, f: Filters): Tasti
 function options(items: Tasting[], values: (t: Tasting) => string[], max = 12): { key: string; label: string }[] {
   const n = new Map<string, number>();
   for (const t of items) for (const v of new Set(values(t))) if (v) n.set(v, (n.get(v) ?? 0) + 1);
-  return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, max).map(([key]) => ({ key, label: COLOUR_LABEL[key] ?? key }));
+  return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, max).map(([key]) => ({ key, label: COLOR_LABEL[key] ?? key }));
 }
 
 export function activeCount(f: Filters): number {
@@ -71,7 +71,7 @@ export function WineFilters({ items, query, onQuery, filters, onFilters }: {
   const groups = useMemo(() => {
     const decades = options(items, (t) => [vintageBucket(t.vintage_key)]).sort((a, b) => b.key.localeCompare(a.key));
     return ([
-      ['colour', 'Colour & style', options(items, colours)],
+      ['colour', 'Color & style', options(items, colors)],
       ['country', 'Country', options(items, (t) => [t.country])],
       ['region', 'Region', options(items, (t) => [regionOf(t)])],
       ['grape', 'Grape', options(items, grapesOf)],
@@ -120,7 +120,7 @@ export function WineFilters({ items, query, onQuery, filters, onFilters }: {
               <Label>{title}</Label>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {opts.map((o) => (
-                  <Chip key={o.key} small selected={filters[k] === o.key} dot={k === 'colour' && o.key in COLOUR_LABEL ? wineStyleOf(o.key, o.key) : undefined} onPress={() => toggle(k, o.key)}>{o.label}</Chip>
+                  <Chip key={o.key} small selected={filters[k] === o.key} dot={k === 'colour' && o.key in COLOR_LABEL ? wineStyleOf(o.key, o.key) : undefined} onPress={() => toggle(k, o.key)}>{o.label}</Chip>
                 ))}
               </View>
             </View>
@@ -134,7 +134,7 @@ export function WineFilters({ items, query, onQuery, filters, onFilters }: {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {(Object.entries(filters) as [Key, string | undefined][]).filter(([, v]) => v).map(([k, v]) => (
             <Chip key={k} small selected onPress={() => onFilters({ ...filters, [k]: undefined })}>
-              {`${k === 'rating' ? RATINGS.find((r) => r.key === v)?.label : COLOUR_LABEL[v!] ?? v}  ×`}
+              {`${k === 'rating' ? RATINGS.find((r) => r.key === v)?.label : COLOR_LABEL[v!] ?? v}  ×`}
             </Chip>
           ))}
         </View>

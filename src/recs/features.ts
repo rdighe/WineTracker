@@ -4,7 +4,7 @@
  * created wines often have no grape/colour fields).
  */
 import { colourFromGrape, findGrape } from '../lib/grapes.js';
-import { wineFlavours, type FlavourProfile } from './flavours.js';
+import { wineFlavors, type FlavorProfile } from './flavors.js';
 import { normalize } from '../lib/normalize.js';
 
 export type FeatureKind = 'grape' | 'appellation' | 'region' | 'country' | 'producer' | 'colour' | 'style';
@@ -23,8 +23,8 @@ export interface WineRow {
 }
 
 export type Features = Partial<Record<FeatureKind, string>> & {
-  /** Flavour families from tasting notes, else typical of the grape/style (src/recs/flavours.ts). */
-  flavours?: FlavourProfile;
+  /** Flavor families from tasting notes, else typical of the grape/style (src/recs/flavors.ts). */
+  flavors?: FlavorProfile;
 };
 
 /** Researched notes for a wine, when it has some (wine_info). */
@@ -80,7 +80,7 @@ export function wineFeatures(w: WineRow, notes?: WineNotes | null): Features {
     producer: normalize(w.producer) || undefined,
     colour: colour || undefined,
     style,
-    flavours: wineFlavours(grape || undefined, style, notes),
+    flavors: wineFlavors(grape || undefined, style, notes),
   };
   return f;
 }

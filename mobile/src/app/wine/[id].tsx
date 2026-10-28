@@ -1,5 +1,5 @@
 /** Wine: the photo first, then market price (all vintages or one), price by vintage, where to buy, save, log a tasting. */
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -7,13 +7,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ExpandingSheet, measure, type Rect } from '../../components/ExpandingSheet';
 import { Glass } from '../../components/Glass';
 import { BackIcon, BookmarkIcon, BottleIcon, PlusIcon, RefreshIcon } from '../../components/icons';
+import { CellarRow, TastingRow } from '../../components/EntryRows';
 import { TastingForm, type TastingKind } from '../../components/TastingForm';
 import { WineAbout, useWineInfo } from '../../components/WineAbout';
 import { PriceBones, Skeleton, WineSkeleton } from '../../components/Skeleton';
 import { WinePhoto } from '../../components/WineThumb';
 import { Button, Card, Divider, ErrorText, Heading, IconButton, Muted, StyleDot, radius, size, space, type, useTheme, wineStyleOf } from '../../components/ui';
 import { dollars, wineTitle } from '../../lib/format';
-import type { PriceSummary, PricesResponse, Wine } from '../../lib/types';
+import type { PriceSummary, PricesResponse, Tasting, Wine } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
 const STYLE_LABEL = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', fortified: 'Fortified' } as const;
@@ -44,6 +45,18 @@ export default function WineScreen() {
   // Which vintage the prices on screen are for; until it matches, the price card shows placeholders.
   const [pricesFor, setPricesFor] = useState<string | null>(null);
   const about = useWineInfo(wineId);
+  // The user's own bottles and tastings of this wine.
+  const [mine, setMine] = useState<Tasting[]>([]);
+  const loadMine = useCallback(async () => {
+    try {
+      setMine((await api.tastings()).tastings.filter((t) => t.wine_id === wineId));
+    } catch {
+      // The page still works without them.
+    }
+  }, [api, wineId]);
+  useFocusEffect(useCallback(() => void loadMine(), [loadMine]));
+  const cellar = mine.filter((t) => t.kind === 'cellar');
+  const tasted = mine.filter((t) => t.kind !== 'cellar');
 
   useEffect(() => {
     let cancelled = false;
@@ -185,6 +198,19 @@ export default function WineScreen() {
             </Card>
           ) : null}
 
+          {cellar.length > 0 && (
+            <Card style={{ gap: space[2] }}>
+              <Heading>In your cellar · {cellar.reduce((n, t) => n + (t.bottles ?? 1), 0)} {cellar.reduce((n, t) => n + (t.bottles ?? 1), 0) === 1 ? 'bottle' : 'bottles'}</Heading>
+              {cellar.map((t) => <CellarRow key={t.tasting_id} t={t} onChanged={loadMine} />)}
+            </Card>
+          )}
+          {tasted.length > 0 && (
+            <Card style={{ gap: space[2] }}>
+              <Heading>Your tastings · {tasted.length}</Heading>
+              {tasted.map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={loadMine} />)}
+            </Card>
+          )}
+
           {byVintage.length > 0 && (
             <Card>
               <Heading>By vintage</Heading>
@@ -307,7 +333,7 @@ export default function WineScreen() {
               vintage={vintage ?? (addVintage || null)}
               kind={sheet.kind}
               suggestedTags={about?.info?.descriptors}
-              onSaved={(k) => { closeSheet(); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }}
+              onSaved={(k) => { closeSheet(); void loadMine(); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }}
             />
           </KeyboardAwareScrollView>
         </ExpandingSheet>

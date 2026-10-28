@@ -15,7 +15,7 @@ import { maybeQueueWineImage } from '../catalog/images.js';
 import { parseTitle } from '../lib/listing.js';
 import { normalize } from '../lib/normalize.js';
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
-import { flavourLabel, mergeFlavours, textFlavours, type Flavour } from './flavours.js';
+import { flavorLabel, mergeFlavors, textFlavors, type Flavor } from './flavors.js';
 import { buildProfile, explain, scoreWine, type Profile } from './profile.js';
 
 export const MIN_RATED = 3;
@@ -104,8 +104,8 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
   const rated = rows.filter((r) => r.rating != null).map((r) => {
     const features = wineFeatures(r as WineRow, notesOf(r));
     // What the user noted themselves counts most: it is what they tasted.
-    const own = Object.fromEntries(Object.keys(textFlavours(...(r.tags ?? []), r.own_notes)).map((k) => [k as Flavour, 1.5]));
-    return { features: { ...features, flavours: mergeFlavours(features.flavours ?? {}, own) }, rating: r.rating, priceCents: r.price };
+    const own = Object.fromEntries(Object.keys(textFlavors(...(r.tags ?? []), r.own_notes)).map((k) => [k as Flavor, 1.5]));
+    return { features: { ...features, flavors: mergeFlavors(features.flavors ?? {}, own) }, rating: r.rating, priceCents: r.price };
   });
   return { profile: buildProfile(rated), tasted, styles };
 }
@@ -218,7 +218,7 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
 }
 
 function summarize(p: Profile, styles: RecStyle[]): ProfileSummary {
-  const flavors = [...p.flavours.entries()].filter(([, s]) => s.weight > 0).sort((a, b) => b[1].weight - a[1].weight).slice(0, 4).map(([k]) => flavourLabel(k));
+  const flavors = [...p.flavors.entries()].filter(([, s]) => s.weight > 0).sort((a, b) => b[1].weight - a[1].weight).slice(0, 4).map(([k]) => flavorLabel(k));
   const band = p.price ? [Math.exp(p.price.mu - p.price.sigma), Math.exp(p.price.mu + p.price.sigma)] : null;
   const round = (c: number) => Math.round(c / 500) * 500;
   return { rated: p.n, styles, priceLowCents: band ? round(band[0]!) : null, priceHighCents: band ? round(band[1]!) : null, flavors };
@@ -227,34 +227,34 @@ function summarize(p: Profile, styles: RecStyle[]): ProfileSummary {
 const titleCase = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 
 /** Tasting notes asked for: flavor families, plus the words themselves to find in a wine's researched notes. */
-function wantedTaste(notes?: string): { flavours: Flavour[]; words: string[] } {
-  if (!notes?.trim()) return { flavours: [], words: [] };
-  return { flavours: Object.keys(textFlavours(notes)) as Flavour[], words: normalize(notes).split(' ').filter((w) => w.length >= 4) };
+function wantedTaste(notes?: string): { flavors: Flavor[]; words: string[] } {
+  if (!notes?.trim()) return { flavors: [], words: [] };
+  return { flavors: Object.keys(textFlavors(notes)) as Flavor[], words: normalize(notes).split(' ').filter((w) => w.length >= 4) };
 }
 
-function tasteMatch(w: { flavours: Flavour[]; words: string[] }, f: Features, r: { descriptors?: unknown; notes_text?: string | null }) {
-  if (!w.flavours.length && !w.words.length) return { score: 0, reasons: [] as string[] };
-  const hits = w.flavours.filter((k) => (f.flavours?.[k] ?? 0) > 0);
+function tasteMatch(w: { flavors: Flavor[]; words: string[] }, f: Features, r: { descriptors?: unknown; notes_text?: string | null }) {
+  if (!w.flavors.length && !w.words.length) return { score: 0, reasons: [] as string[] };
+  const hits = w.flavors.filter((k) => (f.flavors?.[k] ?? 0) > 0);
   const text = ` ${normalize([...(Array.isArray(r.descriptors) ? r.descriptors.map(String) : []), r.notes_text ?? ''].join(' '))} `;
   const words = w.words.filter((x) => text.includes(` ${x} `));
   const score = 0.6 * hits.length + 0.4 * words.length;
-  const named = [...new Set([...hits.map((k) => flavourLabel(k)), ...words])].slice(0, 3);
+  const named = [...new Set([...hits.map((k) => flavorLabel(k)), ...words])].slice(0, 3);
   return { score, reasons: named.length ? [`Tastes of ${named.join(', ')}`] : [] };
 }
 
 /** Food and what goes with it, for wines whose researched pairings don't mention the dish. */
-const FOOD_HINTS: { words: string[]; styles: RecStyle[]; flavours: Flavour[] }[] = [
-  { words: ['steak', 'beef', 'lamb', 'burger', 'bbq', 'barbecue', 'brisket', 'venison', 'ribs'], styles: ['red'], flavours: ['tannic', 'full', 'black_fruit'] },
-  { words: ['duck', 'mushroom', 'mushrooms', 'game', 'truffle'], styles: ['red'], flavours: ['earthy', 'red_fruit'] },
-  { words: ['pork', 'chicken', 'turkey', 'veal'], styles: ['white', 'red', 'rose'], flavours: ['light', 'red_fruit', 'orchard'] },
-  { words: ['fish', 'seafood', 'oyster', 'oysters', 'shellfish', 'sushi', 'scallops', 'crab', 'lobster', 'shrimp', 'prawns', 'clams', 'mussels'], styles: ['white', 'sparkling'], flavours: ['fresh', 'mineral', 'citrus'] },
-  { words: ['salmon', 'tuna'], styles: ['rose', 'white', 'red'], flavours: ['light', 'red_fruit'] },
-  { words: ['pasta', 'pizza', 'tomato', 'lasagna', 'bolognese'], styles: ['red'], flavours: ['red_fruit', 'fresh'] },
-  { words: ['cheese', 'charcuterie'], styles: ['red', 'white', 'sweet'], flavours: ['savory', 'rich_sweet'] },
-  { words: ['dessert', 'chocolate', 'cake', 'tart', 'pie', 'foie', 'blue'], styles: ['sweet'], flavours: ['sweet', 'rich_sweet'] },
-  { words: ['spicy', 'curry', 'thai', 'indian', 'szechuan', 'chinese', 'mexican'], styles: ['white', 'rose'], flavours: ['stone_fruit', 'fresh', 'sweet'] },
-  { words: ['salad', 'vegetables', 'veggies', 'asparagus', 'goat'], styles: ['white', 'rose'], flavours: ['herbal', 'fresh'] },
-  { words: ['fried', 'chips', 'popcorn', 'caviar', 'tempura'], styles: ['sparkling'], flavours: ['fresh', 'yeasty'] },
+const FOOD_HINTS: { words: string[]; styles: RecStyle[]; flavors: Flavor[] }[] = [
+  { words: ['steak', 'beef', 'lamb', 'burger', 'bbq', 'barbecue', 'brisket', 'venison', 'ribs'], styles: ['red'], flavors: ['tannic', 'full', 'black_fruit'] },
+  { words: ['duck', 'mushroom', 'mushrooms', 'game', 'truffle'], styles: ['red'], flavors: ['earthy', 'red_fruit'] },
+  { words: ['pork', 'chicken', 'turkey', 'veal'], styles: ['white', 'red', 'rose'], flavors: ['light', 'red_fruit', 'orchard'] },
+  { words: ['fish', 'seafood', 'oyster', 'oysters', 'shellfish', 'sushi', 'scallops', 'crab', 'lobster', 'shrimp', 'prawns', 'clams', 'mussels'], styles: ['white', 'sparkling'], flavors: ['fresh', 'mineral', 'citrus'] },
+  { words: ['salmon', 'tuna'], styles: ['rose', 'white', 'red'], flavors: ['light', 'red_fruit'] },
+  { words: ['pasta', 'pizza', 'tomato', 'lasagna', 'bolognese'], styles: ['red'], flavors: ['red_fruit', 'fresh'] },
+  { words: ['cheese', 'charcuterie'], styles: ['red', 'white', 'sweet'], flavors: ['savory', 'rich_sweet'] },
+  { words: ['dessert', 'chocolate', 'cake', 'tart', 'pie', 'foie', 'blue'], styles: ['sweet'], flavors: ['sweet', 'rich_sweet'] },
+  { words: ['spicy', 'curry', 'thai', 'indian', 'szechuan', 'chinese', 'mexican'], styles: ['white', 'rose'], flavors: ['stone_fruit', 'fresh', 'sweet'] },
+  { words: ['salad', 'vegetables', 'veggies', 'asparagus', 'goat'], styles: ['white', 'rose'], flavors: ['herbal', 'fresh'] },
+  { words: ['fried', 'chips', 'popcorn', 'caviar', 'tempura'], styles: ['sparkling'], flavors: ['fresh', 'yeasty'] },
 ];
 
 function foodHints(food?: string): { words: string[]; hints: typeof FOOD_HINTS } {
@@ -269,7 +269,7 @@ function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle
   let score = said ? 1.2 : 0;
   for (const h of q.hints) {
     if (style && h.styles.includes(style)) score += 0.4;
-    score += 0.25 * Math.min(2, h.flavours.filter((k) => (f.flavours?.[k] ?? 0) > 0).length);
+    score += 0.25 * Math.min(2, h.flavors.filter((k) => (f.flavors?.[k] ?? 0) > 0).length);
   }
   return { score, reasons: said ? [`Pairs with ${said.toLowerCase()}`] : score > 0.6 ? [`Goes with ${q.words.slice(0, 2).join(' and ')}`] : [] };
 }

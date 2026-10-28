@@ -31,7 +31,7 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/catalog/info.ts` | Wine background research (tasting notes, producer, specs), once per wine, in the background |
 | `src/catalog/twins.ts` | Merges copies of one wine created from shop listings (`npm run dedupe -- twins`) |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
-| `src/recs/` | Taste profile from ratings, led by flavour (tasting notes, your tags, else typical of the grape; `flavours.ts`), then grape, producer, place, style and price range; recommendations |
+| `src/recs/` | Taste profile from ratings, led by flavor (tasting notes, your tags, else typical of the grape; `flavors.ts`), then grape, producer, place, style and price range; recommendations |
 | `src/api/app.ts` | REST API |
 
 ## Data model (short)
@@ -109,7 +109,7 @@ differ only in a region word ("DeLoach RRV Zinfandel" vs "DeLoach California Zin
 ### Reference photos
 
 Each wine gets a product photo from the shop listings we crawl: the same wine and vintage if possible, else the
-same wine, else another wine of the same producer and colour - and only a packshot on white (checked on the image:
+same wine, else another wine of the same producer and color - and only a packshot on white (checked on the image:
 light, neutral top corners and border, not landscape). Lookups run in the background when a wine is logged or its
 page is opened. For a database crawled before images were recorded:
 
@@ -160,6 +160,8 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | PATCH/DELETE | `/api/tastings/:id` | partial tasting | auth, own tastings only |
 | GET, PUT/DELETE | `/api/saved`, `/api/saved/:wineId` | | watch list (auth) |
 | GET | `/api/recommendations?bestValue=&colour=red\|white\|other&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal; in-stock wines only |
+| GET | `/api/recommendations?styles=red,white&minPrice=&maxPrice=&region=&notes=&food=` | | Find wines: a search on top of the taste profile (prices in dollars; styles red\|white\|rose\|sparkling\|orange\|sweet); every response has `summary` (rated count, styles, usual price band, leading flavors) |
+| GET, POST / DELETE | `/api/rec-views`, `/api/rec-views/:id` | `{name, criteria}` (criteria as the search above, styles as a list) | saved For you searches (auth, up to 50) |
 | POST | `/api/import/vivino` | `{csv}` (a Vivino data export, ≤ 8 MB) | auth; matches each row, adds unknown wines as the user's own; re-importing adds nothing |
 
 Scan outcomes: `auto` (confident, attach directly), `choose` (show the candidates), `new` (offer to create the wine).

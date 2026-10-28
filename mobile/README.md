@@ -3,9 +3,11 @@
 Expo (SDK 57) + Expo Router app for the WineTracker API in the parent directory.
 
 Screens: **Add wine** (photograph a label or a lineup of bottles, or search the catalog / add a wine by hand),
-**My Cellar** and **My Tastings** (one entry per wine with every bottle added and every tasting, each dated and
-editable; remove from the cellar, delete a tasting), **For you** (recommendations from your ratings and the flavours
-you like), and a **wine page** (market price by vintage, where to buy, background, add to cellar or log a tasting).
+**My wines** (the cellar and the tastings, switched with Cellar / Tasted; a cellar row opens the wine page, a tasted
+row opens in place), **For you** (picks from your ratings, filtered by Red / White / Sparkling / Dessert or best value;
+Refresh picks re-reads your ratings; Find wines searches by price range, style, region, tasting notes and food, and a
+search can be saved as a view), **Settings**, and a **wine page** (market price, your bottles and tastings of it, price
+by vintage, where to buy, background, add to cellar or log a tasting).
 
 ## Run it
 
@@ -75,9 +77,9 @@ in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
 - **Photos first:** a wine's page opens on its photo; rows lead with a thumbnail; For you is a grid of photo cards.
 - **Type:** the Apple system font everywhere, with tabular figures for prices. The opening animation writes
   "WineTracker" in Snell Roundhand, which ships with iOS (`src/components/SplashIntro.tsx`).
-- **Motion** (Reanimated; all of it respects Reduce Motion): Log tasting and Add to cellar open a sheet that grows out
-  of the button (`ExpandingSheet.tsx`); the tab highlight and segmented controls slide; rows fade in and move as one
-  opens; buttons spring when pressed.
+- **Motion** (Reanimated; all of it respects Reduce Motion): Log tasting, Add to cellar and Find wines open a sheet
+  that grows out of the button (`ExpandingSheet.tsx`); the tab highlight and segmented controls slide; rows fade in,
+  and slide gently (220 ms ease-out, no bounce) as a tasted row opens; buttons spring when pressed.
 
 ## Checks
 

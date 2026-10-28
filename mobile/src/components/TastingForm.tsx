@@ -137,7 +137,7 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
       </View>
       {suggestedTags.some((t) => !draft.tags.includes(t)) ? (
         <View style={{ gap: space[2] }}>
-          <Label>Typical notes · tap to add</Label>
+          <Label>Typical tasting tags · tap to add</Label>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {suggestedTags.filter((t) => !draft.tags.includes(t)).map((t) => (
               <Chip key={t} small onPress={() => draft.setTags([...draft.tags, t])}>{`+ ${t}`}</Chip>

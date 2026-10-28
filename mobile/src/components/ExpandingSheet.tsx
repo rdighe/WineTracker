@@ -4,7 +4,7 @@
  * in place instead.
  */
 import { useEffect, type ReactNode, type RefObject } from 'react';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { Easing, interpolate, interpolateColor, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -21,7 +21,7 @@ export function measure(ref: RefObject<View | null>): Promise<Rect | null> {
   });
 }
 
-export function ExpandingSheet({ origin, label, tint, closing, onClosed, onRequestClose, title, children }: {
+export function ExpandingSheet({ origin, label, tint, closing, onClosed, onRequestClose, title, children, overTabs }: {
   /** The button's rect; the sheet starts there. */
   origin: Rect;
   /** The button's label, shown as the shape grows so it reads as the same object. */
@@ -34,6 +34,8 @@ export function ExpandingSheet({ origin, label, tint, closing, onClosed, onReque
   onRequestClose: () => void;
   title: string;
   children: ReactNode;
+  /** On a tab screen: draw above the tab bar (in a modal layer) rather than inside the screen. */
+  overTabs?: boolean;
 }) {
   const { c, reduceMotion, scheme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -69,7 +71,7 @@ export function ExpandingSheet({ origin, label, tint, closing, onClosed, onReque
     transform: [{ translateY: interpolate(p.value, [0.45, 1], [12, 0], 'clamp') }],
   }));
 
-  return (
+  const sheet = (
     <View style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, zIndex: 50 }}>
       <Animated.View style={[{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: c.scrim }, scrim]}>
         <Pressable accessibilityLabel="Close" style={{ flex: 1 }} onPress={onRequestClose} />
@@ -96,4 +98,9 @@ export function ExpandingSheet({ origin, label, tint, closing, onClosed, onReque
       </Animated.View>
     </View>
   );
+  return overTabs ? (
+    <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={onRequestClose}>
+      {sheet}
+    </Modal>
+  ) : sheet;
 }

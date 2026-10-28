@@ -426,7 +426,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
       }).merge(searchSchema.omit({ styles: true })),
       req.query
     );
-    // Rated wines without researched notes: look them up, so their flavours sharpen the profile next time.
+    // Rated wines without researched notes: look them up, so their flavors sharpen the profile next time.
     const { rows: unresearched } = await db.query(
       `SELECT DISTINCT t.wine_id FROM tastings t LEFT JOIN wine_info i USING (wine_id)
         WHERE t.user_id = $1 AND t.rating IS NOT NULL AND i.wine_id IS NULL LIMIT 10`,

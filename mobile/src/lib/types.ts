@@ -140,9 +140,35 @@ export interface Recommendation {
   reasons: string[];
 }
 
-/** styles: the ones the user has liked, best-liked first; For you offers them as filters. Older servers send none. */
+/** What suggestions are based on: the rated wines' styles, usual price band and leading flavors. */
+export interface TasteSummary {
+  rated: number;
+  styles: RecStyle[];
+  priceLowCents: number | null;
+  priceHighCents: number | null;
+  flavors: string[];
+}
+
+/** "Find wines": what a search (and a saved view) asks for. Prices in dollars. */
+export interface RecSearch {
+  styles?: RecStyle[];
+  minPrice?: number;
+  maxPrice?: number;
+  region?: string;
+  notes?: string;
+  food?: string;
+}
+
+export interface RecView {
+  viewId: number;
+  name: string;
+  criteria: RecSearch;
+  createdAt: string;
+}
+
+/** styles: the ones the user has liked, best-liked first. Older servers send no styles or summary. */
 export type RecommendationsResponse =
-  | { mode: 'profile'; items: Recommendation[]; styles?: RecStyle[] }
+  | { mode: 'profile'; items: Recommendation[]; styles?: RecStyle[]; summary?: TasteSummary }
   | { mode: 'locked'; rated: number; needed: number; items: [] };
 
 /** Researched background for a wine (see ../../src/llm/types.ts). Any field may be empty. */

@@ -7,17 +7,17 @@
  */
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dollars, shortDate, wineTitle } from '../lib/format';
 import type { Tasting } from '../lib/types';
 import { useApi } from '../lib/useApi';
-import { DateField } from './DateField';
+import { Section, TastingRow } from './EntryRows';
 import { ChevronIcon } from './icons';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
-import { Button, Card, Divider, ErrorText, Label, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
+import { Button, Card, Divider, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
 export type Mode = 'cellar' | 'tastings';
 type Sort = 'recent' | 'value' | 'rating';
@@ -63,16 +63,6 @@ const groupChange = (g: Group) => {
 };
 
 /** Yes/no question: a native alert, or the browser's confirm on the web. */
-function confirm(title: string, message: string, action: string): Promise<boolean> {
-  if (Platform.OS === 'web') return Promise.resolve(globalThis.confirm?.(`${title}\n\n${message}`) ?? true);
-  return new Promise((resolve) =>
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-      { text: action, style: 'destructive', onPress: () => resolve(true) },
-    ])
-  );
-}
-
 export function MyWines() {
   const api = useApi();
   const insets = useSafeAreaInsets();
@@ -192,7 +182,8 @@ export function MyWines() {
           first={index === 0}
           last={index === visible.length - 1}
           open={open === g.wineId}
-          onToggle={() => setOpen(open === g.wineId ? null : g.wineId)}
+          // Cellar rows go straight to the wine's page (its bottles and tastings are there); Tasted rows open in place.
+          onToggle={() => (mode === 'cellar' ? router.push(`/wine/${g.wineId}`) : setOpen(open === g.wineId ? null : g.wineId))}
           onChanged={load}
         />
       )}
@@ -210,14 +201,8 @@ function Stat({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function Badge({ children }: { children: ReactNode }) {
-  const { c } = useTheme();
-  return (
-    <View style={{ paddingHorizontal: space[2], paddingVertical: 2, borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
-      <Text style={[type.footnote, { fontWeight: '500', color: c.ink2 }]}>{children}</Text>
-    </View>
-  );
-}
+/** Rows ease into place as one opens or closes: a short slide, no bounce. */
+const rowLayout = LinearTransition.duration(220).easing(Easing.out(Easing.cubic));
 
 /** One wine as a row in a grouped list: thumbnail, name, what you have or tasted, and its price. Tap to open. */
 function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
@@ -238,9 +223,9 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
 
   return (
     <Animated.View
-      // Rows slide in a few at a time when the list appears, and move smoothly as one opens or closes.
+      // Rows slide in a few at a time when the list appears, and slide gently as one opens or closes.
       entering={FadeInDown.duration(260).delay(Math.min(index, 8) * 30)}
-      layout={LinearTransition.springify().damping(22).stiffness(220)}
+      layout={rowLayout}
       style={{
         backgroundColor: c.surface, borderColor: c.hairline, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth,
         borderTopWidth: first ? StyleSheet.hairlineWidth : 0, borderBottomWidth: last ? StyleSheet.hairlineWidth : 0,
@@ -251,7 +236,8 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
       {first ? null : <Divider style={{ marginLeft: space[4] + size.thumbW + space[3] }} />}
       <Pressable
         accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
+        accessibilityState={mode === 'cellar' ? undefined : { expanded: open }}
+        accessibilityHint={mode === 'cellar' ? 'Opens the wine page' : undefined}
         accessibilityLabel={`${name}, ${summary}${market ? `, now ${dollars(market)}` : ''}${g.rating != null ? `, rated ${g.rating}` : ''}`}
         onPress={onToggle}
         style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.rowPhoto, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
@@ -269,24 +255,18 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
             <Rating value={g.rating} />
           ) : null}
         </View>
-        <ChevronIcon color={c.ink3} direction={open ? 'up' : 'down'} />
+        <ChevronIcon color={c.ink3} direction={mode === 'cellar' ? 'right' : open ? 'up' : 'down'} />
       </Pressable>
 
-      {open ? (
-        <Animated.View entering={FadeIn.duration(220).delay(60)} exiting={FadeOut.duration(120)} style={{ gap: space[4], paddingHorizontal: space[4], paddingBottom: space[4] }}>
-          {mode === 'cellar' ? (
-            <Section title="In the cellar">
-              {g.cellar.map((t) => <CellarRow key={t.tasting_id} t={t} onChanged={onChanged} />)}
-            </Section>
-          ) : g.cellar.length ? (
+      {open && mode === 'tastings' ? (
+        <Animated.View entering={FadeIn.duration(200).delay(40)} exiting={FadeOut.duration(120)} style={{ gap: space[4], paddingHorizontal: space[4], paddingBottom: space[4] }}>
+          {g.cellar.length ? (
             <Muted>
               In your cellar: {g.bottles} {g.bottles === 1 ? 'bottle' : 'bottles'} ({vintages.join(', ')})
             </Muted>
           ) : null}
-          <Section title={mode === 'cellar' ? 'Your tasting notes' : 'Tastings'}>
-            {(mode === 'cellar' ? g.tasted : g.notes).length
-              ? (mode === 'cellar' ? g.tasted : g.notes).map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={onChanged} />)
-              : <Muted>Not tasted yet.</Muted>}
+          <Section title="Tastings">
+            {g.notes.length ? g.notes.map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={onChanged} />) : <Muted>Not tasted yet.</Muted>}
           </Section>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
             <Button title="Log tasting" variant="tinted" size="sm" onPress={() => router.push(`/wine/${g.wineId}?add=tasted&vintage=${encodeURIComponent(firstVintage)}`)} />
@@ -296,155 +276,5 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
         </Animated.View>
       ) : null}
     </Animated.View>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <View style={{ gap: space[2] }}>
-      <Label>{title}</Label>
-      {children}
-    </View>
-  );
-}
-
-/** Pick a new date for an entry, then save it. */
-function DateEdit({ t, onChanged, label }: { t: Tasting; onChanged: () => Promise<void>; label: string }) {
-  const api = useApi();
-  const { c } = useTheme();
-  const [editing, setEditing] = useState(false);
-  const [date, setDate] = useState(t.tasted_on);
-  const [error, setError] = useState<unknown>(null);
-  if (!editing) {
-    return (
-      <Pressable accessibilityRole="button" accessibilityLabel={`${label} ${shortDate(t.tasted_on)}, change date`} onPress={() => setEditing(true)} hitSlop={6}>
-        <Text style={[type.footnote, { color: c.ink2 }]}>
-          {label} {shortDate(t.tasted_on)} <Text style={{ color: c.accent, fontWeight: '600' }}>· Change</Text>
-        </Text>
-      </Pressable>
-    );
-  }
-  return (
-    <View style={{ gap: space[2] }}>
-      <DateField label={label} value={date} onChange={setDate} />
-      <View style={{ flexDirection: 'row', gap: space[2] }}>
-        <Button
-          title="Save date"
-          variant="tinted"
-          size="sm"
-          onPress={async () => {
-            try {
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Use a date like 2026-03-07');
-              await api.updateTasting(t.tasting_id, { tastedOn: date });
-              setEditing(false);
-              await onChanged();
-            } catch (e) {
-              setError(e);
-            }
-          }}
-        />
-        <Button title="Cancel" variant="secondary" size="sm" onPress={() => { setDate(t.tasted_on); setEditing(false); }} />
-      </View>
-      <ErrorText error={error} />
-    </View>
-  );
-}
-
-function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<void> }) {
-  const api = useApi();
-  const { c } = useTheme();
-  const [error, setError] = useState<unknown>(null);
-  const run = async (fn: () => Promise<unknown>) => {
-    setError(null);
-    try {
-      await fn();
-      await onChanged();
-    } catch (e) {
-      setError(e);
-    }
-  };
-  const n = t.bottles ?? 1;
-  return (
-    <View style={{ gap: 6, paddingTop: space[2], borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.hairline }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2] }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], flexShrink: 1, flexWrap: 'wrap' }}>
-          <Text style={[type.headline, type.tabular, { color: c.ink }]}>{t.vintage_key ?? 'NV'}</Text>
-          <Badge>{`${n} ${n === 1 ? 'bottle' : 'bottles'}`}</Badge>
-          {t.paid_750_cents ? <Muted style={type.tabular}>paid {dollars(t.price_paid_cents)}</Muted> : null}
-          <PriceDelta paid={t.paid_750_cents} now={t.market_now_cents} percentOnly />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
-          <Button title="−" variant="secondary" size="sm" accessibilityLabel="One bottle fewer" onPress={() => run(() => (n > 1 ? api.updateTasting(t.tasting_id, { bottles: n - 1 }) : Promise.resolve()))} />
-          <Button title="+" variant="secondary" size="sm" accessibilityLabel="One bottle more" onPress={() => run(() => api.updateTasting(t.tasting_id, { bottles: n + 1 }))} />
-        </View>
-      </View>
-      <DateEdit t={t} onChanged={onChanged} label="Added" />
-      {t.rating != null || t.notes ? <Muted>{[t.rating != null ? `Rated ${t.rating}` : '', t.notes].filter(Boolean).join(' · ')}</Muted> : null}
-      <Button
-        title="Remove from cellar"
-        variant="plain"
-        size="sm"
-        style={{ paddingHorizontal: 0 }}
-        onPress={async () => {
-          const ok = await confirm(
-            'Remove from your cellar?',
-            `${t.vintage_key ?? 'NV'}, ${n} ${n === 1 ? 'bottle' : 'bottles'}. Your tastings of this wine stay under Tasted.`,
-            'Remove'
-          );
-          if (ok) await run(() => api.removeFromCellar(t.tasting_id));
-        }}
-      />
-      <ErrorText error={error} />
-    </View>
-  );
-}
-
-const SETTING_LABEL = { home: 'At home', restaurant: 'Restaurant', other: 'Elsewhere' } as const;
-
-function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<void> }) {
-  const api = useApi();
-  const { c } = useTheme();
-  const [error, setError] = useState<unknown>(null);
-  const run = async (fn: () => Promise<unknown>) => {
-    setError(null);
-    try {
-      await fn();
-      await onChanged();
-    } catch (e) {
-      setError(e);
-    }
-  };
-  return (
-    <View style={{ gap: 6, paddingTop: space[2], borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.hairline }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' }}>
-        <Text style={[type.headline, type.tabular, { color: c.ink }]}>{t.vintage_key ?? 'NV'}</Text>
-        {t.kind === 'cellar' ? <Badge>{`Cellar · ${t.bottles ?? 1}`}</Badge> : t.setting ? <Badge>{SETTING_LABEL[t.setting]}</Badge> : null}
-        {t.price_paid_cents ? <Muted style={type.tabular}>{dollars(t.price_paid_cents)}{t.price_context === 'restaurant' ? ' (restaurant)' : ''}</Muted> : null}
-      </View>
-      <DateEdit t={t} onChanged={onChanged} label={t.kind === 'cellar' ? 'Added' : 'Tasted'} />
-      <Rating value={t.rating} size="md" onChange={(rating) => run(() => api.updateTasting(t.tasting_id, { rating }))} showValue />
-      {t.notes ? <Text style={[type.body, { color: c.ink }]}>{t.notes}</Text> : null}
-      {t.tags?.length ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {t.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}
-        </View>
-      ) : null}
-      {t.kind === 'cellar' ? (
-        <Muted>Rated when added to your cellar. The bottles are managed under Cellar.</Muted>
-      ) : (
-        <Button
-          title="Delete tasting"
-          variant="plain"
-          size="sm"
-          style={{ paddingHorizontal: 0 }}
-          onPress={async () => {
-            if (await confirm('Delete this tasting?', `${shortDate(t.tasted_on)}${t.rating != null ? `, rated ${t.rating}` : ''}. This can't be undone.`, 'Delete')) {
-              await run(() => api.deleteTasting(t.tasting_id));
-            }
-          }}
-        />
-      )}
-      <ErrorText error={error} />
-    </View>
   );
 }

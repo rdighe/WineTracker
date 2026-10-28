@@ -1,15 +1,15 @@
 /**
- * Flavour profile of a wine: a few broad flavour and structure families
+ * Flavor profile of a wine: a few broad flavor and structure families
  * ("black fruit", "earthy", "high acid"...) read from tasting notes - the
  * researched notes for the wine (wine_info), and the user's own tags and
  * notes - or, when a wine has no notes yet, the typical profile of its
- * grape and style. Recommendations compare these with the flavours of wines
+ * grape and style. Recommendations compare these with the flavors of wines
  * the user rated, so a liked Northern Rhone Syrah can point to a peppery
  * Washington Syrah, not only to more wines from the Rhone.
  */
 import { normalize } from '../lib/normalize.js';
 
-export const FLAVOURS = {
+export const FLAVORS = {
   black_fruit: { label: 'black fruit', words: ['blackberry', 'blackberries', 'blackcurrant', 'black currant', 'cassis', 'black cherry', 'plum', 'blueberry', 'black fruit', 'dark fruit', 'mulberry', 'boysenberry'] },
   red_fruit: { label: 'red fruit', words: ['cherry', 'cherries', 'raspberry', 'strawberry', 'red currant', 'redcurrant', 'cranberry', 'red fruit', 'pomegranate', 'red berry', 'red berries'] },
   citrus: { label: 'citrus', words: ['lemon', 'lime', 'grapefruit', 'citrus', 'orange peel', 'zest', 'tangerine', 'yuzu'] },
@@ -32,18 +32,18 @@ export const FLAVOURS = {
   sweet: { label: 'sweet', words: ['sweet', 'off dry', 'off-dry', 'luscious', 'unctuous', 'dessert'] },
 } as const;
 
-export type Flavour = keyof typeof FLAVOURS;
-/** Flavour -> weight (about 1 for each family a note mentions). */
-export type FlavourProfile = Partial<Record<Flavour, number>>;
+export type Flavor = keyof typeof FLAVORS;
+/** Flavor -> weight (about 1 for each family a note mentions). */
+export type FlavorProfile = Partial<Record<Flavor, number>>;
 
-const ENTRIES = Object.entries(FLAVOURS) as [Flavour, (typeof FLAVOURS)[Flavour]][];
+const ENTRIES = Object.entries(FLAVORS) as [Flavor, (typeof FLAVORS)[Flavor]][];
 
-export const flavourLabel = (f: string) => (FLAVOURS as Record<string, { label: string }>)[f]?.label ?? f;
+export const flavorLabel = (f: string) => (FLAVORS as Record<string, { label: string }>)[f]?.label ?? f;
 
-/** Flavour families mentioned in free text (notes, tags, researched descriptors). */
-export function textFlavours(...texts: (string | null | undefined)[]): FlavourProfile {
+/** Flavor families mentioned in free text (notes, tags, researched descriptors). */
+export function textFlavors(...texts: (string | null | undefined)[]): FlavorProfile {
   const s = ` ${normalize(texts.filter(Boolean).join(' ').replace(/-/g, ' '))} `;
-  const out: FlavourProfile = {};
+  const out: FlavorProfile = {};
   for (const [key, { words }] of ENTRIES) {
     if (words.some((w) => s.includes(` ${normalize(w.replace(/-/g, ' '))} `))) out[key] = 1;
   }
@@ -53,7 +53,7 @@ export function textFlavours(...texts: (string | null | undefined)[]): FlavourPr
 }
 
 /** Typical profiles, for wines with no notes yet. Keys are grape names as src/lib/grapes.ts normalizes them. */
-const GRAPE_FLAVOURS: Record<string, Flavour[]> = {
+const GRAPE_FLAVORS: Record<string, Flavor[]> = {
   'cabernet sauvignon': ['black_fruit', 'herbal', 'oak', 'tannic', 'full'],
   cabernet: ['black_fruit', 'herbal', 'oak', 'tannic', 'full'],
   'cabernet franc': ['red_fruit', 'herbal', 'earthy', 'fresh'],
@@ -121,28 +121,28 @@ const GRAPE_FLAVOURS: Record<string, Flavour[]> = {
   'moscato dasti': ['stone_fruit', 'floral', 'sweet'],
 };
 
-const STYLE_FLAVOURS: Record<string, Flavour[]> = {
+const STYLE_FLAVORS: Record<string, Flavor[]> = {
   sparkling: ['yeasty', 'citrus', 'fresh'],
   dessert: ['rich_sweet', 'sweet'],
   fortified: ['rich_sweet', 'full'],
 };
 
 /**
- * A wine's flavours: from its tasting notes when it has any, else typical of
+ * A wine's flavors: from its tasting notes when it has any, else typical of
  * its grape (or style). Typical profiles count half: they are a guess.
  */
-export function wineFlavours(grape: string | undefined, style: string | undefined, notes?: { descriptors?: string[]; text?: string } | null): FlavourProfile {
+export function wineFlavors(grape: string | undefined, style: string | undefined, notes?: { descriptors?: string[]; text?: string } | null): FlavorProfile {
   if (notes && ((notes.descriptors?.length ?? 0) > 0 || notes.text)) {
-    const read = textFlavours(...(notes.descriptors ?? []), notes.text);
+    const read = textFlavors(...(notes.descriptors ?? []), notes.text);
     if (Object.keys(read).length) return read;
   }
-  const typical = [...(grape ? GRAPE_FLAVOURS[grape] ?? [] : []), ...(style && style !== 'still' ? STYLE_FLAVOURS[style] ?? [] : [])];
-  return Object.fromEntries([...new Set(typical)].map((f) => [f, 0.5])) as FlavourProfile;
+  const typical = [...(grape ? GRAPE_FLAVORS[grape] ?? [] : []), ...(style && style !== 'still' ? STYLE_FLAVORS[style] ?? [] : [])];
+  return Object.fromEntries([...new Set(typical)].map((f) => [f, 0.5])) as FlavorProfile;
 }
 
-/** Combine profiles, keeping the stronger weight per flavour. */
-export function mergeFlavours(...profiles: FlavourProfile[]): FlavourProfile {
-  const out: FlavourProfile = {};
-  for (const p of profiles) for (const [k, w] of Object.entries(p) as [Flavour, number][]) out[k] = Math.max(out[k] ?? 0, w);
+/** Combine profiles, keeping the stronger weight per flavor. */
+export function mergeFlavors(...profiles: FlavorProfile[]): FlavorProfile {
+  const out: FlavorProfile = {};
+  for (const p of profiles) for (const [k, w] of Object.entries(p) as [Flavor, number][]) out[k] = Math.max(out[k] ?? 0, w);
   return out;
 }

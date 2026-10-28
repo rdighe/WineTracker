@@ -94,9 +94,9 @@ export function Label({ children, style }: { children: ReactNode; style?: StyleP
 }
 
 /** Card title. */
-export function Heading({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }) {
+export function Heading({ children, style, numberOfLines }: { children: ReactNode; style?: StyleProp<TextStyle>; numberOfLines?: number }) {
   const { c } = useTheme();
-  return <Text style={[type.headline, { color: c.ink }, style]}>{children}</Text>;
+  return <Text numberOfLines={numberOfLines} style={[type.headline, { color: c.ink }, style]}>{children}</Text>;
 }
 
 /** Large title at the top of a tab. */

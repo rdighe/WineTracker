@@ -42,11 +42,11 @@ describe('taste profile', () => {
   });
 });
 
-describe('flavour and category', () => {
+describe('flavor and category', () => {
   const f = (o: Record<string, string>, notes?: { descriptors?: string[]; text?: string }) =>
     wineFeatures({ wine_id: 1, display_name: '', producer: '', grape: '', colour: '', wine_type: '', region: '', sub_region: '', country: '', ...o }, notes);
 
-  it('recommends by flavour before region', () => {
+  it('recommends by flavor before region', () => {
     const cornas = f({ display_name: 'Clape Cornas', grape: 'Syrah', region: 'Rhone', sub_region: 'Cornas', country: 'France', colour: 'red' }, { descriptors: ['black pepper', 'olive', 'blackberry'] });
     const crozes = f({ display_name: 'Graillot Crozes-Hermitage', grape: 'Syrah', region: 'Rhone', sub_region: 'Crozes-Hermitage', country: 'France', colour: 'red' }, { text: 'Peppery, smoked meat and black fruit.' });
     const sancerre = f({ display_name: 'Vacheron Sancerre', grape: 'Sauvignon Blanc', region: 'Loire', sub_region: 'Sancerre', country: 'France', colour: 'white' }, { descriptors: ['lemon', 'grass', 'chalk'] });
@@ -63,9 +63,9 @@ describe('flavour and category', () => {
     expect(explain(w.contributions)[0]).toMatch(/^Tastes of what you like: .*(black fruit|spicy|savory)/);
   });
 
-  it('falls back to the grape\'s typical flavours without notes', () => {
-    expect(Object.keys(f({ display_name: 'Some Sancerre', grape: 'Sauvignon Blanc' }).flavours!)).toEqual(expect.arrayContaining(['citrus', 'herbal']));
-    expect(Object.keys(f({ display_name: 'X' }, { descriptors: ['blackberry', 'graphite'] }).flavours!).sort()).toEqual(['black_fruit', 'mineral']);
+  it('falls back to the grape\'s typical flavors without notes', () => {
+    expect(Object.keys(f({ display_name: 'Some Sancerre', grape: 'Sauvignon Blanc' }).flavors!)).toEqual(expect.arrayContaining(['citrus', 'herbal']));
+    expect(Object.keys(f({ display_name: 'X' }, { descriptors: ['blackberry', 'graphite'] }).flavors!).sort()).toEqual(['black_fruit', 'mineral']);
   });
 
   it('files sparkling, rosé, sweet and fortified wines under "other", and reads colour from the appellation', () => {

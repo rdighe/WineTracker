@@ -1,6 +1,6 @@
 /** Small typed client for the WineTracker API. */
 import { getApiUrl } from './config';
-import type { PricesResponse, RecStyle, RecommendationsResponse, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -75,13 +75,19 @@ export function createApi(authHeader: AuthHeader) {
     /** Out of the cellar; a rating or notes on it stay, as a tasting. */
     removeFromCellar: (id: number) => request<{ kept: boolean }>(`/api/tastings/${id}/remove-from-cellar`, json('POST', {})),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
-    recommendations: (opts: { bestValue?: boolean; style?: RecStyle; maxPrice?: number } = {}) => {
+    recommendations: (opts: RecSearch & { bestValue?: boolean; style?: RecStyle } = {}) => {
       const q = new URLSearchParams();
       if (opts.bestValue) q.set('bestValue', 'true');
       if (opts.style) q.set('style', opts.style);
+      if (opts.styles?.length) q.set('styles', opts.styles.join(','));
+      if (opts.minPrice) q.set('minPrice', String(opts.minPrice));
       if (opts.maxPrice) q.set('maxPrice', String(opts.maxPrice));
+      for (const k of ['region', 'notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
       return request<RecommendationsResponse>(`/api/recommendations?${q}`);
     },
+    recViews: () => request<{ views: RecView[] }>('/api/rec-views'),
+    saveRecView: (name: string, criteria: RecSearch) => request<RecView>('/api/rec-views', json('POST', { name, criteria })),
+    deleteRecView: (id: number) => request<void>(`/api/rec-views/${id}`, { method: 'DELETE' }),
   };
 }
 
