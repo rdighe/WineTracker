@@ -38,6 +38,10 @@ Domaine Tempier Bandol Rosé 2023 half bottle 48`;
     ]);
   });
 
+  it('reads a lone high price as a bottle, even under "by the glass"', () => {
+    expect(parseListText('BY THE GLASS\nVacheron, Sancerre 19\nRaveneau, Chablis 2021 420').map((e) => [e.glassCents, e.bottleCents])).toEqual([[1900, null], [null, 42000]]);
+  });
+
   it('splits two columns of a list on one row', () => {
     const rows = parseListText('Clape, Cornas 2019 140 | Vietti, Barolo 2018 160').map((e) => [e.producer, e.bottleCents]);
     expect(rows).toEqual([['Clape', 14000], ['Vietti', 16000]]);
