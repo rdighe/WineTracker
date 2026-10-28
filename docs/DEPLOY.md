@@ -38,8 +38,7 @@ The dump holds the wine catalog and all crawled prices (63,377 wines with a mark
 ## 2. Create everything on Render
 
 1. Sign in at dashboard.render.com and connect your GitHub account if asked.
-2. **New → Blueprint**, pick the `rdighe/WineTracker` repository and the branch that has `render.yaml`
-   (`claude/compassionate-franklin-72h8wx` until it is merged into `main`).
+2. **New → Blueprint**, pick the `rdighe/WineTracker` repository and the `main` branch.
 3. Render lists the database and the four services. It asks for these values:
    - `GEMINI_API_KEY`: your Gemini key (label reading), from https://aistudio.google.com/apikey.
    - `OPENROUTER_API_KEY`: optional; used for label reading only if `GEMINI_API_KEY` is empty, and for reading flavors
@@ -119,7 +118,9 @@ cron jobs connect over Render's private network and don't need it.
 ## Afterwards
 
 - Prices update on their own: the cron jobs' logs are in Render under each job. **Trigger Run** starts one now.
-- Pushing to the deployed branch redeploys the API; new migrations run when it starts.
+- Pushing to `main` redeploys the API and the cron jobs (each service's **Settings → Build & Deploy → Branch**
+  must say `main`); new migrations run when the API starts. Work happens on other branches and is merged into
+  `main` to go live.
 - Your Mac's local database keeps working for development (`npm run dev`, Dev sign-in).
 - If search feels slow, upgrade the database plan in place (Render → winetracker-db → Change plan).
 
