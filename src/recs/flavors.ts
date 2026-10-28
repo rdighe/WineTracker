@@ -33,6 +33,7 @@ export const FLAVORS = {
 } as const;
 
 export type Flavor = keyof typeof FLAVORS;
+export const FLAVOR_KEYS = Object.keys(FLAVORS) as [Flavor, ...Flavor[]];
 /** Flavor -> weight (about 1 for each family a note mentions). */
 export type FlavorProfile = Partial<Record<Flavor, number>>;
 

@@ -15,8 +15,9 @@ import { maybeQueueWineImage } from '../catalog/images.js';
 import { parseTitle } from '../lib/listing.js';
 import { normalize } from '../lib/normalize.js';
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
-import { flavorLabel, mergeFlavors, textFlavors, type Flavor } from './flavors.js';
-import { buildProfile, explain, scoreWine, type Profile } from './profile.js';
+import { flavorLabel, mergeFlavors, textFlavors, type Flavor, type FlavorProfile } from './flavors.js';
+import { buildProfile, explain, scoreWine, type Profile, type RatedWine } from './profile.js';
+import { currentNoteFlavors, noteHash, ownFlavorWeights, type NoteFlavorReader } from '../tastings/noteFlavors.js';
 import type { Near, Places, Reach } from '../places/places.js';
 
 export const MIN_RATED = 3;
@@ -45,6 +46,8 @@ export interface RecOptions {
   /** Only wines a shop near the person has, or ships to them; everything when none do. */
   near?: Near;
   places?: Places;
+  /** Reads rated notes no model has read yet, in the background, so they count next time. */
+  noteReader?: Pick<NoteFlavorReader, 'request'>;
 }
 
 /** How a location-aware request went: applied false when no shop near the person had any match. */
@@ -90,9 +93,27 @@ const NOTES_JOIN = `LEFT JOIN wine_info i ON i.wine_id = w.wine_id AND i.status 
 const notesOf = (r: { descriptors?: unknown; notes_text?: string | null }): WineNotes | null =>
   Array.isArray(r.descriptors) || r.notes_text ? { descriptors: Array.isArray(r.descriptors) ? r.descriptors.map(String) : [], text: r.notes_text ?? '' } : null;
 
-export async function loadProfile(db: Db, userId: number): Promise<{ profile: Profile; tasted: Set<number>; styles: RecStyle[] }> {
+/** A rated tasting, as the profile and the evaluation (scripts/eval-recs.ts) see it. */
+export interface RatedTasting {
+  tastingId: number;
+  wineId: number;
+  rating: number;
+  /** Market price per 750 ml, else what was paid. */
+  priceCents: number | null;
+  /** The wine as anyone sees it: catalog fields and researched notes. */
+  features: Features;
+  style: RecStyle | '';
+  /** Flavors in the person's own notes and tags by keyword, and as read by a model (null: not read yet, or nothing written). */
+  own: { keywords: FlavorProfile; read: FlavorProfile | null; hasText: boolean };
+}
+
+/** Which of the person's own flavors count: as read by a model (keywords until then), keywords only, or none. */
+export type OwnFlavors = 'read' | 'keywords' | 'none';
+
+/** Every rated tasting of the user, with what the profile needs. */
+export async function loadRatedTastings(db: Db, userId: number): Promise<{ rated: RatedTasting[]; tasted: Set<number> }> {
   const { rows } = await db.query(
-    `SELECT ${WINE_COLS}, t.rating::float AS rating, t.tags, t.notes AS own_notes, ${NOTES_COLS},
+    `SELECT ${WINE_COLS}, t.tasting_id, t.rating::float AS rating, t.tags, t.notes, t.note_flavors, t.note_flavors_for, ${NOTES_COLS},
             COALESCE(p.median_cents, CASE WHEN t.price_paid_cents IS NOT NULL THEN round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END) AS price
        FROM tastings t JOIN wines w USING (wine_id)
        LEFT JOIN wine_prices p ON p.wine_id = t.wine_id AND p.vintage_key = '*' AND p.currency = 'USD'
@@ -101,29 +122,60 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
     [userId]
   );
   const tasted = new Set<number>(rows.map((r) => r.wine_id));
-  // Styles the user liked at least one wine of, best average rating first.
-  const byStyle = new Map<RecStyle, { sum: number; n: number; best: number }>();
-  for (const r of rows) {
-    const st = r.rating == null ? '' : recStyle(wineFeatures(r as WineRow));
-    if (!st) continue;
-    const s = byStyle.get(st) ?? { sum: 0, n: 0, best: 0 };
-    byStyle.set(st, { sum: s.sum + r.rating, n: s.n + 1, best: Math.max(s.best, r.rating) });
-  }
-  const styles = [...byStyle.entries()].filter(([, s]) => s.best >= LIKED_RATING).sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n).map(([st]) => st);
-  const rated = rows.filter((r) => r.rating != null).map((r) => {
+  const rated = rows.filter((r) => r.rating != null).map((r): RatedTasting => {
     const features = wineFeatures(r as WineRow, notesOf(r));
-    // What the user noted themselves counts most: it is what they tasted.
-    const own = Object.fromEntries(Object.keys(textFlavors(...(r.tags ?? []), r.own_notes)).map((k) => [k as Flavor, 1.5]));
-    return { features: { ...features, flavors: mergeFlavors(features.flavors ?? {}, own) }, rating: r.rating, priceCents: r.price };
+    const read = currentNoteFlavors(r);
+    return {
+      tastingId: Number(r.tasting_id),
+      wineId: Number(r.wine_id),
+      rating: r.rating,
+      priceCents: r.price,
+      features,
+      style: recStyle(features),
+      own: {
+        // What the user noted themselves counts most: it is what they tasted.
+        keywords: Object.fromEntries(Object.keys(textFlavors(...(r.tags ?? []), r.notes)).map((k) => [k, 1.5])) as FlavorProfile,
+        read: read ? ownFlavorWeights(read) : null,
+        hasText: Boolean(noteHash(r.notes, r.tags)),
+      },
+    };
   });
-  return { profile: buildProfile(rated), tasted, styles };
+  return { rated, tasted };
+}
+
+/** A rated tasting as a profile input, with the person's own flavors added to the wine's. */
+export function ratedWine(t: RatedTasting, own: OwnFlavors = 'read'): RatedWine {
+  const mine = own === 'none' ? {} : own === 'keywords' ? t.own.keywords : t.own.read ?? t.own.keywords;
+  return { features: { ...t.features, flavors: mergeFlavors(t.features.flavors ?? {}, mine) }, rating: t.rating, priceCents: t.priceCents };
+}
+
+/** Styles the user liked at least one wine of, best average rating first. */
+export function likedStyles(rated: RatedTasting[]): RecStyle[] {
+  const byStyle = new Map<RecStyle, { sum: number; n: number; best: number }>();
+  for (const r of rated) {
+    if (!r.style) continue;
+    const s = byStyle.get(r.style) ?? { sum: 0, n: 0, best: 0 };
+    byStyle.set(r.style, { sum: s.sum + r.rating, n: s.n + 1, best: Math.max(s.best, r.rating) });
+  }
+  return [...byStyle.entries()].filter(([, s]) => s.best >= LIKED_RATING).sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n).map(([st]) => st);
+}
+
+/** unread: rated tastings whose notes no model has read yet (src/tastings/noteFlavors.ts). */
+export async function loadProfile(db: Db, userId: number): Promise<{ profile: Profile; tasted: Set<number>; styles: RecStyle[]; unread: number[] }> {
+  const { rated, tasted } = await loadRatedTastings(db, userId);
+  return {
+    profile: buildProfile(rated.map((t) => ratedWine(t))),
+    tasted,
+    styles: likedStyles(rated),
+    unread: rated.filter((t) => t.own.hasText && !t.own.read).map((t) => t.tastingId),
+  };
 }
 
 /**
  * A priced wine with everything about it that doesn't depend on the user,
  * worked out once: features, style, and normalized text for searches.
  */
-interface Candidate {
+export interface Candidate {
   r: WineRow & { median_cents: number; n_merchants: number; image_url: string | null; image_checked_at: Date | null; descriptors?: unknown; food_pairings?: unknown; notes_text?: string | null };
   f: Features;
   style: RecStyle | '';
@@ -182,7 +234,7 @@ async function buildCandidates(db: Db): Promise<Candidate[]> {
  * list keeps serving while the new one is built in the background; only the
  * very first request waits.
  */
-async function candidates(db: Db): Promise<Candidate[]> {
+export async function candidates(db: Db): Promise<Candidate[]> {
   const { rows: [k] } = await db.query(CANDIDATES_KEY);
   const hit = candidateCache.get(db);
   if (!hit) {
@@ -218,7 +270,8 @@ export type RecResult =
 
 export async function recommend(db: Db, userId: number, opts: RecOptions = {}): Promise<RecResult> {
   const limit = Math.min(opts.limit ?? 20, 100);
-  const { profile, tasted, styles } = await loadProfile(db, userId);
+  const { profile, tasted, styles, unread } = await loadProfile(db, userId);
+  if (unread.length) void opts.noteReader?.request(unread).catch(() => {});
   const search = Boolean(opts.styles?.length || opts.minPriceCents || opts.maxPriceCents || opts.region?.trim() || opts.notes?.trim() || opts.food?.trim());
   const regionWords = normalize(opts.region ?? '').split(' ').filter(Boolean);
   const wanted = wantedTaste(opts.notes);

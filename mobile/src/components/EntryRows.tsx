@@ -228,6 +228,8 @@ function EditEntry({ t, onClose, onChanged }: { t: Tasting; onClose: () => void;
         pricePaid: p,
         tastedOn: date,
         notes,
+        // With the notes, so the phone can read them together.
+        tags: t.tags ?? [],
         ...(wine ? { wineId: wine.wineId } : {}),
       });
       onClose();

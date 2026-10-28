@@ -31,6 +31,7 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/catalog/info.ts` | Wine background research (tasting notes, producer, specs), once per wine, in the background |
 | `src/catalog/twins.ts` | Merges copies of one wine created from shop listings (`npm run dedupe -- twins`) |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
+| `src/tastings/noteFlavors.ts` | Flavors in your own notes and tags, read by a language model: on the phone with Apple Intelligence (`mobile/modules/note-flavors`), else by an OpenRouter free model on the server; keywords until either has |
 | `src/recs/` | Taste profile from ratings, led by flavor (tasting notes, your tags, else typical of the grape; `flavors.ts`), then grape, producer, place, style and price range; recommendations |
 | `src/api/app.ts` | REST API |
 
@@ -158,7 +159,7 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | POST | `/api/wines/:id/prices/refresh` | `{vintage}` | on-demand refresh, throttled to once per 12 h per wine+vintage |
 | POST | `/api/wines/:id/prices/report` | `{price, vintage, bottleMl, context: retail\|restaurant, merchant, observedAt}` | price at tasting |
 | GET | `/api/me` | | signed-in user, counts (auth) |
-| GET/POST | `/api/tastings` | `{wineId, vintage, rating (0.5–5), notes, tags, pricePaid, priceContext, tastedOn, scanId, kind: tasted\|cellar, bottles}` | auth; list includes paid vs market now and the wine's photo |
+| GET/POST | `/api/tastings` | `{wineId, vintage, rating (0.5–5), notes, tags, pricePaid, priceContext, tastedOn, scanId, kind: tasted\|cellar, bottles, noteFlavors, noteFlavorsPending}` | auth; list includes paid vs market now and the wine's photo. `noteFlavors` (`{family: 1-3}`): read on the phone; `noteFlavorsPending`: the phone will send them, so the server doesn't read the notes itself |
 | PATCH/DELETE | `/api/tastings/:id` | partial tasting | auth, own tastings only |
 | GET, PUT/DELETE | `/api/saved`, `/api/saved/:wineId` | | watch list (auth) |
 | GET | `/api/recommendations?bestValue=&colour=red\|white\|other&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal; in-stock wines only |
@@ -181,3 +182,15 @@ npm run eval:matcher
 
 Runs the labelled cases in `test/fixtures/matcher-cases.ts` and reports top-1 / top-3 accuracy, auto-match rate and
 wrong auto-matches. Add a case whenever a real scan or listing is mismatched.
+
+## Recommendation quality
+
+```bash
+DATABASE_URL=<database> npm run eval:recs                 # every user with 8+ ratings; --user 1 for one
+DATABASE_URL=<database> npm run eval:recs -- --read-notes # first read unread rated notes with OpenRouter (writes them)
+```
+
+Leaves out one rated wine at a time, rebuilds the taste profile from the rest, and scores the held-out wine as For
+you would (`src/recs/evaluate.ts`). Reports how often a better-rated wine scores higher (50% = chance), the rank
+correlation, and where wines rated 4+ would land among the priced catalog, with your own notes' flavors as read by a
+model, by keywords, and ignored. Run it before and after changing the profile or scoring.

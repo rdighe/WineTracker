@@ -13,6 +13,9 @@ import { createWine, getWine } from '../catalog/wines.js';
 import { matchWine } from '../match/matcher.js';
 import { per750 } from '../lib/listing.js';
 import { ProviderUnavailableError, type LlmProvider } from '../llm/types.js';
+import { createNoteProvider } from '../llm/index.js';
+import { FLAVOR_KEYS } from '../recs/flavors.js';
+import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
 import { confirmScan, scanLabel, scanLineup, ScanError } from '../scan/scan.js';
 import { createInfoResearcher, getWineInfo, type InfoResearcher } from '../catalog/info.js';
 import type { PoliteFetcher } from '../prices/fetcher.js';
@@ -41,6 +44,8 @@ export interface AppDeps {
   infoResearcher?: InfoResearcher;
   /** Where shops are and ship (default: researched with `provider`); tests pass their own to await it. */
   places?: Places;
+  /** Reads flavors from tasting notes the phone couldn't (default: OpenRouter's free models, when a key is set). */
+  noteReader?: NoteFlavorReader;
   /** Fetches shop images for /api/photo (tests pass a fake). */
   photoFetch?: typeof fetch;
   /** Override limits (tests). */
@@ -90,10 +95,15 @@ const tastingBody = z.object({
   tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   kind: z.enum(['tasted', 'cellar']).optional(),
   bottles: z.number().int().min(1).max(9999).nullable().optional(),
+  /** Flavors the phone read from the notes and tags (Apple Intelligence): family -> intensity 1-3. */
+  noteFlavors: z.partialRecord(z.enum(FLAVOR_KEYS), z.number().int().min(1).max(3)).nullable().optional(),
+  /** The phone will send noteFlavors once it has read the notes: the server needn't. */
+  noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
+  const noteReader = noteReaderDep ?? createNoteFlavorReader(db, createNoteProvider());
   const places = placesDep ?? createPlaces(db, provider);
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -425,6 +435,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     // The price paid is stored as a 'user' observation, which never moves the
     // market price, so there is nothing to re-aggregate.
     const tastingId = await createTasting(db, req.user!.userId, b);
+    // Notes the phone didn't read: read them on the server.
+    if (tastingId && !b.noteFlavors && !b.noteFlavorsPending) void noteReader.request([tastingId]).catch(() => {});
     maybeQueueWineImage(db, wine, b.vintage);
     void research.request(wine.wine_id).catch((err) => console.error('wine info request failed:', err));
     res.status(201).json({ tastingId });
@@ -436,6 +448,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     const b = parse(tastingBody.partial().extend({ wineId: z.number().int().positive().optional() }), req.body);
     if (b.wineId && !(await getWine(db, b.wineId))) throw new HttpError(404, 'wine not found');
     if (!(await updateTasting(db, req.user!.userId, id, b))) throw new HttpError(404, 'tasting not found');
+    if (!b.noteFlavors && !b.noteFlavorsPending) void noteReader.request([id]).catch(() => {});
     res.json({ ok: true });
   }));
 
@@ -539,6 +552,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         food: q.food,
         near: parseNear(req.query.near) ?? undefined,
         places,
+        noteReader,
       })
     );
   }));

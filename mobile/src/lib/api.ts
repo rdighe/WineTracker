@@ -2,6 +2,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
+import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
 import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
 
 export class ApiError extends Error {
@@ -77,6 +78,15 @@ export function createApi(authHeader: AuthHeader) {
 
   const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
+  /**
+   * After a save, read its notes on the phone and send the flavors. Saving
+   * never waits on the model; if it can't read them, the server will.
+   */
+  async function readNotesOnDevice(tastingId: number, text: string): Promise<void> {
+    const noteFlavors = await readNoteFlavorsOnDevice(text);
+    if (noteFlavors) await request(`/api/tastings/${tastingId}`, json('PATCH', { noteFlavors })).catch(() => {});
+  }
+
   return {
     /** ref: the app's id for this scan, to collect the answer later with scanJob if the app was away. */
     scan(photo: { uri: string; base64?: string | null; mimeType?: string | null; ocrText?: string }, ref: string) {
@@ -105,15 +115,27 @@ export function createApi(authHeader: AuthHeader) {
     refreshPrices: (id: number, vintage?: string | null) => request<{ prices: PriceSummary[] }>(`/api/wines/${id}/prices/refresh`, json('POST', { vintage: vintage ?? null })),
     tastings: () => request<{ tastings: Tasting[] }>('/api/tastings?limit=1000'),
     wineInfo: (id: number) => request<InfoResponse>(`/api/wines/${id}/info`),
-    addTasting: (t: {
+    addTasting: async (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
       kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string;
-    }) => request<{ tastingId: number }>('/api/tastings', json('POST', t)),
+    }) => {
+      const text = noteText(t.notes, t.tags);
+      const onDevice = Boolean(text) && (await canReadNotesOnDevice());
+      const res = await request<{ tastingId: number }>('/api/tastings', json('POST', onDevice ? { ...t, noteFlavorsPending: true } : t));
+      if (onDevice) void readNotesOnDevice(res.tastingId, text);
+      return res;
+    },
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
-    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null; pricePaid?: number | null; wineId?: number }) =>
-      request<unknown>(`/api/tastings/${id}`, json('PATCH', patch)),
+    /** Notes and tags sent together are read on the phone when it can; notes alone are left to the server, which knows the tags. */
+    updateTasting: async (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null; pricePaid?: number | null; wineId?: number }) => {
+      const text = patch.notes !== undefined && patch.tags !== undefined ? noteText(patch.notes, patch.tags) : '';
+      const onDevice = Boolean(text) && (await canReadNotesOnDevice());
+      const res = await request<unknown>(`/api/tastings/${id}`, json('PATCH', onDevice ? { ...patch, noteFlavorsPending: true } : patch));
+      if (onDevice) void readNotesOnDevice(id, text);
+      return res;
+    },
     deleteTasting: (id: number) => request<void>(`/api/tastings/${id}`, { method: 'DELETE' }),
     /** Out of the cellar; a rating or notes on it stay, as a tasting. */
     removeFromCellar: (id: number) => request<{ kept: boolean }>(`/api/tastings/${id}/remove-from-cellar`, json('POST', {})),

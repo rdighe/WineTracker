@@ -1,4 +1,5 @@
 /** Prompts shared by the LLM providers. */
+import { FLAVORS } from '../recs/flavors.js';
 
 export const LABEL_PROMPT = `You are reading a photo of a wine bottle label.
 Return ONLY a JSON object with these keys:
@@ -79,4 +80,35 @@ Reply with ONLY a JSON object with these keys (plain text values, no markdown):
  "spec_sheets": [{"title": "e.g. 2019 technical sheet", "url": "https://..."}],
  "tasting_sources": [{"source": "who said it, e.g. the producer, Vinous, a shop", "url": "https://...", "kind": "producer|importer|critic|retailer|other", "notes": "their tasting note, 1-2 sentences"}],
  "consensus": "1-2 sentences: where the sources agree and differ"` : ''}}`;
+}
+
+/** The longest note sent to a model; tasting notes are rarely a tenth of this. */
+export const MAX_NOTE_CHARS = 2000;
+
+/**
+ * Reading flavors from a drinker's own note and tags. The same families and
+ * wording as the on-device version (mobile/modules/note-flavors).
+ */
+export function noteFlavorsPrompt(text: string): string {
+  const families = Object.entries(FLAVORS)
+    .map(([key, f]) => `- ${key}: ${f.label} (${f.words.slice(0, 5).join(', ')})`)
+    .join('\n');
+  return `You read a wine drinker's own tasting note and tags about one wine.
+Say which of these flavor and structure families the drinker says the wine HAS, each with an intensity:
+1 = a hint, 2 = clearly there, 3 = dominant.
+
+${families}
+
+Rules:
+- Only what the note says. Do not guess from the grape, region or anything you know about the wine.
+- Leave out a family the note says is absent or wished for ("no oak", "not sweet at all", "could use more acidity").
+- Words outside the examples count too ("campfire" is smoke, so oak; "zippy" is high acidity).
+- Nothing about flavor in the note: an empty object.
+
+Reply with JSON only: {"flavors": {"<family>": <1-3>, ...}}
+
+Note:
+"""
+${text.slice(0, MAX_NOTE_CHARS)}
+"""`;
 }

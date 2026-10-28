@@ -16,6 +16,15 @@ export class NullProvider implements LlmProvider {
   }
 }
 
+/**
+ * What reads flavors from people's own tasting notes on the server, when the
+ * phone can't: OpenRouter's free models whenever its key is set (whatever
+ * LLM_PROVIDER says), else nothing - the profile then uses keywords.
+ */
+export function createNoteProvider(): LlmProvider | null {
+  return config.openrouterApiKey ? new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined }) : null;
+}
+
 export function createProvider(): LlmProvider {
   const gemini = () => new GeminiProvider({ apiKey: config.geminiApiKey, model: config.geminiModel || undefined });
   const openrouter = () =>

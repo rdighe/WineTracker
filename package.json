@@ -12,6 +12,7 @@
     "crawl": "tsx scripts/crawl.ts",
     "aggregate": "tsx scripts/aggregate.ts",
     "eval:matcher": "tsx scripts/eval-matcher.ts",
+    "eval:recs": "tsx scripts/eval-recs.ts",
     "import:web-prices": "tsx scripts/import-web-prices.ts",
     "worker": "tsx src/worker.ts",
     "images": "tsx scripts/backfill-images.ts",

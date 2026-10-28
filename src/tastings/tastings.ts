@@ -6,6 +6,8 @@
 import type { Db } from '../db/pool.js';
 import { per750 } from '../lib/listing.js';
 import { normalizeTags } from '../lib/tags.js';
+import { sanitizeNoteFlavors } from '../llm/sanitize.js';
+import { noteHash } from './noteFlavors.js';
 
 export interface TastingInput {
   wineId: number;
@@ -26,6 +28,19 @@ export interface TastingInput {
   bottles?: number | null;
   /** Where an imported entry came from ("vivino:<id>"); importing it again is a no-op. */
   externalRef?: string | null;
+  /** Flavors the phone read from these notes and tags (Apple Intelligence): family -> intensity 1-3. */
+  noteFlavors?: Partial<Record<string, number>> | null;
+}
+
+/** Keep flavors the phone read, marked as read from the tasting's current notes and tags. */
+async function storeNoteFlavors(db: Db, tastingId: number, notes: string | undefined, tags: string[], raw: TastingInput['noteFlavors']): Promise<void> {
+  const hash = noteHash(notes, tags);
+  const nf = sanitizeNoteFlavors(raw);
+  if (!hash || !nf) return;
+  await db.query(
+    `UPDATE tastings SET note_flavors = $2, note_flavors_source = 'apple', note_flavors_for = $3 WHERE tasting_id = $1`,
+    [tastingId, JSON.stringify(nf), hash]
+  );
 }
 
 async function recordPrice(db: Db, userId: number, t: TastingInput): Promise<number | null> {
@@ -57,6 +72,7 @@ export async function createTasting(db: Db, userId: number, t: TastingInput): Pr
      t.location ?? '', t.tastedOn ?? null, t.scanId ?? null, observationId, kind,
      kind === 'cellar' ? t.bottles ?? 1 : null, t.externalRef ?? null, kind === 'cellar' ? null : t.setting ?? null]
   );
+  if (t.noteFlavors) await storeNoteFlavors(db, rows[0].tasting_id, t.notes, normalizeTags(t.tags ?? []), t.noteFlavors);
   return rows[0].tasting_id;
 }
 
@@ -96,6 +112,12 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
      merged.bottleMl ?? 750, merged.location ?? '', merged.tastedOn, observationId, merged.kind ?? 'tasted',
      merged.kind === 'cellar' ? merged.bottles ?? 1 : null, merged.kind === 'cellar' ? null : merged.setting ?? null, merged.wineId]
   );
+  const tags = normalizeTags(merged.tags ?? []);
+  // New words: read them afresh, even if the last read failed a moment ago.
+  if (noteHash(merged.notes, tags) !== noteHash(cur.notes, cur.tags)) {
+    await db.query('UPDATE tastings SET note_flavors_tried_at = NULL WHERE tasting_id = $1', [tastingId]);
+  }
+  if (t.noteFlavors) await storeNoteFlavors(db, tastingId, merged.notes, tags, t.noteFlavors);
   return true;
 }
 

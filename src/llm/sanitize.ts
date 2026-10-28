@@ -3,8 +3,9 @@
  * that every field is checked and coerced here, never trusted.
  */
 import { z } from 'zod';
+import { FLAVORS } from '../recs/flavors.js';
 import { MAX_LINEUP } from './prompts.js';
-import type { LabelRead, WebPriceHit, WineInfo, MerchantPlaces } from './types.js';
+import type { LabelRead, WebPriceHit, WineInfo, MerchantPlaces, NoteFlavors } from './types.js';
 
 const str = (max: number) => z.preprocess((v) => (v == null ? '' : String(v)), z.string()).transform((s) => s.replace(/\s+/g, ' ').trim().slice(0, max));
 
@@ -211,4 +212,22 @@ export function sanitizeWineInfo(raw: unknown, grounded: boolean): WineInfo | nu
   // A reply with nothing in it is a failed research, not an empty wine.
   const said = [info.summary, ...Object.values(info.tastingNotes), info.producer.history, info.vineyard, ...Object.values(info.specs)].some(Boolean);
   return said ? info : null;
+}
+
+/**
+ * Flavors read from a drinker's note: known families only, intensities
+ * rounded into 1-3, anything else dropped. Takes {"flavors": {...}} or the
+ * map itself. Null when the reply isn't an object at all.
+ */
+export function sanitizeNoteFlavors(raw: unknown): NoteFlavors | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const inner = (raw as { flavors?: unknown }).flavors;
+  const map = inner && typeof inner === 'object' && !Array.isArray(inner) ? inner : 'flavors' in raw ? null : raw;
+  if (!map) return null;
+  const out: NoteFlavors = {};
+  for (const [k, v] of Object.entries(map)) {
+    const n = Math.round(Number(v));
+    if (Object.hasOwn(FLAVORS, k) && n >= 1) out[k] = Math.min(n, 3) as 1 | 2 | 3;
+  }
+  return out;
 }

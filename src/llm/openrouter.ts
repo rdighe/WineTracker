@@ -10,9 +10,9 @@
  * price refreshes re-check known shop pages only.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, researchPrompt } from './prompts.js';
-import { sanitizeLabel, sanitizeLabels, sanitizeWineInfo } from './sanitize.js';
-import { ProviderUnavailableError, type LabelRead, type LlmProvider, type WineInfo, type WineInfoQuery } from './types.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt } from './prompts.js';
+import { sanitizeLabel, sanitizeLabels, sanitizeNoteFlavors, sanitizeWineInfo } from './sanitize.js';
+import { ProviderUnavailableError, type LabelRead, type LlmProvider, type NoteFlavors, type WineInfo, type WineInfoQuery } from './types.js';
 
 type FetchFn = typeof fetch;
 
@@ -123,6 +123,14 @@ export class OpenRouterProvider implements LlmProvider {
     return this.firstGood(
       (m) => this.chat(m, [{ type: 'text', text: researchPrompt(q, false) }]),
       (text) => sanitizeWineInfo(extractJson(text, 'object'), false)
+    );
+  }
+
+  /** Flavors in a drinker's own note (text only, so any of the free models will do). */
+  readNoteFlavors(text: string): Promise<NoteFlavors> {
+    return this.firstGood(
+      (m) => this.chat(m, [{ type: 'text', text: noteFlavorsPrompt(text) }]),
+      (text) => sanitizeNoteFlavors(extractJson(text, 'object'))
     );
   }
 

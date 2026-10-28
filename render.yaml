@@ -45,6 +45,7 @@ services:
         value: gemini
       - key: GEMINI_API_KEY
         sync: false
+      # Also reads flavors from tasting notes the phone can't (free models), whatever LLM_PROVIDER says.
       - key: OPENROUTER_API_KEY
         sync: false
       # Google sign-in: an OAuth "Web application" client with the redirect URI

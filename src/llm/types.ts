@@ -102,7 +102,12 @@ export interface LlmProvider {
   researchWine?(q: WineInfoQuery): Promise<WineInfo>;
   /** Find a shop's physical stores and the states it ships to. Providers that can't search the web, leave it out. */
   researchMerchant?(q: { name: string; domain: string }): Promise<MerchantPlaces>;
+  /** Flavor families a drinker's own note and tags say a wine has. Providers that can't, leave it out. */
+  readNoteFlavors?(text: string): Promise<NoteFlavors>;
 }
+
+/** Flavor family (src/recs/flavors.ts) -> intensity: 1 a hint, 2 clear, 3 dominant. */
+export type NoteFlavors = Record<string, 1 | 2 | 3>;
 
 export class ProviderUnavailableError extends Error {
   constructor(message = 'No LLM provider is configured') {
