@@ -2,8 +2,9 @@
  * Picks: the wines on a restaurant list or a store shelf, ranked for the
  * person's palate.
  *
- *   1. Read: the entries come from the phone (Apple Intelligence), and/or are
- *      read here from the list's text it couldn't (readListEntries).
+ *   1. Read: the entries come from the phone (Apple Intelligence reads a list,
+ *      or the text of a shelf's tags), and/or are read here: a list's text the
+ *      phone couldn't (readListEntries), or a shelf photo (readShelfEntries).
  *   2. Identify: each entry goes through the label matcher. A match brings the
  *      wine's researched notes, the person's own rating if they've had it,
  *      and today's retail price. No match is fine: the entry's own grape,
@@ -14,10 +15,12 @@
  *
  * Markup: a matched wine's list price per bottle (a glass counts as a fifth
  * of one) over its median US retail price. Restaurants usually charge 2.5-3x.
+ * On a shelf the same ratio says how the store's price compares with typical
+ * retail (below 1 is a good deal).
  */
 import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
-import type { ListEntry, LlmProvider } from '../llm/types.js';
+import { ProviderUnavailableError, type ListEntry, type LlmProvider } from '../llm/types.js';
 import { matchLabel } from '../scan/scan.js';
 import { wineFeatures, recStyle, type RecStyle, type WineRow } from '../recs/features.js';
 import { explain, scoreWine } from '../recs/profile.js';
@@ -97,6 +100,33 @@ export async function readListEntries(db: Db, text: string, providers: (LlmProvi
     }
   }
   return { entries: parseListText(clipped), source: 'rules' };
+}
+
+/**
+ * A store shelf photo read by a vision model (the main provider, then
+ * OpenRouter's free models): for phones without Apple Intelligence, shelves
+ * whose tags it couldn't read, or when the person asks. The same photo read
+ * before is reused.
+ */
+export async function readShelfEntries(
+  db: Db, image: Buffer, mimeType: string, phoneText: string | undefined, providers: (LlmProvider | null)[]
+): Promise<{ entries: ListEntry[]; source: string; sha: string }> {
+  const sha = inputSha(image);
+  const { rows: [cached] } = await db.query(
+    `SELECT entries, source FROM pick_scans WHERE input_sha = $1 AND kind = 'shelf' AND source <> 'apple' ORDER BY created_at DESC LIMIT 1`,
+    [sha]
+  );
+  if (cached) return { entries: cached.entries, source: cached.source, sha };
+  let lastErr: unknown = new ProviderUnavailableError('Reading shelf photos is not set up on this server');
+  for (const p of providers) {
+    if (!p?.readShelf) continue;
+    try {
+      return { entries: await p.readShelf(image, mimeType, phoneText), source: p.name, sha };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 /** Colour and style from the heading a wine is listed under. */

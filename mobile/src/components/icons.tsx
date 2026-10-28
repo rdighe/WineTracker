@@ -140,3 +140,12 @@ export function ListIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
     </Svg>
   );
 }
+
+export function ShelfIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M3 20h18M3 11h18" />
+      <Path d="M6 11V6.5a1.5 1.5 0 0 1 3 0V11M11 11V5a1.5 1.5 0 0 1 3 0v6M16 11V7.5a1.5 1.5 0 0 1 3 0V11M6 20v-5.5a1.5 1.5 0 0 1 3 0V20M12 20v-4.5a1.5 1.5 0 0 1 3 0V20" />
+    </Svg>
+  );
+}

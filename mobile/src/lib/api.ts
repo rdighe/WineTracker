@@ -128,6 +128,11 @@ export function createApi(authHeader: AuthHeader) {
     },
     /** A wine list ranked for the palate: the wines the phone read, and/or text for the server to read. */
     pickFromList: (entries: ListEntry[], text: string) => request<PickResult>('/api/picks', json('POST', { kind: 'list', entries, ...(text.trim() ? { text } : {}) })),
+    /** A store shelf: the wines the phone read off its tags, or the photo for the server to read (with the phone's text to help). */
+    pickFromShelf: (shelf: { entries: ListEntry[] } | { photo: { base64: string; mimeType: string }; text?: string }) =>
+      request<PickResult>('/api/picks', json('POST', 'entries' in shelf
+        ? { kind: 'shelf', entries: shelf.entries }
+        : { kind: 'shelf', imageBase64: shelf.photo.base64, mimeType: shelf.photo.mimeType, ...(shelf.text?.trim() ? { text: shelf.text.slice(0, 6000) } : {}) })),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
     /** Notes and tags sent together are read on the phone when it can; notes alone are left to the server, which knows the tags. */

@@ -140,4 +140,31 @@ describe('picks API', () => {
 
     expect((await as(request(app).post('/api/picks')).send({ kind: 'list' })).status).toBe(400);
   });
+
+  it('reads a shelf photo with a vision model once, compares shelf prices with typical retail, and takes tags read on the phone', async () => {
+    const readShelf = vi.fn().mockResolvedValue([
+      { producer: 'GD Vajra', name: 'Barolo Albe', vintage: '2019', region: 'Barolo', country: '', grape: '', colour: 'red', style: '', section: '', glassCents: null, bottleCents: 3600, bottleMl: null, text: 'VAJRA BAROLO ALBE 36.00' },
+    ]);
+    const provider = Object.assign(new NullProvider(), { name: 'gemini', readShelf });
+    const app = createApp({ db, provider, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const vajra = await priced({ producer: 'GD Vajra', name: 'Barolo Albe', sub_region: 'Barolo', ...neb }, 4000);
+    const photo = { kind: 'shelf', imageBase64: Buffer.from('shelf photo').toString('base64'), mimeType: 'image/jpeg', text: 'VAJRA BAROLO ALBE 36.00' };
+
+    const a = await as(request(app).post('/api/picks')).send(photo);
+    expect(a.status).toBe(200);
+    expect(a.body).toMatchObject({ kind: 'shelf', source: 'gemini', items: [{ wineId: vajra, match: 'matched', markup: 0.9, retailCents: 4000 }] });
+    expect(readShelf.mock.calls[0]![2]).toBe('VAJRA BAROLO ALBE 36.00');
+    await as(request(app).post('/api/picks')).send(photo);
+    expect(readShelf).toHaveBeenCalledTimes(1);
+
+    // Tags read on the phone: no photo, no model.
+    const b = await as(request(app).post('/api/picks')).send({ kind: 'shelf', entries: [{ producer: 'GD Vajra', name: 'Barolo Albe', bottleCents: 4800 }] });
+    expect(b.body).toMatchObject({ source: 'apple', items: [{ wineId: vajra, markup: 1.2 }] });
+
+    readShelf.mockRejectedValue(new Error('model down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await as(request(app).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('another').toString('base64') })).status).toBe(502);
+    const none = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    expect((await as(request(none).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('third').toString('base64') })).status).toBe(503);
+  });
 });

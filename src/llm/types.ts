@@ -106,6 +106,8 @@ export interface LlmProvider {
   readNoteFlavors?(text: string): Promise<NoteFlavors>;
   /** The wines on a restaurant wine list, from its text (read off the photo on the phone). Providers that can't, leave it out. */
   readWineList?(text: string): Promise<ListEntry[]>;
+  /** The wines on a photo of a store shelf, each with its shelf-tag price. Providers that can't see images, leave it out. */
+  readShelf?(image: Buffer, mimeType: string, phoneText?: string): Promise<ListEntry[]>;
 }
 
 /**

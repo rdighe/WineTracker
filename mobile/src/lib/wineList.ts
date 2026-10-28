@@ -1,5 +1,5 @@
 /**
- * Reading a restaurant wine list on the phone. Apple Vision reads the photo's
+ * Reading a restaurant wine list (or a store shelf's tags) on the phone. Apple Vision reads the photo's
  * text with where each piece is; rows are rebuilt from that (a wine's name
  * and its price, far apart on the page, end up on one line). Then Apple
  * Intelligence turns the text into wines, a part at a time, whenever the
@@ -112,9 +112,12 @@ function toEntry(w: DeviceListWine): ListEntry | null {
 /**
  * The wines in the list's rows, read on the phone as far as it can (part by
  * part, `onProgress(done, total)`); `rest` is the text of the parts it
- * couldn't read, for the server.
+ * couldn't read, for the server. Mode 'shelf': the rows are a shelf photo's
+ * text, and the wines are read from its shelf tags.
  */
-export async function readListOnDevice(rows: string[], onProgress?: (done: number, total: number) => void): Promise<{ entries: ListEntry[]; rest: string }> {
+export async function readListOnDevice(
+  rows: string[], onProgress?: (done: number, total: number) => void, mode: 'list' | 'shelf' = 'list'
+): Promise<{ entries: ListEntry[]; rest: string }> {
   const all = parts(rows);
   if (!WineList || !(await canReadListsOnDevice())) return { entries: [], rest: rows.join('\n') };
   const entries: ListEntry[] = [];
@@ -127,7 +130,7 @@ export async function readListOnDevice(rows: string[], onProgress?: (done: numbe
       continue;
     }
     try {
-      const read = await WineList.readAsync(p.text, p.heading);
+      const read = await WineList.readAsync(p.text, mode === 'list' ? p.heading : '', mode);
       entries.push(...read.map(toEntry).filter((e): e is ListEntry => e !== null));
     } catch {
       // Declined by the model's guardrails, too long, or the model is busy: the server reads this part.

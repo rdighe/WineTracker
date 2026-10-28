@@ -31,6 +31,7 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/catalog/info.ts` | Wine background research (tasting notes, producer, specs), once per wine, in the background |
 | `src/catalog/twins.ts` | Merges copies of one wine created from shop listings (`npm run dedupe -- twins`) |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
+| `src/picks/` | Picks: a restaurant wine list or a store shelf ranked for your palate, with markup (or deal) against typical retail. Read on the phone (Apple Vision + Apple Intelligence, `mobile/modules/wine-list`) when it can; else list text by Gemini, OpenRouter's free models or rules (`listText.ts`), a shelf photo by a vision model |
 | `src/tastings/noteFlavors.ts` | Flavors in your own notes and tags, read by a language model: on the phone with Apple Intelligence (`mobile/modules/note-flavors`), else by an OpenRouter free model on the server; keywords until either has |
 | `src/recs/` | Taste profile from ratings, led by flavor (tasting notes, your tags, else typical of the grape; `flavors.ts`), then grape, producer, place, style and price range; recommendations |
 | `src/api/app.ts` | REST API |
@@ -165,6 +166,7 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | GET | `/api/recommendations?bestValue=&colour=red\|white\|other&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal; in-stock wines only |
 | GET | `/api/recommendations?styles=red,white&minPrice=&maxPrice=&region=&notes=&food=` | | Find wines: a search on top of the taste profile (prices in dollars; styles red\|white\|rose\|sparkling\|orange\|sweet); every response has `summary` (rated count, styles, usual price band, leading flavors) |
 | | `…&near=lat,lng,ST` (on recommendations and `/api/wines/:id/prices`) | | only wines / shops near the person (a store within 30 miles) or shipping to their state; each item or offer gets `nearby`, and the response `near: {applied, state, pending}` (applied false: nothing near, so everything is shown). Shops' stores and shipping states are researched once from the web (`merchant_places`, `src/places/places.ts`) |
+| POST | `/api/picks` | `{kind: list, entries?, text?}` or `{kind: shelf, entries?, imageBase64?, mimeType?, text?}` | auth; entries the phone read (`{producer, name, vintage, region, grape, colour, style, section, glassCents, bottleCents, bottleMl, text}`) and/or list text / a shelf photo for the server to read → `{pickId, source, mode: profile\|locked, items}`, each item with `match: matched\|likely\|guess`, `score`, `reasons`, `myRating`, `retailCents`, `markup`, `glassMarkup` (price over typical retail) |
 | GET, POST / DELETE | `/api/rec-views`, `/api/rec-views/:id` | `{name, criteria}` (criteria as the search above, styles as a list) | saved For you searches (auth, up to 50) |
 | POST | `/api/import/vivino` | `{csv}` (a Vivino data export, ≤ 8 MB) | auth; matches each row, adds unknown wines as the user's own; re-importing adds nothing |
 

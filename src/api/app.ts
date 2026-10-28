@@ -15,7 +15,7 @@ import { per750 } from '../lib/listing.js';
 import { ProviderUnavailableError, type LlmProvider } from '../llm/types.js';
 import { createNoteProvider } from '../llm/index.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
-import { inputSha, pickWines, readListEntries } from '../picks/picks.js';
+import { inputSha, pickWines, readListEntries, readShelfEntries } from '../picks/picks.js';
 import { FLAVOR_KEYS } from '../recs/flavors.js';
 import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
 import { confirmScan, scanLabel, scanLineup, ScanError } from '../scan/scan.js';
@@ -528,15 +528,33 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   });
 
   // A wine list: the entries the phone read (Apple Intelligence), and/or text it couldn't, for the server to read.
+  // A shelf: the entries the phone read off its tags, or the photo for a vision model (imageBase64).
   app.post('/api/picks', auth.requireUser, scanLimit, scanJson, wrap(async (req, res) => {
     const b = parse(
       z.object({
-        kind: z.literal('list'),
+        kind: z.enum(['list', 'shelf']),
         entries: z.array(listEntry).max(MAX_LIST_ENTRIES).optional(),
         text: z.string().max(MAX_LIST_CHARS).optional(),
-      }).refine((x) => x.entries?.length || x.text?.trim(), 'entries or text required'),
+        imageBase64: z.string().max(12_000_000).optional(),
+        mimeType: z.string().max(40).optional(),
+      }).refine((x) => x.entries?.length || x.text?.trim() || x.imageBase64, 'entries, text or imageBase64 required'),
       req.body
     );
+    if (b.kind === 'shelf') {
+      if (!b.imageBase64) {
+        const entries = (b.entries ?? []).filter((e) => e.producer || e.name);
+        return res.json(await pickWines(db, req.user!.userId, 'shelf', entries, 'apple', inputSha(JSON.stringify(entries))));
+      }
+      const mimeType = b.mimeType ?? 'image/jpeg';
+      if (!IMAGE_TYPES.has(mimeType)) throw new HttpError(400, 'unsupported image type');
+      const image = Buffer.from(b.imageBase64.replace(/^data:[^,]*,/, ''), 'base64');
+      const read = await readShelfEntries(db, image, mimeType, b.text, listReaders).catch((err) => {
+        if (err instanceof ProviderUnavailableError) throw new HttpError(503, err.message);
+        console.error('shelf read failed:', err);
+        throw new HttpError(502, "Couldn't read the shelf photo. Try again, a little closer.");
+      });
+      return res.json(await pickWines(db, req.user!.userId, 'shelf', read.entries, read.source, read.sha));
+    }
     const device = (b.entries ?? []).filter((e) => e.producer || e.name);
     const server = b.text?.trim() ? await readListEntries(db, b.text, listReaders) : null;
     const entries = [...device, ...(server?.entries ?? [])];

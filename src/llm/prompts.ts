@@ -144,3 +144,31 @@ Wine list text:
 ${text.slice(0, MAX_LIST_CHARS)}
 """`;
 }
+
+/** Most wines read from one shelf photo. */
+export const MAX_SHELF = 30;
+
+/**
+ * Reading a store shelf photo: each bottle with the price on its shelf tag.
+ * `phoneText`: the text the phone read off the photo, which helps with small print.
+ */
+export function shelfPrompt(phoneText?: string): string {
+  return `This is a photo of wine on a store shelf.
+List every different wine you can identify, from its bottle labels and its shelf tag (the price label on the shelf edge, usually just below the bottles).
+Return ONLY a JSON object: {"wines": [ ... ]}, one entry per different wine, at most ${MAX_SHELF}, each with these keys:
+{"producer": "", "name": "", "vintage": "", "region": "", "country": "", "grape": "", "colour": "red|white|rose|orange|",
+ "style": "still|sparkling|sweet|fortified|", "bottle_price": null, "bottle_ml": null, "text": ""}
+Rules:
+- producer: the winery as printed. name: the rest of the wine's name (cuvée, grape, appellation), without the producer. Expand shelf-tag abbreviations ("CAB SAUV" is Cabernet Sauvignon).
+- vintage: the year printed on the label or tag, "NV" if non-vintage, "" if not visible. Never guess.
+- bottle_price: the regular per-bottle price on that wine's shelf tag, as a number (12.99); a sale price if that is the price now; null if you can't tell which tag is this wine's.
+- bottle_ml: only for sizes other than 750 ml (375, 1500, 3000 for boxes...), else null.
+- region / country / grape / colour / style: as printed, or certain from the appellation. "" when unsure.
+- text: what the shelf tag says.
+- Several bottles of the same wine are one entry. Skip spirits, beer and anything you can't read.${phoneText ? `
+
+Text the phone read off this photo (may be partial or out of order):
+"""
+${phoneText.slice(0, 6000)}
+"""` : ''}`;
+}

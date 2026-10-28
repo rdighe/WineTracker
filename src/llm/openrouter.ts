@@ -10,7 +10,7 @@
  * price refreshes re-check known shop pages only.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt, wineListPrompt } from './prompts.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt, shelfPrompt, wineListPrompt } from './prompts.js';
 import { sanitizeLabel, sanitizeLabels, sanitizeListEntries, sanitizeNoteFlavors, sanitizeWineInfo } from './sanitize.js';
 import { ProviderUnavailableError, type LabelRead, type ListEntry, type LlmProvider, type NoteFlavors, type WineInfo, type WineInfoQuery } from './types.js';
 
@@ -138,6 +138,18 @@ export class OpenRouterProvider implements LlmProvider {
   readWineList(text: string): Promise<ListEntry[]> {
     return this.firstGood(
       (m) => this.chat(m, [{ type: 'text', text: wineListPrompt(text) }]),
+      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'))
+    );
+  }
+
+  /** A store shelf photo: bottles and shelf tags. */
+  readShelf(image: Buffer, mimeType: string, phoneText?: string): Promise<ListEntry[]> {
+    const content = [
+      { type: 'text', text: shelfPrompt(phoneText) },
+      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image.toString('base64')}` } },
+    ];
+    return this.firstGood(
+      (m) => this.chat(m, content),
       (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'))
     );
   }
