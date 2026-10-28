@@ -65,14 +65,19 @@ can use your API (and its development sign-in) while the tunnel runs, so stop it
 The app follows the WineTracker design system (https://claude.ai/artifact/GYN2DuUbpCJ8eqerSf1U1F). Its tokens live
 in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
 
-- **Light and dark** follow the phone, or the Theme choice under Appearance (bottom of My cellar / My tastings).
+- **Tabs:** Add wine, My wines (the cellar and tastings in one list; the Cellar / Tasted toggle switches them), For you,
+  Settings (appearance, account, Vivino import, server).
+- **Light and dark** follow the phone, or the Theme choice in Settings › Appearance.
 - **Liquid glass** (tab bar, wine-page toolbar, buttons over photos) is `src/components/Glass.tsx`: native Liquid Glass
   on iOS 26 (`expo-glass-effect`), a blur elsewhere. It follows the phone's Liquid Glass (Clear/Tinted), Reduce
   Transparency and Increase Contrast settings; Reduce Transparency and Increase Contrast always win over the in-app
   Glass choice. `expo-glass-effect` is native code: make a new development or TestFlight build after pulling this.
 - **Photos first:** a wine's page opens on its photo; rows lead with a thumbnail; For you is a grid of photo cards.
-- Wine names are set in a serif (New York on iOS, Newsreader elsewhere); everything else is the system font, with
-  tabular figures for prices.
+- **Type:** the Apple system font everywhere, with tabular figures for prices. The opening animation writes
+  "WineTracker" in Snell Roundhand, which ships with iOS (`src/components/SplashIntro.tsx`).
+- **Motion** (Reanimated; all of it respects Reduce Motion): Log tasting and Add to cellar open a sheet that grows out
+  of the button (`ExpandingSheet.tsx`); the tab highlight and segmented controls slide; rows fade in and move as one
+  opens; buttons spring when pressed.
 
 ## Checks
 

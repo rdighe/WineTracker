@@ -4,7 +4,8 @@ import { Text, View } from 'react-native';
 import { Button, Card, ErrorText, Field, Heading, Muted, Screen, space, type, useTheme } from '../components/ui';
 import { checkServer, type ServerInfo } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { getApiUrl, setApiUrl } from '../lib/config';
+import { getApiUrl } from '../lib/config';
+import { ServerSettings } from '../components/ServerSettings';
 
 export default function SignIn() {
   const auth = useAuth();
@@ -12,8 +13,6 @@ export default function SignIn() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [server, setServer] = useState(getApiUrl());
-  const [serverStatus, setServerStatus] = useState<string | null>(null);
   const [serverError, setServerError] = useState<unknown>(null);
   // How the current server signs people in; null while checking or unreachable.
   const [info, setInfo] = useState<ServerInfo | null>(null);
@@ -22,13 +21,13 @@ export default function SignIn() {
     checkServer(getApiUrl()).then(setInfo, setServerError);
   }, []);
 
-  const run = async (fn: () => Promise<void>, onError = setError) => {
+  const run = async (fn: () => Promise<void>) => {
     setBusy(true);
-    onError(null);
+    setError(null);
     try {
       await fn();
     } catch (e) {
-      onError(e);
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -67,30 +66,7 @@ export default function SignIn() {
         <ErrorText error={error} />
       </Card>
 
-      <Card>
-        <Heading>Server</Heading>
-        <Muted>The WineTracker API this app talks to. On iPhone it must be an https:// address (a deployed API or a tunnel).</Muted>
-        <Field label="API address" value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." />
-        <Button
-          title="Save and check"
-          variant="secondary"
-          size="md"
-          busy={busy}
-          onPress={() =>
-            run(async () => {
-              setServerStatus(null);
-              setInfo(null);
-              const saved = await setApiUrl(server);
-              setServer(saved);
-              const next = await checkServer(saved);
-              setInfo(next);
-              setServerStatus(`Connected${next.provider === 'none' ? ' (label reading is off on this server)' : ''}.`);
-            }, setServerError)
-          }
-        />
-        {serverStatus ? <Muted style={{ color: c.positive }}>{serverStatus}</Muted> : null}
-        <ErrorText error={serverError} />
-      </Card>
+      <ServerSettings onChecking={() => { setInfo(null); setServerError(null); }} onConnected={setInfo} />
     </Screen>
   );
 }

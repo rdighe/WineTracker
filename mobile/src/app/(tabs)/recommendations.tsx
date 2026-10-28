@@ -1,24 +1,36 @@
-/** Wines picked from the user's ratings. Nothing is suggested until there are enough ratings to be personal. */
+/**
+ * Wines picked from the user's ratings, a few of every style they've liked,
+ * with filters for each of those styles. Nothing is suggested until there are
+ * enough ratings to be personal.
+ */
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass } from '../../components/Glass';
 import { SparkleIcon } from '../../components/icons';
 import { WinePhoto } from '../../components/WineThumb';
-import { Button, Card, ErrorText, Heading, Muted, Segmented, Title, radius, space, type, useTheme, wineStyleOf } from '../../components/ui';
+import { Button, Card, Chip, ErrorText, Heading, Muted, Title, radius, space, type, useTheme, wineStyleOf } from '../../components/ui';
+import type { WineStyle } from '../../components/theme';
 import { dollars } from '../../lib/format';
-import type { Recommendation } from '../../lib/types';
+import type { RecStyle, Recommendation, RecommendationsResponse } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
-type Filter = 'all' | 'value' | 'red' | 'white' | 'other';
+type Filter = 'all' | 'value' | RecStyle;
+
+const STYLE_LABEL: Record<RecStyle, string> = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', sweet: 'Sweet & fortified' };
+/** The color dot for each style (sweet wines share the fortified color). */
+const STYLE_DOT: Record<RecStyle, WineStyle> = { red: 'red', white: 'white', rose: 'rose', sparkling: 'sparkling', orange: 'orange', sweet: 'fortified' };
 
 export default function Recommendations() {
   const api = useApi();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
-  const [data, setData] = useState<{ mode: 'profile'; items: Recommendation[] } | { mode: 'locked'; rated: number; needed: number; items: [] } | null>(null);
+  const [data, setData] = useState<RecommendationsResponse | null>(null);
+  // The styles to offer as filters; kept while a filter is on so the chips don't change under you.
+  const [styles, setStyles] = useState<RecStyle[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -26,7 +38,9 @@ export default function Recommendations() {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.recommendations({ bestValue: filter === 'value', colour: filter === 'red' || filter === 'white' || filter === 'other' ? filter : undefined }));
+      const res = await api.recommendations(filter === 'all' || filter === 'value' ? { bestValue: filter === 'value' } : { style: filter });
+      setData(res);
+      if (res.mode === 'profile' && res.styles?.length) setStyles(res.styles);
     } catch (e) {
       setError(e);
     } finally {
@@ -35,6 +49,12 @@ export default function Recommendations() {
   }, [api, filter]);
   useFocusEffect(useCallback(() => void load(), [load]));
 
+  const filters: { key: Filter; label: string; dot?: WineStyle }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'value', label: 'Best value' },
+    ...styles.map((s) => ({ key: s, label: STYLE_LABEL[s], dot: STYLE_DOT[s] })),
+  ];
+
   return (
     <FlatList
       style={{ flex: 1, backgroundColor: c.bg }}
@@ -42,7 +62,9 @@ export default function Recommendations() {
       columnWrapperStyle={{ gap: space[3] }}
       numColumns={2}
       data={data?.items ?? []}
-      keyExtractor={(r) => String(r.wineId)}
+      // Each filter's list fades in as a new list.
+      key={filter}
+      keyExtractor={(r) => `${filter}-${r.wineId}`}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
       ListHeaderComponent={
         <View style={{ gap: space[4] }}>
@@ -65,55 +87,57 @@ export default function Recommendations() {
               <Muted style={type.tabular}>{data.rated} of {data.needed} rated</Muted>
               <Button title="Add a wine" onPress={() => router.push('/')} />
             </Card>
-          ) : (
-            <View style={{ alignSelf: 'flex-start' }}>
-              <Segmented
-                small
-                options={[{ key: 'all', label: 'All' }, { key: 'value', label: 'Best value' }, { key: 'red', label: 'Red' }, { key: 'white', label: 'White' }, { key: 'other', label: 'Other' }]}
-                value={filter}
-                onChange={setFilter}
-              />
-            </View>
-          )}
+          ) : data ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space[4] }} contentContainerStyle={{ gap: space[2], paddingHorizontal: space[4] }}>
+              {filters.map((f) => (
+                <Chip key={f.key} small dot={f.dot} selected={filter === f.key} onPress={() => setFilter(f.key)}>{f.label}</Chip>
+              ))}
+            </ScrollView>
+          ) : null}
           <ErrorText error={error} />
         </View>
       }
-      ListEmptyComponent={data?.mode === 'profile' ? <Muted style={type.subhead}>Nothing matches this filter yet.</Muted> : null}
-      renderItem={({ item: r }) => <WineCard r={r} />}
+      ListEmptyComponent={data?.mode === 'profile' ? (
+        <Muted style={type.subhead}>{filter === 'all' || filter === 'value' ? 'Nothing to suggest yet. Rate a few more wines.' : `No ${STYLE_LABEL[filter].toLowerCase()} wines in stock that fit yet.`}</Muted>
+      ) : null}
+      renderItem={({ item: r, index }) => <WineCard r={r} index={index} />}
     />
   );
 }
 
 /** Photo-first tile: the bottle, its price in a glass chip, the name and why it was picked. */
-function WineCard({ r }: { r: Recommendation }) {
+function WineCard({ r, index }: { r: Recommendation; index: number }) {
   const { c } = useTheme();
+  const style = r.style ? STYLE_DOT[r.style] : wineStyleOf(r.colour, r.wineType);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
-      onPress={() => router.push(`/wine/${r.wineId}`)}
-      style={({ pressed }) => [{ flex: 1, maxWidth: '50%', gap: space[2] }, pressed && { opacity: 0.8 }]}
-    >
-      <WinePhoto uri={r.imageUrl} wineStyle={wineStyleOf(r.colour, r.wineType)} padding={space[3]} style={{ width: '100%', aspectRatio: 4 / 5, borderRadius: radius.md }}>
-        <View style={{ position: 'absolute', left: space[2], bottom: space[2] }}>
-          <Glass style={{ borderRadius: radius.pill }}>
-            <Text style={[type.subhead, type.tabular, { fontWeight: '700', color: c.ink, paddingVertical: 5, paddingHorizontal: space[3] }]}>{dollars(r.medianCents)}</Text>
-          </Glass>
-        </View>
-      </WinePhoto>
-      <View style={{ gap: 2, paddingHorizontal: 2 }}>
-        <Text style={[type.wineTitle, { fontSize: 17, lineHeight: 21, color: c.ink }]} numberOfLines={2}>{r.displayName}</Text>
-        <Muted numberOfLines={1}>
-          {[r.region, r.country].filter(Boolean).join(' · ')}
-          {r.nMerchants ? ` · ${r.nMerchants} ${r.nMerchants === 1 ? 'shop' : 'shops'}` : ''}
-        </Muted>
-        {r.reasons[0] ? (
-          <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
-            <View style={{ marginTop: 2 }}><SparkleIcon color={c.accent} size={13} /></View>
-            <Text style={[type.footnote, { flex: 1, color: c.accent }]} numberOfLines={2}>{r.reasons[0]}</Text>
+    <Animated.View entering={FadeInDown.duration(280).delay(Math.min(index, 8) * 45)} style={{ flex: 1, maxWidth: '50%' }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
+        onPress={() => router.push(`/wine/${r.wineId}`)}
+        style={({ pressed }) => [{ gap: space[2] }, pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] }]}
+      >
+        <WinePhoto uri={r.imageUrl} wineStyle={style} padding={space[3]} style={{ width: '100%', aspectRatio: 4 / 5, borderRadius: radius.md }}>
+          <View style={{ position: 'absolute', left: space[2], bottom: space[2] }}>
+            <Glass style={{ borderRadius: radius.pill }}>
+              <Text style={[type.subhead, type.tabular, { fontWeight: '700', color: c.ink, paddingVertical: 5, paddingHorizontal: space[3] }]}>{dollars(r.medianCents)}</Text>
+            </Glass>
           </View>
-        ) : null}
-      </View>
-    </Pressable>
+        </WinePhoto>
+        <View style={{ gap: 2, paddingHorizontal: 2 }}>
+          <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={2}>{r.displayName}</Text>
+          <Muted numberOfLines={1}>
+            {[r.region, r.country].filter(Boolean).join(' · ')}
+            {r.nMerchants ? ` · ${r.nMerchants} ${r.nMerchants === 1 ? 'shop' : 'shops'}` : ''}
+          </Muted>
+          {r.reasons[0] ? (
+            <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
+              <View style={{ marginTop: 2 }}><SparkleIcon color={c.accent} size={13} /></View>
+              <Text style={[type.footnote, { flex: 1, color: c.accent }]} numberOfLines={2}>{r.reasons[0]}</Text>
+            </View>
+          ) : null}
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }

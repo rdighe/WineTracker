@@ -1,25 +1,23 @@
 /**
- * My Cellar and My Tastings: one entry per wine, gathering everything the
+ * My wines: the cellar and the tastings in one list, switched with the
+ * Cellar / Tasted toggle. One entry per wine, gathering everything the
  * user did with it - bottles added to the cellar and every tasting - each
  * with its date, which can be changed. Cellar entries can be removed (their
  * notes stay as tastings) and tastings deleted.
  */
-import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../lib/auth';
 import { dollars, shortDate, wineTitle } from '../lib/format';
-import type { ImportSummary, Tasting } from '../lib/types';
+import type { Tasting } from '../lib/types';
 import { useApi } from '../lib/useApi';
-import { AppearanceSettings } from './Appearance';
 import { DateField } from './DateField';
 import { ChevronIcon } from './icons';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
-import { Button, Card, Divider, ErrorText, Heading, Label, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
+import { Button, Card, Divider, ErrorText, Label, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
 export type Mode = 'cellar' | 'tastings';
 type Sort = 'recent' | 'value' | 'rating';
@@ -30,7 +28,7 @@ interface Group {
   rows: Tasting[];
   cellar: Tasting[];
   tasted: Tasting[];
-  /** What My Tastings lists: tastings, and cellar entries the user rated or wrote notes on. */
+  /** What the Tasted side lists: tastings, and cellar entries the user rated or wrote notes on. */
   notes: Tasting[];
   latest: string;
   bottles: number;
@@ -75,11 +73,13 @@ function confirm(title: string, message: string, action: string): Promise<boolea
   );
 }
 
-export function MyWines({ mode }: { mode: Mode }) {
+export function MyWines() {
   const api = useApi();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
-  const { label, signOut } = useAuth();
+  // ?mode=cellar|tastings: after adding a bottle or logging a tasting elsewhere, show that side.
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setModeState] = useState<Mode>(params.mode === 'tastings' ? 'tastings' : 'cellar');
   const [rows, setRows] = useState<Tasting[] | null>(null);
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
@@ -87,6 +87,19 @@ export function MyWines({ mode }: { mode: Mode }) {
   const [open, setOpen] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    setOpen(null);
+    // Value sorting only means something for bottles you own.
+    if (m === 'tastings' && sort === 'value') setSort('recent');
+  };
+  // A new ?mode= (arriving here after saving elsewhere) switches the list.
+  const [seenMode, setSeenMode] = useState(params.mode);
+  if (params.mode !== seenMode) {
+    setSeenMode(params.mode);
+    if (params.mode === 'cellar' || params.mode === 'tastings') setMode(params.mode);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,7 +131,7 @@ export function MyWines({ mode }: { mode: Mode }) {
   const worth = cellarRows.reduce((s, t) => s + t.market_now_cents! * (t.bottles ?? 1), 0);
   const bottles = visible.reduce((s, g) => s + g.bottles, 0);
   const countLine = mode === 'cellar'
-    ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'}`
+    ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} in your cellar`
     : `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} tasted`;
 
   return (
@@ -126,17 +139,19 @@ export function MyWines({ mode }: { mode: Mode }) {
       style={{ flex: 1, backgroundColor: c.bg }}
       contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120 }}
       data={visible}
-      keyExtractor={(g) => String(g.wineId)}
+      // A new key per side, so switching Cellar / Tasted fades the new list in.
+      key={mode}
+      keyExtractor={(g) => `${mode}-${g.wineId}`}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
       ListHeaderComponent={
         <View style={{ gap: space[4], marginBottom: space[4] }}>
           <View>
-            <Title>{mode === 'cellar' ? 'My cellar' : 'My tastings'}</Title>
+            <Title>My wines</Title>
             <Muted style={{ marginTop: 2 }}>{rows ? countLine : ' '}</Muted>
           </View>
-          <View style={{ alignSelf: 'flex-start' }}>
-            <Segmented
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2] }}>
+            <Segmented<Sort>
               small
               options={mode === 'cellar'
                 ? [{ key: 'recent', label: 'Recent' }, { key: 'value', label: 'Value' }, { key: 'rating', label: 'Rating' }]
@@ -144,14 +159,17 @@ export function MyWines({ mode }: { mode: Mode }) {
               value={sort}
               onChange={setSort}
             />
+            <Segmented<Mode> small tinted options={[{ key: 'cellar', label: 'Cellar' }, { key: 'tastings', label: 'Tasted' }]} value={mode} onChange={setMode} />
           </View>
           {groups.length ? <WineFilters items={groups.flatMap((g) => g.rows)} query={query} onQuery={setQuery} filters={filters} onFilters={setFilters} /> : null}
           {mode === 'cellar' && cellarRows.length > 0 && (
-            <Card style={{ flexDirection: 'row', padding: 0, gap: 0 }}>
-              <Stat label="Cost" value={dollars(paid)} />
-              <Stat label="Value now" value={dollars(worth)} />
-              <Stat label="Change" value={<PriceDelta paid={paid} now={worth} percentOnly />} />
-            </Card>
+            <Animated.View entering={FadeIn.duration(220)}>
+              <Card style={{ flexDirection: 'row', padding: 0, gap: 0 }}>
+                <Stat label="Cost" value={dollars(paid)} />
+                <Stat label="Value now" value={dollars(worth)} />
+                <Stat label="Change" value={<PriceDelta paid={paid} now={worth} percentOnly />} />
+              </Card>
+            </Animated.View>
           )}
           <ErrorText error={error} />
         </View>
@@ -170,6 +188,7 @@ export function MyWines({ mode }: { mode: Mode }) {
         <WineEntry
           g={g}
           mode={mode}
+          index={index}
           first={index === 0}
           last={index === visible.length - 1}
           open={open === g.wineId}
@@ -177,16 +196,6 @@ export function MyWines({ mode }: { mode: Mode }) {
           onChanged={load}
         />
       )}
-      ListFooterComponent={
-        <View style={{ marginTop: space[6], gap: space[5] }}>
-          {mode === 'tastings' ? <VivinoImport onDone={load} /> : null}
-          <AppearanceSettings />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Muted>Signed in as {label}</Muted>
-            <Button title="Sign out" variant="secondary" size="sm" onPress={async () => { await signOut(); router.replace('/sign-in'); }} />
-          </View>
-        </View>
-      }
     />
   );
 }
@@ -211,8 +220,8 @@ function Badge({ children }: { children: ReactNode }) {
 }
 
 /** One wine as a row in a grouped list: thumbnail, name, what you have or tasted, and its price. Tap to open. */
-function WineEntry({ g, mode, first, last, open, onToggle, onChanged }: {
-  g: Group; mode: Mode; first: boolean; last: boolean; open: boolean; onToggle: () => void; onChanged: () => Promise<void>;
+function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
+  g: Group; mode: Mode; index: number; first: boolean; last: boolean; open: boolean; onToggle: () => void; onChanged: () => Promise<void>;
 }) {
   const { c } = useTheme();
   const w = g.wine;
@@ -228,7 +237,10 @@ function WineEntry({ g, mode, first, last, open, onToggle, onChanged }: {
   const name = wineTitle(w.display_name, w.sub_region);
 
   return (
-    <View
+    <Animated.View
+      // Rows slide in a few at a time when the list appears, and move smoothly as one opens or closes.
+      entering={FadeInDown.duration(260).delay(Math.min(index, 8) * 30)}
+      layout={LinearTransition.springify().damping(22).stiffness(220)}
       style={{
         backgroundColor: c.surface, borderColor: c.hairline, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth,
         borderTopWidth: first ? StyleSheet.hairlineWidth : 0, borderBottomWidth: last ? StyleSheet.hairlineWidth : 0,
@@ -246,7 +258,7 @@ function WineEntry({ g, mode, first, last, open, onToggle, onChanged }: {
       >
         <WineThumb uri={w.image_url} wineStyle={wineStyleOf(w.colour, w.wine_type)} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <Text style={[type.wineTitle, { fontSize: 17, lineHeight: 22, color: c.ink }]} numberOfLines={2}>{name}</Text>
+          <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={2}>{name}</Text>
           <Text style={[type.subhead, { color: c.ink2 }]} numberOfLines={1}>{[w.sub_region || w.region, summary].filter(Boolean).join(' · ')}</Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 3 }}>
@@ -261,7 +273,7 @@ function WineEntry({ g, mode, first, last, open, onToggle, onChanged }: {
       </Pressable>
 
       {open ? (
-        <View style={{ gap: space[4], paddingHorizontal: space[4], paddingBottom: space[4] }}>
+        <Animated.View entering={FadeIn.duration(220).delay(60)} exiting={FadeOut.duration(120)} style={{ gap: space[4], paddingHorizontal: space[4], paddingBottom: space[4] }}>
           {mode === 'cellar' ? (
             <Section title="In the cellar">
               {g.cellar.map((t) => <CellarRow key={t.tasting_id} t={t} onChanged={onChanged} />)}
@@ -281,9 +293,9 @@ function WineEntry({ g, mode, first, last, open, onToggle, onChanged }: {
             <Button title="Add bottles" variant="secondary" size="sm" onPress={() => router.push(`/wine/${g.wineId}?add=cellar&vintage=${encodeURIComponent(firstVintage)}`)} />
             <Button title="Wine page" variant="secondary" size="sm" onPress={() => router.push(`/wine/${g.wineId}`)} icon={(fg) => <ChevronIcon color={fg} size={14} />} />
           </View>
-        </View>
+        </Animated.View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -376,7 +388,7 @@ function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<void
         onPress={async () => {
           const ok = await confirm(
             'Remove from your cellar?',
-            `${t.vintage_key ?? 'NV'}, ${n} ${n === 1 ? 'bottle' : 'bottles'}. Your tastings of this wine stay in My tastings.`,
+            `${t.vintage_key ?? 'NV'}, ${n} ${n === 1 ? 'bottle' : 'bottles'}. Your tastings of this wine stay under Tasted.`,
             'Remove'
           );
           if (ok) await run(() => api.removeFromCellar(t.tasting_id));
@@ -418,7 +430,7 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
         </View>
       ) : null}
       {t.kind === 'cellar' ? (
-        <Muted>Rated when added to your cellar. The bottles are managed in My cellar.</Muted>
+        <Muted>Rated when added to your cellar. The bottles are managed under Cellar.</Muted>
       ) : (
         <Button
           title="Delete tasting"
@@ -434,57 +446,5 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
       )}
       <ErrorText error={error} />
     </View>
-  );
-}
-
-/** Pick a Vivino export (CSV) and import its ratings. */
-function VivinoImport({ onDone }: { onDone: () => void }) {
-  const api = useApi();
-  const { c } = useTheme();
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ImportSummary | null>(null);
-  const [error, setError] = useState<unknown>(null);
-
-  async function pick() {
-    setError(null);
-    setResult(null);
-    const res = await DocumentPicker.getDocumentAsync({ type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/vnd.ms-excel', '*/*'], copyToCacheDirectory: true });
-    if (res.canceled || !res.assets[0]) return;
-    const asset = res.assets[0];
-    setBusy(true);
-    try {
-      const csv = Platform.OS === 'web' && asset.file ? await asset.file.text() : await new File(asset.uri).text();
-      const summary = await api.importVivino(csv);
-      setResult(summary);
-      onDone();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <Heading>Import from Vivino</Heading>
-      <Muted>
-        Request a copy of your data from Vivino (in the app&apos;s account or privacy settings), then pick the wine list CSV from the download. Ratings, reviews and dates come across; importing the same file again adds nothing.
-      </Muted>
-      <Button title="Choose Vivino CSV" variant="secondary" size="md" busy={busy} onPress={pick} />
-      {result ? (
-        <View style={{ gap: 4 }}>
-          <Text style={[type.subhead, { fontWeight: '600', color: c.positive }]}>
-            Imported {result.imported} {result.imported === 1 ? 'wine' : 'wines'}
-            {result.alreadyImported ? ` · ${result.alreadyImported} already here` : ''}
-          </Text>
-          <Muted>
-            {result.matched} matched to our catalog{result.addedWines ? `, ${result.addedWines} added as new wines` : ''}.
-          </Muted>
-          {result.addedNames.length ? <Muted>New: {result.addedNames.slice(0, 5).join(' · ')}{result.addedNames.length > 5 ? ' …' : ''}</Muted> : null}
-          {result.missingColumns.includes('rating') ? <Muted style={{ color: c.negative }}>No rating column found, so wines came in unrated.</Muted> : null}
-        </View>
-      ) : null}
-      <ErrorText error={error} />
-    </Card>
   );
 }

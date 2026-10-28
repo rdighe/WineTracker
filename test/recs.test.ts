@@ -154,4 +154,38 @@ describe('recommendations API', () => {
     expect(all).not.toContain(whiskey);
     expect(all).not.toContain(soldOut);
   });
+
+  it('takes turns between every liked style, and filters by one style', async () => {
+    const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
+    const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const neb = { grape: 'Nebbiolo', region: 'Piedmont', country: 'Italy', colour: 'red', source: 'lwin' as const };
+    const rated: [number, number][] = [
+      [await priced({ producer: 'Vietti', name: 'Barolo Castiglione', ...neb }, 6000), 5],
+      [await priced({ producer: 'Produttori del Barbaresco', name: 'Barbaresco', ...neb }, 5000), 5],
+      [await priced({ producer: 'Raveneau', name: 'Chablis', grape: 'Chardonnay', colour: 'white', source: 'lwin' }, 9000), 3.5],
+      [await priced({ producer: 'Bollinger', name: 'Special Cuvee Champagne', colour: 'white', wine_type: 'sparkling', source: 'lwin' }, 7000), 4],
+      [await priced({ producer: 'Domaine Ott', name: 'Rose', colour: 'rose', source: 'lwin' }, 4000), 1.5],
+    ];
+    for (const [wineId, rating] of rated) expect((await as(request(app).post('/api/tastings')).send({ wineId, rating })).status).toBe(201);
+    // Many reds that match the profile well, one white, one sparkling, one rosé (a style the user disliked).
+    const reds = [];
+    for (const p of ['GD Vajra', 'Giacosa', 'Oddero', 'Cavallotto', 'Massolino', 'Brovia']) reds.push(await priced({ producer: p, name: 'Barolo', ...neb }, 5500));
+    const white = await priced({ producer: 'Dauvissat', name: 'Chablis', grape: 'Chardonnay', colour: 'white', source: 'lwin' }, 8000);
+    const fizz = await priced({ producer: 'Krug', name: 'Grande Cuvee Champagne', colour: 'white', wine_type: 'sparkling', source: 'lwin' }, 7500);
+    const rose = await priced({ producer: 'Tempier', name: 'Bandol Rose', colour: 'rose', source: 'lwin' }, 5000);
+
+    const all = (await as(request(app).get('/api/recommendations'))).body;
+    expect(all.styles).toEqual(['red', 'sparkling', 'white']);
+    const first3 = all.items.slice(0, 3).map((i: { wineId: number }) => i.wineId);
+    expect(first3[0]).toBeOneOf(reds);
+    expect(first3.slice(1).sort()).toEqual([white, fizz].sort());
+    expect(all.items.map((i: { wineId: number }) => i.wineId)).not.toContain(rose);
+
+    const only = async (style: string) => (await as(request(app).get(`/api/recommendations?style=${style}`))).body.items.map((i: { wineId: number; style: string }) => [i.wineId, i.style]);
+    expect(await only('sparkling')).toEqual([[fizz, 'sparkling']]);
+    expect(await only('white')).toEqual([[white, 'white']]);
+    // A style the user disliked still lists when asked for.
+    expect(await only('rose')).toEqual([[rose, 'rose']]);
+  });
 });

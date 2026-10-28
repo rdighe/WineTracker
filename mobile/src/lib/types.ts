@@ -121,6 +121,9 @@ export interface ImportSummary {
   missingColumns: string[];
 }
 
+/** For you's styles; sweet covers dessert and fortified wines. */
+export type RecStyle = 'red' | 'white' | 'rose' | 'sparkling' | 'orange' | 'sweet';
+
 export interface Recommendation {
   wineId: number;
   displayName: string;
@@ -128,12 +131,19 @@ export interface Recommendation {
   country: string;
   colour?: string;
   wineType?: string;
+  /** red | white | rose | sparkling | orange | sweet, or '' when unknown. */
+  style?: RecStyle | '';
   imageUrl?: string | null;
   medianCents: number;
   nMerchants: number;
   score: number;
   reasons: string[];
 }
+
+/** styles: the ones the user has liked, best-liked first; For you offers them as filters. Older servers send none. */
+export type RecommendationsResponse =
+  | { mode: 'profile'; items: Recommendation[]; styles?: RecStyle[] }
+  | { mode: 'locked'; rated: number; needed: number; items: [] };
 
 /** Researched background for a wine (see ../../src/llm/types.ts). Any field may be empty. */
 export interface WineInfo {

@@ -1,9 +1,10 @@
 /** Wine: the photo first, then market price (all vintages or one), price by vintage, where to buy, save, log a tasting. */
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ExpandingSheet, measure, type Rect } from '../../components/ExpandingSheet';
 import { Glass } from '../../components/Glass';
 import { BackIcon, BookmarkIcon, BottleIcon, PlusIcon, RefreshIcon } from '../../components/icons';
 import { TastingForm, type TastingKind } from '../../components/TastingForm';
@@ -18,7 +19,7 @@ import { useApi } from '../../lib/useApi';
 const STYLE_LABEL = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', fortified: 'Fortified' } as const;
 
 export default function WineScreen() {
-  // add=cellar|tasted (and vintage): open the form straight away, from My Cellar / My Tastings.
+  // add=cellar|tasted (and vintage): open the form straight away, from My wines.
   const { id, add, vintage: addVintage } = useLocalSearchParams<{ id: string; add?: string; vintage?: string }>();
   const wineId = Number(id);
   const api = useApi();
@@ -30,7 +31,11 @@ export default function WineScreen() {
   const [prices, setPrices] = useState<PricesResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [logging, setLogging] = useState<TastingKind | null>(add === 'cellar' || add === 'tasted' ? add : null);
+  // The tasting form opens as a sheet that grows out of the button pressed.
+  const [sheet, setSheet] = useState<{ kind: TastingKind; origin: Rect; closing: boolean } | null>(null);
+  const cellarButton = useRef<View>(null);
+  const logButton = useRef<View>(null);
+  const { width: W, height: H } = useWindowDimensions();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -59,6 +64,21 @@ export default function WineScreen() {
       cancelled = true;
     };
   }, [api, wineId, vintage, reloadKey]);
+
+  // Opened from My wines ("Log tasting", "Add bottles"): grow from where the toolbar sits.
+  const openedFromParam = useRef(false);
+  useEffect(() => {
+    if (!wine || openedFromParam.current || (add !== 'cellar' && add !== 'tasted')) return;
+    openedFromParam.current = true;
+    setSheet({ kind: add, origin: { x: W / 2 - 80, y: H - insets.bottom - 56, width: 160, height: 46 }, closing: false });
+  }, [wine, add, W, H, insets.bottom]);
+
+  async function openSheet(kind: TastingKind) {
+    const origin = (await measure(kind === 'cellar' ? cellarButton : logButton)) ?? { x: W / 2 - 80, y: H - insets.bottom - 56, width: 160, height: 46 };
+    setSheet({ kind, origin, closing: false });
+  }
+  const closeSheet = () => setSheet((s) => (s ? { ...s, closing: true } : s));
+  const sheetClosed = useCallback(() => setSheet(null), []);
 
   async function refresh() {
     setBusy(true);
@@ -97,7 +117,7 @@ export default function WineScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" bottomOffset={24} contentContainerStyle={{ paddingBottom: insets.bottom + (logging ? space[6] : 110) }}>
+      <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" bottomOffset={24} contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}>
         {/* The photo leads: full width, under the status bar; glass controls float over it. */}
         {!wine && !error ? (
           <View style={{ paddingTop: insets.top + 64, paddingHorizontal: space[4] }}>
@@ -227,9 +247,6 @@ export default function WineScreen() {
           {message ? <Muted>{message}</Muted> : null}
           <ErrorText error={error} />
 
-          {wine && logging ? (
-            <TastingForm key={logging} wineId={wineId} vintage={vintage ?? (addVintage || null)} kind={logging} suggestedTags={about?.info?.descriptors} onSaved={(k) => { setLogging(null); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }} />
-          ) : null}
         </View>
       </KeyboardAwareScrollView>
 
@@ -243,21 +260,23 @@ export default function WineScreen() {
         </IconButton>
       </View>
 
-      {wine && !logging ? (
+      {wine ? (
         <View pointerEvents="box-none" style={{ position: 'absolute', left: space[4], right: space[4], bottom: Math.max(insets.bottom - 6, space[3]), alignItems: 'center' }}>
           <Glass style={{ borderRadius: radius.pill }}>
             <View accessibilityRole="toolbar" style={{ flexDirection: 'row', padding: 4, gap: 2 }}>
               <Pressable
+                ref={cellarButton}
                 accessibilityRole="button"
-                onPress={() => setLogging('cellar')}
+                onPress={() => openSheet('cellar')}
                 style={({ pressed }) => [{ height: size.controlLg - 4, paddingHorizontal: space[4], borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space[2] }, pressed && { opacity: 0.7 }]}
               >
                 <BottleIcon color={c.ink} size={20} />
                 <Text style={[type.subhead, { fontWeight: '600', color: c.ink }]}>Add to cellar</Text>
               </Pressable>
               <Pressable
+                ref={logButton}
                 accessibilityRole="button"
-                onPress={() => setLogging('tasted')}
+                onPress={() => openSheet('tasted')}
                 style={({ pressed }) => [
                   { height: size.controlLg - 4, paddingHorizontal: space[5], borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space[2], backgroundColor: solidTint ? c.accent : c.glassTint },
                   pressed && { opacity: 0.8 },
@@ -269,6 +288,29 @@ export default function WineScreen() {
             </View>
           </Glass>
         </View>
+      ) : null}
+
+      {wine && sheet ? (
+        <ExpandingSheet
+          origin={sheet.origin}
+          label={sheet.kind === 'cellar' ? 'Add to cellar' : 'Log tasting'}
+          tint={sheet.kind === 'tasted'}
+          title={sheet.kind === 'cellar' ? 'Add to cellar' : 'Log tasting'}
+          closing={sheet.closing}
+          onRequestClose={closeSheet}
+          onClosed={sheetClosed}
+        >
+          <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" bottomOffset={24} contentContainerStyle={{ paddingHorizontal: space[4], paddingBottom: insets.bottom + space[6] }}>
+            <Muted style={{ marginBottom: space[3] }} numberOfLines={2}>{title}</Muted>
+            <TastingForm
+              wineId={wineId}
+              vintage={vintage ?? (addVintage || null)}
+              kind={sheet.kind}
+              suggestedTags={about?.info?.descriptors}
+              onSaved={(k) => { closeSheet(); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }}
+            />
+          </KeyboardAwareScrollView>
+        </ExpandingSheet>
       ) : null}
     </View>
   );

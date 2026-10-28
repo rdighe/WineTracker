@@ -4,7 +4,7 @@
  * system font with a serif for wine names, tabular figures for prices, and
  * liquid glass only for controls that float over content.
  */
-import { useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -19,6 +19,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { ClipPath, Defs, Path, Rect } from 'react-native-svg';
 import { Glass, lift } from './Glass';
@@ -122,6 +123,24 @@ export function ErrorText({ error }: { error: unknown }) {
   return <Text accessibilityRole="alert" style={[type.footnote, { color: c.negative }]}>{error instanceof Error ? error.message : String(error)}</Text>;
 }
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/** A springy press: the control dips slightly while held and bounces back. Off with Reduce Motion. */
+function usePressScale(to = 0.96) {
+  const { reduceMotion } = useTheme();
+  const s = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  return {
+    style,
+    onPressIn: () => {
+      if (!reduceMotion) s.set(withSpring(to, { damping: 20, stiffness: 420 }));
+    },
+    onPressOut: () => {
+      s.set(withSpring(1, { damping: 12, stiffness: 300 }));
+    },
+  };
+}
+
 export type ButtonVariant = 'primary' | 'tinted' | 'secondary' | 'plain';
 
 /**
@@ -132,28 +151,31 @@ export function Button({ title, onPress, disabled, variant = 'primary', size: s 
   title?: string; onPress: () => void; disabled?: boolean; variant?: ButtonVariant; size?: 'sm' | 'md' | 'lg'; busy?: boolean;
   icon?: (color: string) => ReactNode; style?: StyleProp<ViewStyle>; accessibilityLabel?: string;
 }) {
-  const { c, reduceMotion } = useTheme();
+  const { c } = useTheme();
+  const press = usePressScale();
   const bg = { primary: c.accent, tinted: c.accentSoft, secondary: c.fillQuiet, plain: 'transparent' }[variant];
   const fg = { primary: c.onAccent, tinted: c.onAccentSoft, secondary: c.ink, plain: c.accent }[variant];
   const h = s === 'lg' ? size.controlLg : s === 'md' ? size.controlMd : size.controlSm;
   const iconOnly = icon && !title;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: Boolean(disabled || busy), busy: Boolean(busy) }}
       onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
       disabled={disabled || busy}
       hitSlop={s === 'sm' ? 5 : 0}
-      style={({ pressed }) => [
+      style={[
         {
           height: h, minWidth: h, borderRadius: radius.pill, backgroundColor: bg, flexDirection: 'row', gap: space[2],
           alignItems: 'center', justifyContent: 'center', paddingHorizontal: iconOnly ? 0 : s === 'sm' ? space[3] : space[5],
           alignSelf: s === 'lg' ? 'stretch' : 'flex-start',
         },
         disabled && { opacity: 0.45 },
-        pressed && (reduceMotion ? { opacity: 0.7 } : { opacity: 0.85, transform: [{ scale: 0.97 }] }),
         style,
+        press.style,
       ]}
     >
       {busy ? <ActivityIndicator color={fg} /> : (
@@ -162,7 +184,7 @@ export function Button({ title, onPress, disabled, variant = 'primary', size: s 
           {title ? <Text style={[s === 'sm' ? type.footnote : s === 'md' ? type.subhead : type.headline, { fontWeight: '600', color: fg }]}>{title}</Text> : null}
         </>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -180,6 +202,7 @@ export function IconButton({ label, onPress, children, glass, size: d = size.tap
 /** Filter or choice pill. Selected fills with the accent. */
 export function Chip({ children, selected, onPress, dot, small }: { children: ReactNode; selected?: boolean; onPress?: () => void; dot?: WineStyle; small?: boolean }) {
   const { c } = useTheme();
+  const press = usePressScale(0.94);
   const inner = (
     <>
       {dot ? <StyleDot wineStyle={dot} ring={selected ? c.onAccent : undefined} /> : null}
@@ -191,21 +214,42 @@ export function Chip({ children, selected, onPress, dot, small }: { children: Re
     borderRadius: radius.pill, backgroundColor: selected ? c.accent : c.fillQuiet,
   };
   return onPress ? (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: Boolean(selected) }} onPress={onPress} hitSlop={5} style={({ pressed }) => [style, pressed && { opacity: 0.75 }]}>
+    <AnimatedPressable accessibilityRole="button" accessibilityState={{ selected: Boolean(selected) }} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={5} style={[style, press.style]}>
       {inner}
-    </Pressable>
+    </AnimatedPressable>
   ) : (
     <View style={style}>{inner}</View>
   );
 }
 
-/** Two to four mutually exclusive views of the same content. */
-export function Segmented<T extends string>({ options, value, onChange, small }: {
-  options: { key: T; label: string }[]; value: T; onChange: (v: T) => void; small?: boolean;
+/**
+ * Two to four mutually exclusive views of the same content. The selected
+ * thumb slides between options. `tinted`: the wine accent, for a switch
+ * between two lists (Cellar / Tasted) rather than a sort.
+ */
+export function Segmented<T extends string>({ options, value, onChange, small, tinted }: {
+  options: { key: T; label: string }[]; value: T; onChange: (v: T) => void; small?: boolean; tinted?: boolean;
 }) {
-  const { c, scheme } = useTheme();
+  const { c, scheme, reduceMotion } = useTheme();
+  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
+  const x = useSharedValue(0);
+  const w = useSharedValue(0);
+  const target = layouts[value];
+  useEffect(() => {
+    if (!target) return;
+    const first = w.value === 0;
+    const go = (v: number) => (first || reduceMotion ? withTiming(v, { duration: first ? 0 : 120 }) : withSpring(v, { damping: 22, stiffness: 260, mass: 0.7 }));
+    x.value = go(target.x);
+    w.value = go(target.width);
+  }, [target, reduceMotion, x, w]);
+  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }], width: w.value, opacity: w.value ? 1 : 0 }));
+  const onText = tinted ? c.onAccent : c.ink;
   return (
     <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', padding: 3, gap: 2, borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[{ position: 'absolute', left: 0, top: 3, bottom: 3, borderRadius: radius.pill, backgroundColor: tinted ? c.accent : c.surfaceRaised }, tinted ? null : lift(scheme, 'card'), thumb]}
+      />
       {options.map((o) => {
         const on = o.key === value;
         return (
@@ -214,12 +258,13 @@ export function Segmented<T extends string>({ options, value, onChange, small }:
             accessibilityRole="radio"
             accessibilityState={{ selected: on }}
             onPress={() => onChange(o.key)}
-            style={[
-              { flexGrow: small ? 0 : 1, height: small ? 28 : 34, paddingHorizontal: small ? space[3] : space[4], borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-              on && [{ backgroundColor: c.surfaceRaised }, lift(scheme, 'card')],
-            ]}
+            onLayout={(e) => {
+              const { x: lx, width } = e.nativeEvent.layout;
+              setLayouts((l) => (l[o.key]?.x === lx && l[o.key]?.width === width ? l : { ...l, [o.key]: { x: lx, width } }));
+            }}
+            style={{ flexGrow: small ? 0 : 1, height: small ? 28 : 34, paddingHorizontal: small ? space[3] : space[4], borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text style={[small ? type.footnote : type.subhead, { fontWeight: on ? '600' : '500', color: on ? c.ink : c.ink2 }]}>{o.label}</Text>
+            <Text style={[small ? type.footnote : type.subhead, { fontWeight: on ? '600' : '500', color: on ? onText : c.ink2 }]}>{o.label}</Text>
           </Pressable>
         );
       })}

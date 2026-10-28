@@ -1,6 +1,6 @@
 /** Small typed client for the WineTracker API. */
 import { getApiUrl } from './config';
-import type { PricesResponse, Recommendation, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
+import type { PricesResponse, RecStyle, RecommendationsResponse, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -75,12 +75,12 @@ export function createApi(authHeader: AuthHeader) {
     /** Out of the cellar; a rating or notes on it stay, as a tasting. */
     removeFromCellar: (id: number) => request<{ kept: boolean }>(`/api/tastings/${id}/remove-from-cellar`, json('POST', {})),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
-    recommendations: (opts: { bestValue?: boolean; colour?: string; maxPrice?: number } = {}) => {
+    recommendations: (opts: { bestValue?: boolean; style?: RecStyle; maxPrice?: number } = {}) => {
       const q = new URLSearchParams();
       if (opts.bestValue) q.set('bestValue', 'true');
-      if (opts.colour) q.set('colour', opts.colour);
+      if (opts.style) q.set('style', opts.style);
       if (opts.maxPrice) q.set('maxPrice', String(opts.maxPrice));
-      return request<{ mode: 'profile'; items: Recommendation[] } | { mode: 'locked'; rated: number; needed: number; items: [] }>(`/api/recommendations?${q}`);
+      return request<RecommendationsResponse>(`/api/recommendations?${q}`);
     },
   };
 }

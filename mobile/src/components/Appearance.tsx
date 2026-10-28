@@ -1,4 +1,4 @@
-/** Theme and glass choices. The phone's accessibility settings always win over the glass choice. */
+/** Settings › Appearance: theme and glass. The phone's accessibility settings always win over the glass choice. */
 import { Platform, View } from 'react-native';
 import { Card, Heading, Label, Muted, Segmented, space, useTheme } from './ui';
 import type { GlassPref, ThemePref } from './theme';

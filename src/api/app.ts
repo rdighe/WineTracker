@@ -408,6 +408,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         limit: z.coerce.number().int().min(1).max(100).optional(),
         // 'rose' is what older app versions send for rosé; it now means "other".
         colour: z.enum(['red', 'white', 'other', 'rose']).optional(),
+        style: z.enum(['red', 'white', 'rose', 'sparkling', 'orange', 'sweet']).optional(),
         maxPrice: z.coerce.number().positive().max(100000).optional(),
         bestValue: z.enum(['true', 'false']).optional(),
       }),
@@ -424,6 +425,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
       await recommend(db, req.user!.userId, {
         limit: q.limit,
         colour: q.colour === 'rose' ? 'other' : q.colour,
+        style: q.style,
         maxPriceCents: q.maxPrice ? Math.round(q.maxPrice * 100) : undefined,
         bestValue: q.bestValue === 'true',
       })

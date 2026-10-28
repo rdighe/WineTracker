@@ -85,7 +85,18 @@ export function wineFeatures(w: WineRow, notes?: WineNotes | null): Features {
   return f;
 }
 
-/** For you's colour filter: still reds, still whites, and everything else (rosé, sparkling, sweet, fortified). '' = unknown. */
+export type RecStyle = 'red' | 'white' | 'rose' | 'sparkling' | 'orange' | 'sweet';
+export const REC_STYLES: RecStyle[] = ['red', 'white', 'rose', 'sparkling', 'orange', 'sweet'];
+
+/** For you's style filter and the styles it takes turns between: sparkling, sweet (dessert and fortified), rosé, orange, red, white. '' = unknown. */
+export function recStyle(f: Features): RecStyle | '' {
+  if (f.style === 'sparkling') return 'sparkling';
+  if (f.style === 'fortified' || f.style === 'dessert') return 'sweet';
+  if (f.colour === 'rose' || f.colour === 'orange' || f.colour === 'red' || f.colour === 'white') return f.colour;
+  return '';
+}
+
+/** Older app versions' colour filter: still reds, still whites, and everything else (rosé, sparkling, sweet, fortified). '' = unknown. */
 export function wineCategory(f: Features): 'red' | 'white' | 'other' | '' {
   if (f.style && f.style !== 'still') return 'other';
   if (f.colour === 'rose') return 'other';

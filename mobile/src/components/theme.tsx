@@ -49,13 +49,19 @@ export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40 } a
 export const radius = { xs: 6, sm: 10, md: 16, lg: 24, xl: 32, pill: 999 } as const;
 export const size = { controlSm: 34, controlMd: 44, controlLg: 50, tapMin: 44, row: 64, rowPhoto: 76, thumbW: 44, thumbH: 56, photoHero: 420 } as const;
 
-/** Wine names: Apple's New York on iOS, Newsreader (loaded in the root layout) elsewhere. */
-const serif = (weight: '400' | '500' | '600'): TextStyle =>
-  Platform.OS === 'ios' ? { fontFamily: 'ui-serif', fontWeight: weight } : { fontFamily: weight === '400' ? 'Newsreader_400Regular' : weight === '500' ? 'Newsreader_500Medium' : 'Newsreader_600SemiBold' };
+/**
+ * The wordmark on the opening animation: Snell Roundhand, a script face that
+ * ships with iOS. Everything else in the app is the system font (San Francisco).
+ */
+export const scriptFont: TextStyle = Platform.select<TextStyle>({
+  ios: { fontFamily: 'SnellRoundhand-Bold' },
+  web: { fontFamily: '"Snell Roundhand", "Apple Chancery", cursive', fontWeight: '700' },
+  default: { fontFamily: 'serif', fontStyle: 'italic' },
+});
 
 const tabular: TextStyle = { fontVariant: ['tabular-nums'] };
 
-/** Text styles. Sizes follow Apple's text styles; everything but wine names is the system font. */
+/** Text styles. Sizes follow Apple's text styles; all of them are the system font. */
 export const type = {
   largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: '700', letterSpacing: -0.4 },
   title2: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
@@ -65,8 +71,8 @@ export const type = {
   subhead: { fontSize: 15, lineHeight: 20 },
   footnote: { fontSize: 13, lineHeight: 18 },
   caption: { fontSize: 11, lineHeight: 13, fontWeight: '600' },
-  wineDisplay: { ...serif('500'), fontSize: 30, lineHeight: 34, letterSpacing: -0.3 },
-  wineTitle: { ...serif('500'), fontSize: 19, lineHeight: 24 },
+  wineDisplay: { fontSize: 28, lineHeight: 34, fontWeight: '700', letterSpacing: -0.4 },
+  wineTitle: { fontSize: 17, lineHeight: 22, fontWeight: '600' },
   figureLg: { ...tabular, fontSize: 34, lineHeight: 38, fontWeight: '700', letterSpacing: -0.3 },
   figure: { ...tabular, fontSize: 17, lineHeight: 22, fontWeight: '600' },
   tabular,

@@ -85,7 +85,7 @@ export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanR
         throw new Error(`${bad.size} of ${chosen.length} couldn't be added. They're still ticked below; try again.`);
       }
       onDone();
-      router.push(kind === 'cellar' ? '/cellar' : '/tastings');
+      router.push(kind === 'cellar' ? '/wines?mode=cellar' : '/wines?mode=tastings');
     } catch (e) {
       setError(e);
     } finally {
@@ -126,7 +126,7 @@ export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanR
             busy={busy}
             onPress={addAll}
           />
-          <Muted>Ratings, notes and prices can be added afterwards from My cellar and My tastings.</Muted>
+          <Muted>Ratings, notes and prices can be added afterwards from My wines.</Muted>
         </>
       )}
     </Screen>
