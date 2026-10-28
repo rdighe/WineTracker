@@ -188,4 +188,48 @@ describe('recommendations API', () => {
     // A style the user disliked still lists when asked for.
     expect(await only('rose')).toEqual([[rose, 'rose']]);
   });
+
+  it('searches by styles, price, region, tasting notes and food, says what it is based on, and saves views', async () => {
+    const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
+    const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const neb = { grape: 'Nebbiolo', region: 'Piedmont', country: 'Italy', colour: 'red', source: 'lwin' as const };
+    for (const [w, rating] of [
+      [{ producer: 'Vietti', name: 'Barolo Castiglione', ...neb }, 5],
+      [{ producer: 'Produttori del Barbaresco', name: 'Barbaresco', ...neb }, 4.5],
+      [{ producer: 'Raveneau', name: 'Chablis', grape: 'Chardonnay', colour: 'white', source: 'lwin' as const }, 4],
+    ] as const) {
+      const id = await priced(w, 5000);
+      expect((await as(request(app).post('/api/tastings')).send({ wineId: id, rating, pricePaid: 50 })).status).toBe(201);
+    }
+    const burgundyRed = await priced({ producer: 'Lafarge', name: 'Volnay', grape: 'Pinot Noir', region: 'Burgundy', country: 'France', colour: 'red', source: 'lwin' }, 6000);
+    const burgundyWhite = await priced({ producer: 'Roulot', name: 'Meursault', grape: 'Chardonnay', region: 'Burgundy', country: 'France', colour: 'white', source: 'lwin' }, 9000);
+    const dearBurgundy = await priced({ producer: 'Leroy', name: 'Musigny', grape: 'Pinot Noir', region: 'Burgundy', country: 'France', colour: 'red', source: 'lwin' }, 90000);
+    const piedmont = await priced({ producer: 'GD Vajra', name: 'Barolo Albe', ...neb }, 5500);
+    const sauternes = await priced({ producer: 'Suduiraut', name: 'Sauternes', region: 'Bordeaux', country: 'France', colour: 'white', wine_type: 'dessert', source: 'lwin' }, 4000);
+
+    const ids = async (qs: string) => (await as(request(app).get(`/api/recommendations?${qs}`))).body.items.map((i: { wineId: number }) => i.wineId).sort();
+    expect(await ids('region=burgundy&maxPrice=200')).toEqual([burgundyRed, burgundyWhite].sort());
+    expect(await ids('region=burgundy&styles=white')).toEqual([burgundyWhite]);
+    expect(await ids('styles=red,white&minPrice=58&maxPrice=95')).toEqual([burgundyRed, burgundyWhite].sort());
+    // Food: dessert points to the sweet wine first.
+    const dessert = (await as(request(app).get('/api/recommendations?food=chocolate%20dessert'))).body.items;
+    expect(dessert[0].wineId).toBe(sauternes);
+    expect(await ids('styles=sweet')).toEqual([sauternes]);
+    expect(await ids('region=piedmont')).toEqual([piedmont]);
+    expect(await ids('region=burgundy')).toContain(dearBurgundy);
+
+    const plain = (await as(request(app).get('/api/recommendations'))).body;
+    expect(plain.summary).toMatchObject({ rated: 3, styles: ['red', 'white'] });
+    expect(plain.summary.priceLowCents).toBeGreaterThan(0);
+
+    const saved = await as(request(app).post('/api/rec-views')).send({ name: 'Burgundy under $100', criteria: { region: 'Burgundy', maxPrice: 100, styles: ['red', 'white'] } });
+    expect(saved.status).toBe(201);
+    const list = (await as(request(app).get('/api/rec-views'))).body.views;
+    expect(list).toEqual([expect.objectContaining({ viewId: saved.body.viewId, name: 'Burgundy under $100', criteria: { region: 'Burgundy', maxPrice: 100, styles: ['red', 'white'] } })]);
+    expect((await request(app).get('/api/rec-views').set('Authorization', 'Dev someone-else')).body.views).toEqual([]);
+    expect((await as(request(app).post('/api/rec-views')).send({ name: 'Bad', criteria: { styles: ['blue'] } })).status).toBe(400);
+    expect((await as(request(app).delete(`/api/rec-views/${saved.body.viewId}`))).status).toBe(204);
+    expect((await as(request(app).get('/api/rec-views'))).body.views).toEqual([]);
+  });
 });

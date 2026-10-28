@@ -14,8 +14,8 @@ import type { Db } from '../db/pool.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { parseTitle } from '../lib/listing.js';
 import { normalize } from '../lib/normalize.js';
-import { recStyle, wineCategory, wineFeatures, type RecStyle, type WineNotes, type WineRow } from './features.js';
-import { mergeFlavours, textFlavours, type Flavour } from './flavours.js';
+import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
+import { flavourLabel, mergeFlavours, textFlavours, type Flavour } from './flavours.js';
 import { buildProfile, explain, scoreWine, type Profile } from './profile.js';
 
 export const MIN_RATED = 3;
@@ -35,6 +35,24 @@ export interface RecOptions {
   style?: RecStyle;
   maxPriceCents?: number;
   bestValue?: boolean;
+  /** A search ("Find wines"): any of these styles, a price range, a region, wanted tasting notes and food. */
+  styles?: RecStyle[];
+  minPriceCents?: number;
+  region?: string;
+  notes?: string;
+  food?: string;
+}
+
+/** What the suggestions are based on, so the app can say so. */
+export interface ProfileSummary {
+  rated: number;
+  /** Styles liked, best-liked first. */
+  styles: RecStyle[];
+  /** The price band the user usually rates in, per 750 ml. */
+  priceLowCents: number | null;
+  priceHighCents: number | null;
+  /** Flavor families the user likes most (from tasting notes, tags and the wines' notes). */
+  flavors: string[];
 }
 
 export interface Recommendation {
@@ -56,7 +74,7 @@ export interface Recommendation {
 
 const WINE_COLS = `w.wine_id, w.display_name, w.producer, w.grape, w.colour, w.wine_type, w.region, w.sub_region, w.country`;
 // Researched notes (src/catalog/info.ts), when the wine has them.
-const NOTES_COLS = `i.info->'descriptors' AS descriptors,
+const NOTES_COLS = `i.info->'descriptors' AS descriptors, i.info->'foodPairings' AS food_pairings,
   concat_ws(' ', i.info->'tastingNotes'->>'nose', i.info->'tastingNotes'->>'palate', i.info->'tastingNotes'->>'finish') AS notes_text`;
 const NOTES_JOIN = `LEFT JOIN wine_info i ON i.wine_id = w.wine_id AND i.status = 'ready'`;
 
@@ -94,7 +112,7 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
 
 export type RecResult =
   /** styles: what the user has liked, for the app's filter (best-liked first). */
-  | { mode: 'profile'; items: Recommendation[]; styles: RecStyle[] }
+  | { mode: 'profile'; items: Recommendation[]; styles: RecStyle[]; summary: ProfileSummary }
   /** Not enough ratings to say anything personal yet: no suggestions, just how far along the user is. */
   | { mode: 'locked'; rated: number; needed: number; items: [] };
 
@@ -108,6 +126,14 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
     params.push(opts.maxPriceCents);
     filters.push(`p.median_cents <= $${params.length}`);
   }
+  if (opts.minPriceCents) {
+    params.push(opts.minPriceCents);
+    filters.push(`p.median_cents >= $${params.length}`);
+  }
+  const search = Boolean(opts.styles?.length || opts.minPriceCents || opts.maxPriceCents || opts.region?.trim() || opts.notes?.trim() || opts.food?.trim());
+  const regionWords = normalize(opts.region ?? '').split(' ').filter(Boolean);
+  const wanted = wantedTaste(opts.notes);
+  const foods = foodHints(opts.food);
 
   if (profile.n < MIN_RATED) return { mode: 'locked', rated: profile.n, needed: MIN_RATED, items: [] };
 
@@ -130,27 +156,48 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
       if (opts.colour && wineCategory(f) !== opts.colour) return null;
       const style = recStyle(f);
       if (opts.style && style !== opts.style) return null;
+      if (opts.styles?.length && !opts.styles.includes(style as RecStyle)) return null;
+      if (regionWords.length) {
+        const place = ` ${normalize(`${r.display_name} ${r.sub_region} ${r.region} ${r.country}`)} `;
+        if (!regionWords.every((w) => place.includes(` ${w} `))) return null;
+      }
       const s = scoreWine(profile, f, r.median_cents);
       // Best value: favour cheaper wines among good matches.
-      const score = opts.bestValue ? s.score - 0.35 * Math.log(r.median_cents / 1000) : s.score;
-      return { r, style, score, rank: score + (r.image_url ? PHOTO_BONUS : 0), reasons: explain(s.contributions) };
+      let score = opts.bestValue ? s.score - 0.35 * Math.log(r.median_cents / 1000) : s.score;
+      const extra: string[] = [];
+      if (search) {
+        // What was asked for counts more than the profile; the profile still breaks ties.
+        const taste = tasteMatch(wanted, f, r);
+        const food = foodMatch(foods, f, style, r);
+        score = 0.6 * score + taste.score + food.score;
+        extra.push(...taste.reasons, ...food.reasons);
+        if (regionWords.length) extra.push(`From ${titleCase(r.sub_region || r.region || opts.region!)}`);
+      }
+      const reasons = [...extra, ...explain(s.contributions)].slice(0, 2);
+      return { r, style, score, rank: score + (r.image_url ? PHOTO_BONUS : 0), reasons };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => b.rank - a.rank || b.r.n_merchants - a.r.n_merchants);
 
+  // Take turns between styles, so each shows up near the top: the styles searched for, else the ones the user liked.
+  const turns = (sts: RecStyle[], needGood: boolean) => {
+    const buckets = sts.map((st) => {
+      const all = scored.filter((x) => x.style === st);
+      const good = all.filter((x) => x.score > 0);
+      return !needGood ? all : good.length ? good : all.slice(0, FALLBACK_PER_STYLE);
+    });
+    const out: typeof scored = [];
+    for (let i = 0; buckets.some((b) => i < b.length); i++) for (const b of buckets) if (b[i]) out.push(b[i]!);
+    return out;
+  };
   let ordered: typeof scored;
-  if (opts.colour || opts.style) {
+  if (search) {
+    ordered = opts.styles && opts.styles.length > 1 ? turns(opts.styles, false) : scored;
+  } else if (opts.colour || opts.style) {
     // One style: its best matches, even when nothing in it matches the profile strongly.
     ordered = scored;
   } else if (styles.length) {
-    // Take turns between the styles the user liked, so each shows up near the top.
-    const buckets = styles.map((st) => {
-      const all = scored.filter((x) => x.style === st);
-      const good = all.filter((x) => x.score > 0);
-      return good.length ? good : all.slice(0, FALLBACK_PER_STYLE);
-    });
-    ordered = [];
-    for (let i = 0; buckets.some((b) => i < b.length); i++) for (const b of buckets) if (b[i]) ordered.push(b[i]!);
+    ordered = turns(styles, true);
   } else {
     ordered = scored.filter((x) => x.score > 0);
   }
@@ -167,7 +214,64 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
     items.push(toRec(x.r, x.style, x.score, x.reasons));
     if (items.length >= limit) break;
   }
-  return { mode: 'profile', items, styles };
+  return { mode: 'profile', items, styles, summary: summarize(profile, styles) };
+}
+
+function summarize(p: Profile, styles: RecStyle[]): ProfileSummary {
+  const flavors = [...p.flavours.entries()].filter(([, s]) => s.weight > 0).sort((a, b) => b[1].weight - a[1].weight).slice(0, 4).map(([k]) => flavourLabel(k));
+  const band = p.price ? [Math.exp(p.price.mu - p.price.sigma), Math.exp(p.price.mu + p.price.sigma)] : null;
+  const round = (c: number) => Math.round(c / 500) * 500;
+  return { rated: p.n, styles, priceLowCents: band ? round(band[0]!) : null, priceHighCents: band ? round(band[1]!) : null, flavors };
+}
+
+const titleCase = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+
+/** Tasting notes asked for: flavor families, plus the words themselves to find in a wine's researched notes. */
+function wantedTaste(notes?: string): { flavours: Flavour[]; words: string[] } {
+  if (!notes?.trim()) return { flavours: [], words: [] };
+  return { flavours: Object.keys(textFlavours(notes)) as Flavour[], words: normalize(notes).split(' ').filter((w) => w.length >= 4) };
+}
+
+function tasteMatch(w: { flavours: Flavour[]; words: string[] }, f: Features, r: { descriptors?: unknown; notes_text?: string | null }) {
+  if (!w.flavours.length && !w.words.length) return { score: 0, reasons: [] as string[] };
+  const hits = w.flavours.filter((k) => (f.flavours?.[k] ?? 0) > 0);
+  const text = ` ${normalize([...(Array.isArray(r.descriptors) ? r.descriptors.map(String) : []), r.notes_text ?? ''].join(' '))} `;
+  const words = w.words.filter((x) => text.includes(` ${x} `));
+  const score = 0.6 * hits.length + 0.4 * words.length;
+  const named = [...new Set([...hits.map((k) => flavourLabel(k)), ...words])].slice(0, 3);
+  return { score, reasons: named.length ? [`Tastes of ${named.join(', ')}`] : [] };
+}
+
+/** Food and what goes with it, for wines whose researched pairings don't mention the dish. */
+const FOOD_HINTS: { words: string[]; styles: RecStyle[]; flavours: Flavour[] }[] = [
+  { words: ['steak', 'beef', 'lamb', 'burger', 'bbq', 'barbecue', 'brisket', 'venison', 'ribs'], styles: ['red'], flavours: ['tannic', 'full', 'black_fruit'] },
+  { words: ['duck', 'mushroom', 'mushrooms', 'game', 'truffle'], styles: ['red'], flavours: ['earthy', 'red_fruit'] },
+  { words: ['pork', 'chicken', 'turkey', 'veal'], styles: ['white', 'red', 'rose'], flavours: ['light', 'red_fruit', 'orchard'] },
+  { words: ['fish', 'seafood', 'oyster', 'oysters', 'shellfish', 'sushi', 'scallops', 'crab', 'lobster', 'shrimp', 'prawns', 'clams', 'mussels'], styles: ['white', 'sparkling'], flavours: ['fresh', 'mineral', 'citrus'] },
+  { words: ['salmon', 'tuna'], styles: ['rose', 'white', 'red'], flavours: ['light', 'red_fruit'] },
+  { words: ['pasta', 'pizza', 'tomato', 'lasagna', 'bolognese'], styles: ['red'], flavours: ['red_fruit', 'fresh'] },
+  { words: ['cheese', 'charcuterie'], styles: ['red', 'white', 'sweet'], flavours: ['savory', 'rich_sweet'] },
+  { words: ['dessert', 'chocolate', 'cake', 'tart', 'pie', 'foie', 'blue'], styles: ['sweet'], flavours: ['sweet', 'rich_sweet'] },
+  { words: ['spicy', 'curry', 'thai', 'indian', 'szechuan', 'chinese', 'mexican'], styles: ['white', 'rose'], flavours: ['stone_fruit', 'fresh', 'sweet'] },
+  { words: ['salad', 'vegetables', 'veggies', 'asparagus', 'goat'], styles: ['white', 'rose'], flavours: ['herbal', 'fresh'] },
+  { words: ['fried', 'chips', 'popcorn', 'caviar', 'tempura'], styles: ['sparkling'], flavours: ['fresh', 'yeasty'] },
+];
+
+function foodHints(food?: string): { words: string[]; hints: typeof FOOD_HINTS } {
+  const words = normalize(food ?? '').split(' ').filter((w) => w.length >= 3);
+  return { words, hints: FOOD_HINTS.filter((h) => h.words.some((x) => words.includes(x))) };
+}
+
+function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle | '', r: { food_pairings?: unknown }) {
+  if (!q.words.length) return { score: 0, reasons: [] as string[] };
+  const listed = Array.isArray(r.food_pairings) ? r.food_pairings.map(String) : [];
+  const said = listed.find((p) => q.words.some((w) => ` ${normalize(p)} `.includes(` ${w} `)));
+  let score = said ? 1.2 : 0;
+  for (const h of q.hints) {
+    if (style && h.styles.includes(style)) score += 0.4;
+    score += 0.25 * Math.min(2, h.flavours.filter((k) => (f.flavours?.[k] ?? 0) > 0).length);
+  }
+  return { score, reasons: said ? [`Pairs with ${said.toLowerCase()}`] : score > 0.6 ? [`Goes with ${q.words.slice(0, 2).join(' and ')}`] : [] };
 }
 
 function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_url?: string | null }, style: RecStyle | '', score: number, reasons: string[]): Recommendation {

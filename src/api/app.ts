@@ -402,16 +402,28 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   }));
 
   // ── Recommendations ──────────────────────────────────────────────────────
+  const recStyleSchema = z.enum(['red', 'white', 'rose', 'sparkling', 'orange', 'sweet']);
+  /** "Find wines": what a search (and a saved view) can ask for. Prices in dollars. */
+  const searchSchema = z.object({
+    styles: z.array(recStyleSchema).max(6).optional(),
+    minPrice: z.coerce.number().positive().max(100000).optional(),
+    maxPrice: z.coerce.number().positive().max(100000).optional(),
+    region: z.string().trim().max(80).optional(),
+    notes: z.string().trim().max(200).optional(),
+    food: z.string().trim().max(200).optional(),
+  });
+
   app.get('/api/recommendations', auth.requireUser, wrap(async (req, res) => {
     const q = parse(
       z.object({
         limit: z.coerce.number().int().min(1).max(100).optional(),
         // 'rose' is what older app versions send for rosé; it now means "other".
         colour: z.enum(['red', 'white', 'other', 'rose']).optional(),
-        style: z.enum(['red', 'white', 'rose', 'sparkling', 'orange', 'sweet']).optional(),
-        maxPrice: z.coerce.number().positive().max(100000).optional(),
+        style: recStyleSchema.optional(),
         bestValue: z.enum(['true', 'false']).optional(),
-      }),
+        // A search: styles as a comma list ("red,white").
+        styles: z.string().max(80).optional().transform((s) => (s ? s.split(',').filter(Boolean) : undefined)).pipe(searchSchema.shape.styles),
+      }).merge(searchSchema.omit({ styles: true })),
       req.query
     );
     // Rated wines without researched notes: look them up, so their flavours sharpen the profile next time.
@@ -427,9 +439,42 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         colour: q.colour === 'rose' ? 'other' : q.colour,
         style: q.style,
         maxPriceCents: q.maxPrice ? Math.round(q.maxPrice * 100) : undefined,
+        minPriceCents: q.minPrice ? Math.round(q.minPrice * 100) : undefined,
         bestValue: q.bestValue === 'true',
+        styles: q.styles,
+        region: q.region,
+        notes: q.notes,
+        food: q.food,
       })
     );
+  }));
+
+  // Saved "Find wines" searches.
+  app.get('/api/rec-views', auth.requireUser, wrap(async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT view_id AS "viewId", name, criteria, created_at AS "createdAt" FROM rec_views WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.user!.userId]
+    );
+    res.json({ views: rows.map((r) => ({ ...r, viewId: Number(r.viewId) })) });
+  }));
+
+  app.post('/api/rec-views', auth.requireUser, wrap(async (req, res) => {
+    const body = parse(z.object({ name: z.string().trim().min(1).max(60), criteria: searchSchema }), req.body);
+    const { rows: [n] } = await db.query('SELECT count(*)::int AS n FROM rec_views WHERE user_id = $1', [req.user!.userId]);
+    if (n.n >= 50) throw new HttpError(400, 'You have 50 saved views; delete one first');
+    const { rows: [v] } = await db.query(
+      `INSERT INTO rec_views (user_id, name, criteria) VALUES ($1, $2, $3)
+       RETURNING view_id AS "viewId", name, criteria, created_at AS "createdAt"`,
+      [req.user!.userId, body.name, body.criteria]
+    );
+    res.status(201).json({ ...v, viewId: Number(v.viewId) });
+  }));
+
+  app.delete('/api/rec-views/:id', auth.requireUser, wrap(async (req, res) => {
+    const id = parse(idParam, req.params.id);
+    const { rowCount } = await db.query('DELETE FROM rec_views WHERE view_id = $1 AND user_id = $2', [id, req.user!.userId]);
+    if (!rowCount) throw new HttpError(404, 'view not found');
+    res.status(204).end();
   }));
 
   // ── Errors ───────────────────────────────────────────────────────────────
