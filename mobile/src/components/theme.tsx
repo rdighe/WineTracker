@@ -1,9 +1,8 @@
 /**
  * The WineTracker design system: light and dark tokens, the type scale, and
  * the person's display choices. Theme follows the phone (or the in-app
- * Light/Dark choice); glass follows the phone's Liquid Glass setting (or the
- * in-app Clear/Tinted/Solid choice), and Reduce Transparency and Increase
- * Contrast always win over the in-app choice.
+ * Light/Dark choice); glass is always tinted, except that Reduce Transparency
+ * makes it solid and Increase Contrast makes it more frosted.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Appearance, Platform, useColorScheme, type TextStyle } from 'react-native';
@@ -90,10 +89,8 @@ export function wineStyleOf(colour?: string | null, wineType?: string | null): W
 }
 
 export type ThemePref = 'system' | 'light' | 'dark';
-/** device: whatever the phone's Liquid Glass setting is (Clear or Tinted). */
-export type GlassPref = 'device' | 'clear' | 'tinted' | 'solid';
 /** What glass actually renders as, after the phone's accessibility settings. */
-export type GlassMode = 'device' | 'clear' | 'tinted' | 'solid' | 'contrast';
+export type GlassMode = 'tinted' | 'solid' | 'contrast';
 
 interface A11y { reduceTransparency: boolean; increaseContrast: boolean; reduceMotion: boolean }
 
@@ -135,8 +132,8 @@ export interface Theme {
   c: Palette;
   glass: GlassMode;
   reduceMotion: boolean;
-  prefs: { theme: ThemePref; glass: GlassPref };
-  setPrefs: (p: Partial<{ theme: ThemePref; glass: GlassPref }>) => void;
+  prefs: { theme: ThemePref };
+  setPrefs: (p: Partial<{ theme: ThemePref }>) => void;
 }
 
 const PREFS_KEY = 'display-prefs';
@@ -145,13 +142,15 @@ const ThemeContext = createContext<Theme | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme();
   const a11y = useA11y();
-  const [prefs, setPrefsState] = useState<Theme['prefs']>({ theme: 'system', glass: 'device' });
+  const [prefs, setPrefsState] = useState<Theme['prefs']>({ theme: 'system' });
 
   useEffect(() => {
     storage.get(PREFS_KEY).then((raw) => {
       if (!raw) return;
       try {
-        setPrefsState((p) => ({ ...p, ...JSON.parse(raw) }));
+        // Older builds also saved a glass choice; only the theme is kept now.
+        const saved = JSON.parse(raw) as Partial<Theme['prefs']>;
+        if (saved.theme) setPrefsState({ theme: saved.theme });
       } catch {
         // A bad saved value just means the defaults.
       }
@@ -172,7 +171,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Theme>(() => {
     const scheme: Scheme = prefs.theme === 'system' ? (system === 'dark' ? 'dark' : 'light') : prefs.theme;
-    const glass: GlassMode = a11y.reduceTransparency ? 'solid' : a11y.increaseContrast ? 'contrast' : prefs.glass;
+    const glass: GlassMode = a11y.reduceTransparency ? 'solid' : a11y.increaseContrast ? 'contrast' : 'tinted';
     return { scheme, c: palettes[scheme], glass, reduceMotion: a11y.reduceMotion, prefs, setPrefs };
   }, [system, a11y, prefs, setPrefs]);
 

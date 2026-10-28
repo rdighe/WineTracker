@@ -1,8 +1,8 @@
 /**
  * Liquid glass: the one material for everything that floats over content
- * (tab bar, toolbar, buttons on a photo). Native Liquid Glass on iOS 26, which
- * follows the phone's Clear/Tinted, Reduce Transparency and Increase Contrast
- * settings by itself; elsewhere a blur with the design system's glass fills.
+ * (tab bar, toolbar, buttons on a photo). Native Liquid Glass on iOS 26, always
+ * tinted (it follows Reduce Transparency and Increase Contrast by itself);
+ * elsewhere a blur with the design system's tinted glass fill.
  * Never use it for content: cards, lists and prices stay on solid surfaces.
  */
 import { BlurView } from 'expo-blur';
@@ -23,7 +23,7 @@ export function Glass({ children, style, tint, interactive }: {
 }) {
   const { c, scheme, glass } = useTheme();
 
-  // Reduce Transparency (or the in-app "Solid" choice): a plain raised surface.
+  // Reduce Transparency: a plain raised surface.
   if (glass === 'solid') {
     return (
       <View
@@ -45,16 +45,15 @@ export function Glass({ children, style, tint, interactive }: {
         style={style}
         colorScheme={scheme}
         isInteractive={interactive}
-        // "device" lets iOS apply the person's Clear or Tinted setting; the in-app choice overrides it.
-        glassEffectStyle={glass === 'clear' ? 'clear' : 'regular'}
-        tintColor={tint ? c.glassTint : glass === 'tinted' ? c.glassFillTinted : undefined}
+        glassEffectStyle="regular"
+        tintColor={tint ? c.glassTint : c.glassFillTinted}
       >
         {children}
       </GlassView>
     );
   }
 
-  const fill = tint ? (glass === 'contrast' ? c.accent : c.glassTint) : glass === 'tinted' || glass === 'contrast' ? c.glassFillTinted : c.glassFill;
+  const fill = tint ? (glass === 'contrast' ? c.accent : c.glassTint) : c.glassFillTinted;
   return (
     <View style={[{ borderWidth: 1, borderColor: glass === 'contrast' ? c.borderControl : c.glassStroke, overflow: 'hidden' }, lift(scheme, 'glass'), style]}>
       <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />

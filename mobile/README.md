@@ -72,9 +72,9 @@ in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
   Settings (appearance, account, Vivino import, server).
 - **Light and dark** follow the phone, or the Theme choice in Settings › Appearance.
 - **Liquid glass** (tab bar, wine-page toolbar, buttons over photos) is `src/components/Glass.tsx`: native Liquid Glass
-  on iOS 26 (`expo-glass-effect`), a blur elsewhere. It follows the phone's Liquid Glass (Clear/Tinted), Reduce
-  Transparency and Increase Contrast settings; Reduce Transparency and Increase Contrast always win over the in-app
-  Glass choice. `expo-glass-effect` is native code: make a new development or TestFlight build after pulling this.
+  on iOS 26 (`expo-glass-effect`), a blur elsewhere. It is always Tinted; Reduce Transparency makes it solid and
+  Increase Contrast more frosted. `expo-glass-effect` is native code: make a new development or TestFlight build after
+  pulling this.
 - **Photos first:** a wine's page opens on its photo; rows lead with a thumbnail; For you is a grid of photo cards.
 - **Type:** the Apple system font everywhere, with tabular figures for prices. The opening animation writes
   "WineTracker" in Georgia, a serif that ships with iOS (`src/components/SplashIntro.tsx`).
