@@ -1,11 +1,11 @@
 import { Redirect, Tabs, router } from 'expo-router';
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AddMenu } from '../../components/AddMenu';
 import { Glass } from '../../components/Glass';
-import { BottleIcon, GearIcon, PlusIcon, SparkleIcon } from '../../components/icons';
+import { BottleIcon, GearIcon, ListIcon, PlusIcon, SparkleIcon } from '../../components/icons';
 import { radius, space, type, useTheme } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 import { pendingScan } from '../../lib/pendingScan';
@@ -14,12 +14,14 @@ type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>
 
 const ICONS: Record<string, (p: { color: string; size?: number }) => React.ReactElement> = {
   index: SparkleIcon,
+  lists: ListIcon,
   wines: BottleIcon,
   settings: GearIcon,
 };
 /** The + button beside the tab bar: a glass circle as tall as the bar. */
 const PLUS = 62;
-const TAB_W = 78;
+/** Widest a tab gets; narrower when the tabs and the + button wouldn't fit the screen. */
+const TAB_MAX = 78;
 const PAD = 4;
 
 /**
@@ -34,17 +36,19 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
   const closeMenu = useCallback(() => setMenu((m) => (m ? { closing: true } : m)), []);
   const menuClosed = useCallback(() => setMenu(null), []);
   const bottom = Math.max(insets.bottom - 6, space[3]);
-  const x = useSharedValue(state.index * TAB_W);
+  const { width } = useWindowDimensions();
+  const tabW = Math.min(TAB_MAX, Math.floor((width - 2 * space[4] - space[3] - PLUS - 2 * PAD) / state.routes.length));
+  const x = useSharedValue(state.index * tabW);
   useEffect(() => {
-    x.value = reduceMotion ? withTiming(state.index * TAB_W, { duration: 120 }) : withSpring(state.index * TAB_W, { damping: 20, stiffness: 260, mass: 0.8 });
-  }, [state.index, reduceMotion, x]);
+    x.value = reduceMotion ? withTiming(state.index * tabW, { duration: 120 }) : withSpring(state.index * tabW, { damping: 20, stiffness: 260, mass: 0.8 });
+  }, [state.index, reduceMotion, x, tabW]);
   const highlight = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
 
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', left: space[4], right: space[4], bottom, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: space[3] }}>
       <Glass style={{ borderRadius: radius.xl }}>
         <View accessibilityRole="tablist" style={{ flexDirection: 'row', padding: PAD }}>
-          <Animated.View style={[{ position: 'absolute', left: PAD, top: PAD, width: TAB_W, height: 54, borderRadius: radius.xl, backgroundColor: c.glassSelected }, highlight]} />
+          <Animated.View style={[{ position: 'absolute', left: PAD, top: PAD, width: tabW, height: 54, borderRadius: radius.xl, backgroundColor: c.glassSelected }, highlight]} />
           {state.routes.map((route, index) => {
             const focused = state.index === index;
             const title = descriptors[route.key]?.options.title ?? route.name;
@@ -61,7 +65,7 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
                   if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
                 }}
                 style={({ pressed }) => [
-                  { width: TAB_W, height: 54, paddingHorizontal: space[1], alignItems: 'center', justifyContent: 'center', gap: 2 },
+                  { width: tabW, height: 54, paddingHorizontal: space[1], alignItems: 'center', justifyContent: 'center', gap: 2 },
                   pressed && !reduceMotion && { transform: [{ scale: 0.92 }] },
                 ]}
               >
@@ -114,6 +118,7 @@ function SignedInTabs() {
   return (
     <Tabs tabBar={(props) => <GlassTabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: c.bg }, animation: 'fade' }}>
       <Tabs.Screen name="index" options={{ title: 'For you' }} />
+      <Tabs.Screen name="lists" options={{ title: 'Lists' }} />
       <Tabs.Screen name="wines" options={{ title: 'My wines' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>

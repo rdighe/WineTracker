@@ -57,7 +57,7 @@ export default function ScanScreen() {
     if (active.current !== ref) return;
     active.current = null;
     void forgetScan();
-    setError(e instanceof ApiError && e.status === 503 ? new Error('Label reading is not set up on the server yet.') : e);
+    setError(e instanceof ApiError && e.status === 503 ? new Error("Label reading isn't available right now. Try again later.") : e);
     setStep({ kind: 'idle' });
   }, []);
   // Ask the server how the scan came out (the app was away when the answer came back).
@@ -310,7 +310,6 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
 
   const vintage = draft.vintage.trim().toUpperCase();
   const market = details?.prices.find((p) => p.vintage_key === vintage) ?? details?.prices.find((p) => p.vintage_key === '*');
-  const onDevice = scan.source?.startsWith('ocr');
 
   async function log() {
     if (!selected) return;
@@ -348,7 +347,7 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
       <IconButton label="Back to scan" onPress={onDone}>
         <BackIcon color={c.ink} size={20} />
       </IconButton>
-      <StatusPill check={Boolean(selected)}>{onDevice ? 'Identified on device' : 'Read in the cloud'}</StatusPill>
+      <StatusPill check={Boolean(selected)}>{selected ? 'Identified' : 'Which wine is it?'}</StatusPill>
       <View style={{ width: size.tapMin }} />
     </View>
   );

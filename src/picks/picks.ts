@@ -160,7 +160,7 @@ export async function readShelfPhoto(
   const sha = inputSha(image);
   const cached = await cachedRead(db, sha);
   if (cached) return { ...cached, sha };
-  let lastErr: unknown = new ProviderUnavailableError('Reading shelf photos is not set up on this server');
+  let lastErr: unknown = new ProviderUnavailableError("Shelf reading isn't available right now. Try again later.");
   for (const p of readers) {
     if (!p.readShelf) continue;
     try {

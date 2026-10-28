@@ -272,3 +272,14 @@ export interface PickResult {
   rated: number;
   items: PickItem[];
 }
+
+/** A saved wine list or shelf (GET /api/picks). */
+export interface SavedPick {
+  pickId: number;
+  kind: 'list' | 'shelf';
+  name: string;
+  savedAt: string;
+  wines: number;
+  photos: number;
+  topPick: string;
+}

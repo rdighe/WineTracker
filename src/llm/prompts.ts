@@ -120,8 +120,9 @@ export const MAX_LIST_ENTRIES = 400;
 
 /**
  * Reading a restaurant wine list from its text (the phone reads the photo; a
- * line is roughly one row of the page, columns joined by " | "). The same
- * fields as the on-device reader (mobile/modules/wine-list).
+ * line is roughly one row of the page, columns joined by " | "). A long list
+ * comes in parts (src/picks/picks.ts); a part may start with the heading it
+ * continues under.
  */
 export function wineListPrompt(text: string): string {
   return `This is the text of a restaurant wine list, read from a photo (each line is about one row of the page; " | " separates text far apart on the same row, which can be two columns of the list).

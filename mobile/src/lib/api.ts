@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, ListEntry, PickResult } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickResult, SavedPick } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -126,13 +126,23 @@ export function createApi(authHeader: AuthHeader) {
       if (onDevice) void readNotesOnDevice(res.tastingId, text);
       return res;
     },
-    /** A wine list ranked for the palate: the wines the phone read, and/or text for the server to read. */
-    pickFromList: (entries: ListEntry[], text: string) => request<PickResult>('/api/picks', json('POST', { kind: 'list', entries, ...(text.trim() ? { text } : {}) })),
-    /** A store shelf: the wines the phone read off its tags, or the photo for the server to read (with the phone's text to help). */
-    pickFromShelf: (shelf: { entries: ListEntry[] } | { photo: { base64: string; mimeType: string }; text?: string }) =>
-      request<PickResult>('/api/picks', json('POST', 'entries' in shelf
-        ? { kind: 'shelf', entries: shelf.entries }
-        : { kind: 'shelf', imageBase64: shelf.photo.base64, mimeType: shelf.photo.mimeType, ...(shelf.text?.trim() ? { text: shelf.text.slice(0, 6000) } : {}) })),
+    /** A wine list ranked for the palate: each page's text, as read off its photo. */
+    pickFromList: (pages: string[]) => request<PickResult>('/api/picks', json('POST', { kind: 'list', pages })),
+    /** A store shelf ranked for the palate: the photo, with the text read off it to help. */
+    pickFromShelf: (photo: { base64: string; mimeType: string }, text?: string) =>
+      request<PickResult>('/api/picks', json('POST', { kind: 'shelf', imageBase64: photo.base64, mimeType: photo.mimeType, ...(text?.trim() ? { text: text.slice(0, 6000) } : {}) })),
+    /** Saved lists and shelves, newest first. */
+    savedPicks: () => request<{ saved: SavedPick[] }>('/api/picks'),
+    /** A saved list, ranked for the palate as it is now. */
+    openPick: (id: number) => request<PickResult & { name: string; saved: boolean; photos: number }>(`/api/picks/${id}`),
+    /** Save (or rename) a list, then keep its photos. */
+    savePick: async (id: number, name: string, photos?: { base64: string; mimeType: string }[]) => {
+      await request<unknown>(`/api/picks/${id}`, json('PATCH', { name }));
+      if (photos?.length) await request<unknown>(`/api/picks/${id}/photos`, json('PUT', { photos }));
+    },
+    deletePick: (id: number) => request<void>(`/api/picks/${id}`, { method: 'DELETE' }),
+    /** A saved list's photo, with what it takes to load it (it's private). */
+    pickPhoto: async (id: number, n: number) => ({ uri: `${getApiUrl()}/api/picks/${id}/photos/${n}`, headers: { Authorization: (await authHeader()) ?? '' } }),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
     /** Notes and tags sent together are read on the phone when it can; notes alone are left to the server, which knows the tags. */
