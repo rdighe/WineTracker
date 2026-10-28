@@ -1,28 +1,39 @@
-import { Redirect, Tabs } from 'expo-router';
-import { useEffect, type ComponentProps } from 'react';
+import { Redirect, Tabs, router } from 'expo-router';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AddMenu } from '../../components/AddMenu';
 import { Glass } from '../../components/Glass';
 import { BottleIcon, GearIcon, PlusIcon, SparkleIcon } from '../../components/icons';
 import { radius, space, type, useTheme } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
+import { pendingScan } from '../../lib/pendingScan';
 
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
 const ICONS: Record<string, (p: { color: string; size?: number }) => React.ReactElement> = {
-  index: PlusIcon,
+  index: SparkleIcon,
   wines: BottleIcon,
-  recommendations: SparkleIcon,
   settings: GearIcon,
 };
+/** The + button beside the tab bar: a glass circle as tall as the bar. */
+const PLUS = 62;
 const TAB_W = 78;
 const PAD = 4;
 
-/** Liquid-glass capsule floating over the content; the selected tab's highlight slides between tabs. */
+/**
+ * Liquid-glass capsule floating over the content (the selected tab's
+ * highlight slides between tabs), and beside it a separate + button that opens
+ * the ways to add a wine.
+ */
 function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { c, reduceMotion } = useTheme();
+  const [menu, setMenu] = useState<{ closing: boolean } | null>(null);
+  const closeMenu = useCallback(() => setMenu((m) => (m ? { closing: true } : m)), []);
+  const menuClosed = useCallback(() => setMenu(null), []);
+  const bottom = Math.max(insets.bottom - 6, space[3]);
   const x = useSharedValue(state.index * TAB_W);
   useEffect(() => {
     x.value = reduceMotion ? withTiming(state.index * TAB_W, { duration: 120 }) : withSpring(state.index * TAB_W, { damping: 20, stiffness: 260, mass: 0.8 });
@@ -30,7 +41,7 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
   const highlight = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
 
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', left: space[4], right: space[4], bottom: Math.max(insets.bottom - 6, space[3]), alignItems: 'center' }}>
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: space[4], right: space[4], bottom, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: space[3] }}>
       <Glass style={{ borderRadius: radius.xl }}>
         <View accessibilityRole="tablist" style={{ flexDirection: 'row', padding: PAD }}>
           <Animated.View style={[{ position: 'absolute', left: PAD, top: PAD, width: TAB_W, height: 54, borderRadius: radius.xl, backgroundColor: c.glassSelected }, highlight]} />
@@ -61,6 +72,21 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
           })}
         </View>
       </Glass>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Add a wine"
+        accessibilityState={{ expanded: Boolean(menu && !menu.closing) }}
+        onPress={() => setMenu({ closing: false })}
+        style={({ pressed }) => [pressed && !reduceMotion && { transform: [{ scale: 0.92 }] }]}
+      >
+        {/* The one tinted control on the glass layer: adding a wine is the app's main action. */}
+        <Glass tint style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2 }}>
+          <View style={{ width: PLUS, height: PLUS, alignItems: 'center', justifyContent: 'center' }}>
+            <PlusIcon color={c.onAccent} size={28} />
+          </View>
+        </Glass>
+      </Pressable>
+      <AddMenu open={Boolean(menu)} closing={Boolean(menu?.closing)} onClosed={menuClosed} onRequestClose={closeMenu} bottom={bottom + PLUS + space[2]} right={space[4]} />
     </View>
   );
 }
@@ -76,11 +102,19 @@ export default function TabLayout() {
     );
   }
   if (!signedIn) return <Redirect href="/sign-in" />;
+  return <SignedInTabs />;
+}
+
+function SignedInTabs() {
+  const { c } = useTheme();
+  // A scan started before the app was switched away or closed: open Add wine to finish it.
+  useEffect(() => {
+    void pendingScan().then((p) => p && router.push('/add'));
+  }, []);
   return (
     <Tabs tabBar={(props) => <GlassTabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: c.bg }, animation: 'fade' }}>
-      <Tabs.Screen name="index" options={{ title: 'Add wine' }} />
+      <Tabs.Screen name="index" options={{ title: 'For you' }} />
       <Tabs.Screen name="wines" options={{ title: 'My wines' }} />
-      <Tabs.Screen name="recommendations" options={{ title: 'For you' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>
   );

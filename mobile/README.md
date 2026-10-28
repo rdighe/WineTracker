@@ -2,12 +2,13 @@
 
 Expo (SDK 57) + Expo Router app for the WineTracker API in the parent directory.
 
-Screens: **Add wine** (photograph a label or a lineup of bottles, or search the catalog / add a wine by hand),
-**My wines** (the cellar and the tastings, switched with Cellar / Tasted; a cellar row opens the wine page, a tasted
-row opens in place), **For you** (picks from your ratings, filtered by Red / White / Sparkling / Dessert or best value;
-Refresh picks re-reads your ratings; Find wines searches by price range, style, region, tasting notes and food, and a
-search can be saved as a view), **Settings**, and a **wine page** (market price, your bottles and tastings of it, price
-by vintage, where to buy, background, add to cellar or log a tasting).
+Screens: three tabs - **For you** (where the app opens: picks from your ratings, filtered by Red / White / Sparkling /
+Dessert or best value; Refresh picks re-reads your ratings; Find wines searches by price range, style, region, tasting
+notes and food, and a search can be saved as a view), **My wines** (Cellar, Tasted and Saved, switched at the top
+right; a cellar or saved row opens the wine page, a tasted row opens in place) and **Settings** - plus a floating
+**+** beside the tab bar that offers Scan a label, Scan a lineup, Choose a photo, or Search or add by hand, each
+opening **Add wine** already started that way. The **wine page** has the market price, your bottles and tastings of
+it, price by vintage, where to buy, background, a bookmark (adds it to Saved), and add to cellar / log a tasting.
 
 ## Run it
 

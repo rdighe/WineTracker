@@ -14,12 +14,13 @@ import { dollars, shortDate, wineTitle } from '../lib/format';
 import type { Tasting } from '../lib/types';
 import { useApi } from '../lib/useApi';
 import { Section, TastingRow } from './EntryRows';
+import { SavedWines } from './SavedWines';
 import { ChevronIcon } from './icons';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
 import { Button, Card, Divider, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
-export type Mode = 'cellar' | 'tastings';
+export type Mode = 'cellar' | 'tastings' | 'saved';
 type Sort = 'recent' | 'value' | 'rating';
 
 interface Group {
@@ -69,7 +70,7 @@ export function MyWines() {
   const { c } = useTheme();
   // ?mode=cellar|tastings: after adding a bottle or logging a tasting elsewhere, show that side.
   const params = useLocalSearchParams<{ mode?: string }>();
-  const [mode, setModeState] = useState<Mode>(params.mode === 'tastings' ? 'tastings' : 'cellar');
+  const [mode, setModeState] = useState<Mode>(params.mode === 'tastings' || params.mode === 'saved' ? params.mode : 'cellar');
   const [rows, setRows] = useState<Tasting[] | null>(null);
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
@@ -88,7 +89,7 @@ export function MyWines() {
   const [seenMode, setSeenMode] = useState(params.mode);
   if (params.mode !== seenMode) {
     setSeenMode(params.mode);
-    if (params.mode === 'cellar' || params.mode === 'tastings') setMode(params.mode);
+    if (params.mode === 'cellar' || params.mode === 'tastings' || params.mode === 'saved') setMode(params.mode);
   }
 
   const load = useCallback(async () => {
@@ -124,6 +125,12 @@ export function MyWines() {
     ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} in your cellar`
     : `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} tasted`;
 
+  // Cellar / Tasted / Saved: which list, at the top right.
+  const modeSwitch = (
+    <Segmented<Mode> small tinted options={[{ key: 'cellar', label: 'Cellar' }, { key: 'tastings', label: 'Tasted' }, { key: 'saved', label: 'Saved' }]} value={mode} onChange={setMode} />
+  );
+  if (mode === 'saved') return <SavedWines modeSwitch={modeSwitch} />;
+
   return (
     <FlatList
       style={{ flex: 1, backgroundColor: c.bg }}
@@ -149,7 +156,7 @@ export function MyWines() {
               value={sort}
               onChange={setSort}
             />
-            <Segmented<Mode> small tinted options={[{ key: 'cellar', label: 'Cellar' }, { key: 'tastings', label: 'Tasted' }]} value={mode} onChange={setMode} />
+            {modeSwitch}
           </View>
           {groups.length ? <WineFilters items={groups.flatMap((g) => g.rows)} query={query} onQuery={setQuery} filters={filters} onFilters={setFilters} /> : null}
           {mode === 'cellar' && cellarRows.length > 0 && (

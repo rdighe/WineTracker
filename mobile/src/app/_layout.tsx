@@ -34,6 +34,7 @@ function Navigator() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
         <Stack.Screen name="wine/[id]" />
+        <Stack.Screen name="add" options={{ animation: 'slide_from_bottom' }} />
       </Stack>
       {intro ? <SplashIntro onDone={introDone} /> : null}
     </View>

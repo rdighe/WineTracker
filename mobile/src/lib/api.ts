@@ -2,7 +2,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -110,7 +110,10 @@ export function createApi(authHeader: AuthHeader) {
     deleteTasting: (id: number) => request<void>(`/api/tastings/${id}`, { method: 'DELETE' }),
     /** Out of the cellar; a rating or notes on it stay, as a tasting. */
     removeFromCellar: (id: number) => request<{ kept: boolean }>(`/api/tastings/${id}/remove-from-cellar`, json('POST', {})),
+    /** Bookmarked wines, newest first (My wines › Saved). */
+    saved: () => request<{ saved: SavedWine[] }>('/api/saved'),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
+    unsaveWine: (id: number) => request<void>(`/api/saved/${id}`, { method: 'DELETE' }),
     recommendations: (opts: RecSearch & { bestValue?: boolean; style?: RecStyle } = {}) => {
       const q = new URLSearchParams();
       if (opts.bestValue) q.set('bestValue', 'true');

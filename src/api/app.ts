@@ -439,7 +439,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   // ── Saved wines (want to try / watch the price) ──────────────────────────
   app.get('/api/saved', auth.requireUser, wrap(async (req, res) => {
     const { rows } = await db.query(
-      `SELECT s.wine_id, s.vintage_key, w.display_name, w.region, w.country, p.median_cents, p.n_merchants, s.created_at
+      `SELECT s.wine_id, s.vintage_key, w.display_name, w.producer, w.region, w.sub_region, w.country, w.colour, w.wine_type,
+              w.image_url, p.median_cents, p.n_merchants, s.created_at
          FROM saved_wines s JOIN wines w USING (wine_id)
          LEFT JOIN wine_prices p ON p.wine_id = s.wine_id AND p.vintage_key = s.vintage_key AND p.currency = 'USD'
         WHERE s.user_id = $1 ORDER BY s.created_at DESC`,

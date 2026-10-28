@@ -108,12 +108,25 @@ export default function WineScreen() {
     }
   }
 
+  // Bookmarked? (My wines › Saved.)
+  useEffect(() => {
+    let cancelled = false;
+    api.saved().then((r) => !cancelled && setSaved(r.saved.some((s) => Number(s.wine_id) === wineId)), () => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api, wineId]);
+
   async function save() {
+    const next = !saved;
+    // Answer the tap at once; put it back if the server says no.
+    setSaved(next);
     try {
-      await api.saveWine(wineId);
-      setSaved(true);
-      setMessage('Saved to your watch list');
+      if (next) await api.saveWine(wineId);
+      else await api.unsaveWine(wineId);
+      setMessage(next ? 'Saved. Find it in My wines › Saved.' : 'Removed from Saved');
     } catch (e) {
+      setSaved(!next);
       setError(e);
     }
   }
@@ -281,7 +294,7 @@ export default function WineScreen() {
         <IconButton glass label="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
           <BackIcon color={c.ink} size={20} />
         </IconButton>
-        <IconButton glass label={saved ? 'Saved to watch list' : 'Save to watch list'} onPress={save}>
+        <IconButton glass label={saved ? 'Saved. Remove from Saved' : 'Save'} onPress={save}>
           <BookmarkIcon color={saved ? c.accent : c.ink} filled={saved} />
         </IconButton>
       </View>

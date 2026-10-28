@@ -191,3 +191,20 @@ export interface InfoResponse {
   status: 'ready' | 'pending' | 'failed' | 'none' | 'unavailable';
   info: WineInfo | null;
 }
+
+/** A wine bookmarked on its page (My wines › Saved). Price is per 750 ml, all vintages. */
+export interface SavedWine {
+  wine_id: number;
+  vintage_key: string;
+  display_name: string;
+  producer: string;
+  region: string;
+  sub_region: string;
+  country: string;
+  colour: string;
+  wine_type: string;
+  image_url: string | null;
+  median_cents: number | null;
+  n_merchants: number | null;
+  created_at: string;
+}

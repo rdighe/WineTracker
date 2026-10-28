@@ -13,19 +13,19 @@ import { Button, Card, Divider, ErrorText, Field, Heading, Muted, radius, size, 
 const webNoOutline = Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null;
 
 /** The search field; on the Add Wine page it sits next to the photo-library button. */
-export function SearchBar({ value, onChangeText, onFocus, autoFocus }: { value: string; onChangeText: (q: string) => void; onFocus?: () => void; autoFocus?: boolean }) {
+export function SearchBar({ value, onChangeText, onFocus, autoFocus, placeholder = 'Search or add manually' }: { value: string; onChangeText: (q: string) => void; onFocus?: () => void; autoFocus?: boolean; placeholder?: string }) {
   const { c, scheme } = useTheme();
   return (
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2], height: size.controlLg, paddingHorizontal: space[4], borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
       <SearchIcon color={c.ink2} size={20} />
       <TextInput
-        accessibilityLabel="Search or add manually"
+        accessibilityLabel={placeholder}
         value={value}
         onChangeText={onChangeText}
         onFocus={onFocus}
         autoFocus={autoFocus}
         returnKeyType="search"
-        placeholder="Search or add manually"
+        placeholder={placeholder}
         placeholderTextColor={c.ink3}
         autoCorrect={false}
         clearButtonMode="while-editing"

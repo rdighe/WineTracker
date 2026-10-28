@@ -1,292 +1,251 @@
 /**
- * Add Wine: photograph a label -> read on the phone (Apple Vision) and matched
- * by the API -> "Is this it?" with what you paid, a rating and notes -> logged.
- * Or search the catalog / add a wine by hand (components/AddSearch.tsx).
- * Lineup mode: one photo of several bottles -> every label read by the API ->
- * confirm them all at once (components/LineupReview.tsx).
+ * Wines picked from the user's ratings, a few of every style they've liked,
+ * with a filter for each style. Refresh re-reads the ratings (styles, prices,
+ * tasting notes); Find wines searches by price, style, region, tasting notes
+ * and food, and a search can be saved as a view to come back to. Nothing is
+ * suggested until there are enough ratings to be personal.
  */
-import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { SearchBar, SearchResults } from '../../components/AddSearch';
+import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ExpandingSheet, measure, type Rect } from '../../components/ExpandingSheet';
 import { Glass } from '../../components/Glass';
-import { BackIcon, CheckIcon, ChevronIcon, PhotosIcon } from '../../components/icons';
-import { LineupReview } from '../../components/LineupReview';
-import { TastingFields, useTastingDraft } from '../../components/TastingForm';
-import { Button, Card, Chip, Divider, ErrorText, Field, Heading, IconButton, Label, Muted, Screen, Segmented, Title, radius, size, space, type, useStyles, useTheme } from '../../components/ui';
-import { ApiError } from '../../lib/api';
-import { dollars, wineTitle } from '../../lib/format';
-import { LINEUP_MAX_SIDE, prepareLabelPhoto, readLabelText } from '../../lib/photo';
-import { forgetScan, newScanRef, pendingScan, rememberScan, scanAnswer, type ScanMode } from '../../lib/pendingScan';
-import type { Candidate, PriceSummary, ScanResult, Wine } from '../../lib/types';
+import { RefreshIcon, SearchIcon, SparkleIcon } from '../../components/icons';
+import { RecSearchForm, describeSearch } from '../../components/RecSearchForm';
+import { Bone, Skeleton } from '../../components/Skeleton';
+import { WinePhoto } from '../../components/WineThumb';
+import { Button, Card, Chip, ErrorText, Field, Heading, Label, Muted, Title, radius, space, type, useTheme, wineStyleOf } from '../../components/ui';
+import type { WineStyle } from '../../components/theme';
+import { dollars } from '../../lib/format';
+import type { RecSearch, RecStyle, RecView, Recommendation, RecommendationsResponse, TasteSummary } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
-type Mode = ScanMode;
-type Step =
-  | { kind: 'idle' }
-  | { kind: 'scanning'; uri: string; lines: string[] }
-  | { kind: 'review'; uri: string; scan: ScanResult }
-  | { kind: 'lineup'; uri: string; scans: ScanResult[] };
+type Filter = 'all' | 'value' | RecStyle;
+/** Your picks, or a search (a saved view has its id and name). */
+type View_ = { kind: 'picks' } | { kind: 'search'; criteria: RecSearch; saved?: RecView };
 
-const RETICLE = { w: 236, h: 316 };
+const STYLE_LABEL: Record<RecStyle, string> = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', sweet: 'Dessert' };
+/** The color dot for each style (sweet wines share the fortified color). */
+const STYLE_DOT: Record<RecStyle, WineStyle> = { red: 'red', white: 'white', rose: 'rose', sparkling: 'sparkling', orange: 'orange', sweet: 'fortified' };
+const FILTERS: { key: Filter; label: string; dot?: WineStyle }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'value', label: 'Best value' },
+  ...(['red', 'white', 'sparkling', 'sweet'] as const).map((s) => ({ key: s, label: STYLE_LABEL[s], dot: STYLE_DOT[s] })),
+];
 
-export default function ScanScreen() {
+export default function Recommendations() {
   const api = useApi();
+  const insets = useSafeAreaInsets();
   const { c } = useTheme();
-  const [step, setStep] = useState<Step>({ kind: 'idle' });
-  const [mode, setMode] = useState<Mode>('single');
-  // Searching: the search bar moves to the top and the results replace the camera panel.
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
+  const [view, setView] = useState<View_>({ kind: 'picks' });
+  const [filter, setFilter] = useState<Filter>('all');
+  // The answer, and which filter or search it answers: a list never shows under the wrong filter.
+  const [result, setResult] = useState<{ key: string; res: RecommendationsResponse } | null>(null);
+  const [summary, setSummary] = useState<TasteSummary | null>(null);
+  const [saved, setSaved] = useState<RecView[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshed, setRefreshed] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  // The scan in progress (its ref), and whether its answer is already being collected from the server.
-  const active = useRef<string | null>(null);
-  const collecting = useRef<string | null>(null);
+  const [sheet, setSheet] = useState<{ origin: Rect; closing: boolean } | null>(null);
+  const findButton = useRef<View>(null);
 
-  const finish = useCallback((ref: string, mode: Mode, uri: string, result: unknown) => {
-    if (active.current !== ref) return;
-    active.current = null;
-    void forgetScan();
-    setStep(mode === 'lineup' ? { kind: 'lineup', uri, scans: (result as { scans: ScanResult[] }).scans } : { kind: 'review', uri, scan: result as ScanResult });
-  }, []);
-  const fail = useCallback((ref: string, e: unknown) => {
-    if (active.current !== ref) return;
-    active.current = null;
-    void forgetScan();
-    setError(e instanceof ApiError && e.status === 503 ? new Error('Label reading is not set up on the server yet.') : e);
-    setStep({ kind: 'idle' });
-  }, []);
-  // Ask the server how the scan came out (the app was away when the answer came back).
-  const collect = useCallback(async (ref: string, mode: Mode, uri: string) => {
-    if (collecting.current === ref) return;
-    collecting.current = ref;
-    try {
-      finish(ref, mode, uri, await scanAnswer(api, ref));
-    } catch (e) {
-      fail(ref, e);
-    } finally {
-      if (collecting.current === ref) collecting.current = null;
-    }
-  }, [api, finish, fail]);
-
-  // A scan started before the app was switched away (or closed by iOS): pick it up again.
-  useEffect(() => {
-    let cancelled = false;
-    const resume = async () => {
-      const p = await pendingScan();
-      if (cancelled || !p) return;
-      if (active.current && active.current !== p.ref) return;
-      if (!active.current) {
-        active.current = p.ref;
-        setMode(p.mode);
-        setStep({ kind: 'scanning', uri: p.uri, lines: [] });
-      }
-      void collect(p.ref, p.mode, p.uri);
-    };
-    void resume();
-    const sub = AppState.addEventListener('change', (s) => s === 'active' && void resume());
-    return () => {
-      cancelled = true;
-      sub.remove();
-    };
-  }, [collect]);
-
-  async function pick(fromCamera: boolean) {
+  const searching = view.kind === 'search';
+  const listKey = searching ? `search-${JSON.stringify(view.criteria)}` : filter;
+  // Only the latest request's answer counts: tapping filters quickly never leaves an older list on screen.
+  const latest = useRef(0);
+  const load = useCallback(async () => {
+    const mine = ++latest.current;
+    setLoading(true);
     setError(null);
-    const perm = fromCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', fromCamera ? 'Allow camera access to scan labels.' : 'Allow photo access to choose a label photo.');
-      return;
-    }
-    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, allowsEditing: false };
-    const res = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
-    if (res.canceled || !res.assets[0]) return;
-    const asset = res.assets[0];
-    const ref = newScanRef();
-    const scanMode = mode;
-    active.current = ref;
-    setStep({ kind: 'scanning', uri: asset.uri, lines: [] });
-    let sent = false;
     try {
-      // Remembered until the answer is in, so it survives switching apps.
-      const send = async <T,>(upload: () => Promise<T>) => {
-        await rememberScan({ ref, uri: asset.uri, mode: scanMode, startedAt: Date.now() });
-        sent = true;
-        return upload();
-      };
-      if (scanMode === 'lineup') {
-        // Several labels in one photo: the phone's text reader would run them together, so the API reads them.
-        const photo = await prepareLabelPhoto(asset, LINEUP_MAX_SIDE);
-        finish(ref, scanMode, asset.uri, await send(() => api.scanLineup(photo, ref)));
-        return;
-      }
-      const photo = await prepareLabelPhoto(asset);
-      const ocrText = await readLabelText(photo.uri);
-      if (ocrText && active.current === ref) setStep({ kind: 'scanning', uri: asset.uri, lines: ocrText.split('\n') });
-      finish(ref, scanMode, asset.uri, await send(() => api.scan({ ...photo, ocrText }, ref)));
+      const res = await api.recommendations(
+        view.kind === 'search' ? view.criteria : filter === 'all' || filter === 'value' ? { bestValue: filter === 'value' } : { style: filter }
+      );
+      if (mine !== latest.current) return;
+      setResult({ key: listKey, res });
+      if (res.mode === 'profile' && res.summary) setSummary(res.summary);
     } catch (e) {
-      // The connection dropped while the app was away, or the server is still reading it: collect the answer instead.
-      if (sent && (!(e instanceof ApiError) || e.status === 409)) void collect(ref, scanMode, asset.uri);
-      else fail(ref, e);
+      if (mine === latest.current) setError(e);
+    } finally {
+      if (mine === latest.current) setLoading(false);
     }
+  }, [api, filter, view, listKey]);
+  const loadSaved = useCallback(() => {
+    api.recViews().then((r) => setSaved(r.views), () => setSaved([]));
+  }, [api]);
+  useFocusEffect(useCallback(() => {
+    void load();
+    loadSaved();
+  }, [load, loadSaved]));
+
+  // "Updated" shows for a moment after a refresh.
+  useEffect(() => {
+    if (!refreshed) return;
+    const t = setTimeout(() => setRefreshed(false), 2400);
+    return () => clearTimeout(t);
+  }, [refreshed]);
+
+  async function reevaluate() {
+    setView({ kind: 'picks' });
+    setFilter('all');
+    // The view and filter may already be these, so load doesn't change; reload either way.
+    await load();
+    setRefreshed(true);
   }
 
-  if (step.kind === 'review') {
-    return <Review uri={step.uri} scan={step.scan} onDone={() => setStep({ kind: 'idle' })} />;
+  async function openFind() {
+    const origin = (await measure(findButton)) ?? { x: space[4], y: insets.top + 80, width: 140, height: 34 };
+    setSheet({ origin, closing: false });
   }
-  if (step.kind === 'lineup') {
-    return <LineupReview uri={step.uri} scans={step.scans} onDone={() => setStep({ kind: 'idle' })} />;
-  }
-  const lineup = mode === 'lineup';
+  const closeSheet = () => setSheet((s) => (s ? { ...s, closing: true } : s));
+  const sheetClosed = useCallback(() => setSheet(null), []);
 
-  const scanning = step.kind === 'scanning';
-  if (searching) {
-    return (
-      <Screen keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-          <SearchBar value={query} onChangeText={setQuery} autoFocus />
-          <Button title="Cancel" variant="plain" size="md" onPress={() => { setQuery(''); setSearching(false); }} />
-        </View>
-        <SearchResults query={query} />
-      </Screen>
-    );
-  }
+  const data = result?.res ?? null;
+  const locked = data?.mode === 'locked';
+  // A new filter or search: placeholders until its own answer arrives.
+  const current = result?.key === listKey ? data : null;
+  const waiting = !current && !error;
+
   return (
-    <Screen scrollEnabled={false}>
-      <Title>Add wine</Title>
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+      <FlatList
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120, gap: space[5] }}
+        columnWrapperStyle={{ gap: space[3] }}
+        numColumns={2}
+        data={current?.items ?? []}
+        // Each filter's or search's list fades in as a new list.
+        key={listKey}
+        keyExtractor={(r) => `${listKey}-${r.wineId}`}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
+        ListHeaderComponent={
+          <View style={{ gap: space[4] }}>
+            <View>
+              <Title>For you</Title>
+              <Muted style={{ marginTop: 2 }}>{summary ? basedOn(summary) : 'From your ratings'}</Muted>
+            </View>
+            {locked ? (
+              <LockedCard rated={data.rated} needed={data.needed} />
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    title={refreshed ? 'Updated' : 'Refresh picks'}
+                    busy={loading && !searching && filter === 'all'}
+                    accessibilityLabel="Refresh picks from your ratings"
+                    icon={(color) => <RefreshIcon color={color} size={15} />}
+                    onPress={reevaluate}
+                  />
+                  <View ref={findButton} collapsable={false}>
+                    <Button size="sm" variant="tinted" title="Find wines" icon={(color) => <SearchIcon color={color} size={15} />} onPress={openFind} />
+                  </View>
+                </View>
+                {saved.length ? (
+                  <View style={{ gap: space[2] }}>
+                    <Label>Saved views</Label>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space[4] }} contentContainerStyle={{ gap: space[2], paddingHorizontal: space[4] }}>
+                      {saved.map((v) => (
+                        <Chip key={v.viewId} small selected={searching && view.saved?.viewId === v.viewId} onPress={() => setView({ kind: 'search', criteria: v.criteria, saved: v })}>
+                          {v.name}
+                        </Chip>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {searching ? (
+                  <SearchBanner
+                    key={JSON.stringify(view.criteria)}
+                    criteria={view.criteria}
+                    saved={view.saved}
+                    onEdit={openFind}
+                    onClose={() => setView({ kind: 'picks' })}
+                    onSave={async (name) => {
+                      const v = await api.saveRecView(name, view.criteria);
+                      setSaved((s) => [v, ...s]);
+                      setView({ kind: 'search', criteria: v.criteria, saved: v });
+                    }}
+                    onDelete={async (v) => {
+                      await api.deleteRecView(v.viewId);
+                      setSaved((s) => s.filter((x) => x.viewId !== v.viewId));
+                      setView({ kind: 'search', criteria: v.criteria });
+                    }}
+                  />
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space[4] }} contentContainerStyle={{ gap: space[2], paddingHorizontal: space[4] }}>
+                    {FILTERS.map((f) => (
+                      <Chip key={f.key} small dot={f.dot} selected={filter === f.key} onPress={() => setFilter(f.key)}>{f.label}</Chip>
+                    ))}
+                  </ScrollView>
+                )}
+              </>
+            )}
+            <ErrorText error={error} />
+          </View>
+        }
+        ListEmptyComponent={waiting && !locked ? <CardBones /> : current?.mode === 'profile' && !loading ? (
+          <Muted style={type.subhead}>
+            {searching
+              ? 'No wines in stock match that yet. Try a wider price range or fewer details.'
+              : filter === 'all' || filter === 'value'
+                ? 'Nothing to suggest yet. Rate a few more wines.'
+                : `No ${STYLE_LABEL[filter].toLowerCase()} wines in stock that fit yet.`}
+          </Muted>
+        ) : null}
+        renderItem={({ item: r, index }) => <WineCard r={r} index={index} />}
+      />
 
-      <Viewfinder uri={scanning ? step.uri : null} lines={scanning ? step.lines : []} active={scanning} onPress={() => !scanning && pick(true)} />
-
-      <Text style={[lineup ? type.headline : type.title2, { color: c.ink, textAlign: 'center' }]}>
-        {scanning
-          ? lineup ? 'Reading the labels…' : 'Reading the label…'
-          : lineup ? 'Line up to 12 bottles side by side with all details visible' : 'Point at the front label'}
-      </Text>
-      {!scanning ? (
-        <Segmented options={[{ key: 'single', label: 'One bottle' }, { key: 'lineup', label: 'Lineup' }]} value={mode} onChange={setMode} />
+      {sheet ? (
+        <ExpandingSheet overTabs origin={sheet.origin} label="Find wines" title="Find wines" closing={sheet.closing} onRequestClose={closeSheet} onClosed={sheetClosed}>
+          <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" bottomOffset={24} contentContainerStyle={{ paddingHorizontal: space[4], paddingTop: space[2], paddingBottom: insets.bottom + space[6] }}>
+            <RecSearchForm
+              initial={searching ? view.criteria : {}}
+              onSubmit={(criteria) => {
+                // Same search as a saved view: show it as that view.
+                const match = saved.find((v) => JSON.stringify(v.criteria) === JSON.stringify(criteria));
+                setView({ kind: 'search', criteria, saved: match });
+                closeSheet();
+              }}
+            />
+          </KeyboardAwareScrollView>
+        </ExpandingSheet>
       ) : null}
-      <ErrorText error={error} />
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-        <IconButton label="Choose from photos" size={size.controlLg} onPress={() => !scanning && pick(false)}>
-          <PhotosIcon color={c.ink} />
-        </IconButton>
-        <SearchBar value={query} onChangeText={(q) => { setQuery(q); setSearching(true); }} onFocus={() => setSearching(true)} />
-      </View>
-    </Screen>
-  );
-}
-
-function StatusPill({ children, check }: { children: string; check?: boolean }) {
-  const { c } = useTheme();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: space[3], borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
-      {check ? <CheckIcon color={c.positive} /> : null}
-      <Text style={[type.footnote, { color: c.ink2 }]}>{children}</Text>
     </View>
   );
 }
 
-/** The camera panel: label frame, a sweeping scan line while reading, and the words read so far. */
-function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines: string[]; active: boolean; onPress: () => void }) {
-  const { height } = useWindowDimensions();
-  const { c, reduceMotion } = useTheme();
-  const [sweep] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    if (!active || reduceMotion) {
-      sweep.setValue(0.46);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(sweep, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(sweep, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [active, reduceMotion, sweep]);
-
-  // Short phones (iPhone SE) also need room for the mode switch and the shutter below.
-  const panel = Math.min(430, height * 0.5, height - 400);
-  const corner = { position: 'absolute' as const, width: 34, height: 34, borderColor: c.accent };
-  const chips = lines.map((l) => l.trim()).filter((l) => l && l.length <= 28).slice(0, 6);
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={uri ? 'Label photo' : 'Take a photo of a label'}
-      onPress={onPress}
-      style={{ height: panel, borderRadius: radius.lg, backgroundColor: c.surfaceSunken, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
-    >
-      {uri ? (
-        <Image source={{ uri }} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} resizeMode="cover" />
-      ) : null}
-      <View style={{ width: RETICLE.w, height: Math.min(RETICLE.h, panel - 90) }}>
-        <View style={[corner, { left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2, borderTopLeftRadius: 14 }]} />
-        <View style={[corner, { right: 0, top: 0, borderRightWidth: 2, borderTopWidth: 2, borderTopRightRadius: 14 }]} />
-        <View style={[corner, { left: 0, bottom: 0, borderLeftWidth: 2, borderBottomWidth: 2, borderBottomLeftRadius: 14 }]} />
-        <View style={[corner, { right: 0, bottom: 0, borderRightWidth: 2, borderBottomWidth: 2, borderBottomRightRadius: 14 }]} />
-        <Animated.View
-          style={{
-            position: 'absolute', left: 16, right: 16, top: 0, height: 2, borderRadius: 1, backgroundColor: c.accent,
-            transform: [{ translateY: sweep.interpolate({ inputRange: [0, 1], outputRange: [12, Math.min(RETICLE.h, panel - 90) - 12] }) }],
-          }}
-        />
-      </View>
-      {!uri ? (
-        <Text style={[type.subhead, { position: 'absolute', bottom: space[5], color: c.ink2 }]}>Tap to photograph a label</Text>
-      ) : null}
-      {chips.length ? (
-        <View style={{ position: 'absolute', left: 16, right: 16, bottom: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {chips.map((chip, i) => (
-            <Glass key={`${chip}-${i}`} style={{ borderRadius: radius.pill }}>
-              <Text style={[type.footnote, { paddingVertical: 4, paddingHorizontal: 10, fontWeight: /^(19|20)\d\d$/.test(chip) ? '700' : '500', color: c.ink }]}>{chip}</Text>
-            </Glass>
-          ))}
-        </View>
-      ) : null}
-    </Pressable>
-  );
+/** "From 12 rated wines · Red, White · usually $40–$90 · cherry, earthy" */
+function basedOn(s: TasteSummary): string {
+  const price = s.priceLowCents && s.priceHighCents ? `usually ${dollars(s.priceLowCents)}–${dollars(s.priceHighCents)}` : '';
+  return [
+    `From ${s.rated} rated ${s.rated === 1 ? 'wine' : 'wines'}`,
+    s.styles.slice(0, 3).map((k) => STYLE_LABEL[k]).join(', '),
+    price,
+    s.flavors.slice(0, 3).join(', ').toLowerCase(),
+  ].filter(Boolean).join(' · ');
 }
 
-/** "Is this it?": the matched wine, today's price, and the tasting - or a choice of wines when unsure. */
-function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: () => void }) {
-  const api = useApi();
-  const { c, scheme } = useTheme();
-  const s = useStyles();
-  const [selected, setSelected] = useState<Candidate | null>(scan.outcome === 'auto' ? scan.candidates[0] ?? null : null);
-  const [confirmedId, setConfirmedId] = useState<number | null>(null);
-  const [fetched, setFetched] = useState<{ wine: Wine; prices: PriceSummary[] } | null>(null);
-  const details = fetched && selected && fetched.wine.wine_id === selected.wineId ? fetched : null;
-  const [newWine, setNewWine] = useState({ producer: scan.read.producer, name: scan.read.name, region: scan.read.region });
-  const draft = useTastingDraft(scan.vintage);
+/** What the search asked for, with Edit, Save view (or Delete for a saved one) and close. */
+function SearchBanner({ criteria, saved, onEdit, onClose, onSave, onDelete }: {
+  criteria: RecSearch; saved?: RecView; onEdit: () => void; onClose: () => void;
+  onSave: (name: string) => Promise<void>; onDelete: (v: RecView) => Promise<void>;
+}) {
+  const { c } = useTheme();
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState(() => describeSearch(criteria).slice(0, 60));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  useEffect(() => {
-    if (!selected) return;
-    let cancelled = false;
-    api.wine(selected.wineId).then((d) => !cancelled && setFetched(d), () => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [api, selected]);
-
-  const vintage = draft.vintage.trim().toUpperCase();
-  const market = details?.prices.find((p) => p.vintage_key === vintage) ?? details?.prices.find((p) => p.vintage_key === '*');
-  const onDevice = scan.source?.startsWith('ocr');
-
-  async function log() {
-    if (!selected) return;
+  async function run(fn: () => Promise<void>) {
     setBusy(true);
     setError(null);
     try {
-      const tasting = draft.toTasting();
-      if (confirmedId !== selected.wineId) await api.confirmScan(scan.scanId, { wineId: selected.wineId });
-      await api.addTasting({ wineId: selected.wineId, scanId: scan.scanId, ...tasting });
-      onDone();
-      router.push(tasting.kind === 'cellar' ? '/wines?mode=cellar' : '/wines?mode=tastings');
+      await fn();
+      setNaming(false);
     } catch (e) {
       setError(e);
     } finally {
@@ -294,121 +253,121 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
     }
   }
 
-  async function addWine() {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api.confirmScan(scan.scanId, { newWine });
-      setConfirmedId(r.wineId);
-      setSelected({ wineId: r.wineId, displayName: r.wine.display_name, region: r.wine.region, country: r.wine.country, score: 1 });
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const header = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <IconButton label="Back to scan" onPress={onDone}>
-        <BackIcon color={c.ink} size={20} />
-      </IconButton>
-      <StatusPill check={Boolean(selected)}>{onDevice ? 'Identified on device' : 'Read in the cloud'}</StatusPill>
-      <View style={{ width: size.tapMin }} />
-    </View>
-  );
-
-  if (!selected) {
-    return (
-      <Screen>
-        {header}
-        <Image source={{ uri }} accessibilityLabel="Your label photo" style={{ width: '100%', height: 220, borderRadius: radius.md, backgroundColor: c.surfaceSunken }} resizeMode="cover" />
-        {scan.candidates.length > 0 ? (
-          <View style={{ gap: space[2] }}>
-            <Heading>Which wine is it?</Heading>
-            <Card flush>
-              {scan.candidates.map((cand, i) => (
-                <View key={cand.wineId}>
-                  {i ? <Divider style={{ marginLeft: space[4] }} /> : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setSelected(cand)}
-                    style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
-                  >
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={[type.wineTitle, { color: c.ink }]}>{cand.displayName}</Text>
-                      <Muted style={type.subhead}>{[cand.region, cand.country].filter(Boolean).join(' · ')}</Muted>
-                    </View>
-                    <ChevronIcon color={c.ink3} />
-                  </Pressable>
-                </View>
-              ))}
-            </Card>
-          </View>
-        ) : (
-          <Card>
-            <Label>We read</Label>
-            <Text style={[type.wineTitle, { color: c.ink }]}>{[scan.read.producer, scan.read.name].filter(Boolean).join(' ') || 'Nothing legible'}</Text>
-            <Muted>Not in the catalog yet. Add it below.</Muted>
-          </Card>
-        )}
-        <Card>
-          <Heading>{scan.candidates.length ? 'None of these? Add it' : 'Add this wine'}</Heading>
-          <Field label="Producer" value={newWine.producer} onChangeText={(producer) => setNewWine({ ...newWine, producer })} />
-          <Field label="Wine" value={newWine.name} onChangeText={(name) => setNewWine({ ...newWine, name })} />
-          <Field label="Region" value={newWine.region} onChangeText={(region) => setNewWine({ ...newWine, region })} />
-          <Button title="Add wine" variant="tinted" busy={busy} onPress={addWine} />
-        </Card>
-        <ErrorText error={error} />
-      </Screen>
-    );
-  }
-
-  const w = details?.wine;
   return (
-    <Screen>
-      {header}
-      {/* The person's own label photo leads. */}
-      <Image source={{ uri }} accessibilityLabel="Your label photo" style={{ width: '100%', height: 300, borderRadius: radius.lg, backgroundColor: c.surfaceSunken }} resizeMode="cover" />
-      <View style={{ gap: 6 }}>
-        <Muted>Is this it?</Muted>
-        <Text accessibilityRole="header" style={[type.wineDisplay, { color: c.ink }]}>{wineTitle(selected.displayName, w?.sub_region)}</Text>
-        <Text style={[type.subhead, { color: c.ink2 }]}>
-          {[w?.sub_region || selected.region, w?.sub_region ? w.region : selected.country, w?.colour ? w.colour[0]!.toUpperCase() + w.colour.slice(1) : null].filter(Boolean).join(' · ')}
-        </Text>
-      </View>
-      <Card>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignItems: 'center' }}>
-          <TextInput
-            accessibilityLabel="Vintage"
-            value={draft.vintage}
-            onChangeText={draft.setVintage}
-            placeholder="Vintage"
-            placeholderTextColor={c.ink3}
-            autoCapitalize="characters"
-            keyboardAppearance={scheme}
-            maxLength={4}
-            style={[s.input, type.tabular, { width: 96, textAlign: 'center', fontWeight: '600' }]}
-          />
-          {scan.bottleMl ? <Chip small>{`${scan.bottleMl} ml`}</Chip> : null}
-          {w?.lwin ? <Chip small>{`LWIN ${w.lwin}`}</Chip> : null}
-        </View>
-        <Divider />
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: space[3] }}>
-          <View>
-            <Muted>{market ? `Market now · ${market.vintage_key === '*' ? 'all vintages' : market.vintage_key}` : 'Market now'}</Muted>
-            <Text style={[type.figureLg, { marginTop: 2, color: market ? c.ink : c.ink3 }]}>{market ? dollars(market.median_cents) : '—'}</Text>
+    <Animated.View entering={FadeIn.duration(200)}>
+      <Card style={{ gap: space[3] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space[3] }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Label style={{ color: c.accent }}>{saved ? 'Saved view' : 'Search'}</Label>
+            <Heading numberOfLines={2}>{saved?.name ?? describeSearch(criteria)}</Heading>
+            {saved ? <Muted numberOfLines={2}>{describeSearch(criteria)}</Muted> : null}
           </View>
-          <Muted style={{ textAlign: 'right', maxWidth: 150 }}>{market ? 'Median of recent US retail offers, per 750 ml' : details ? 'No market price yet' : ''}</Muted>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to your picks"
+            onPress={onClose}
+            hitSlop={8}
+            style={({ pressed }) => [{ width: 30, height: 30, borderRadius: 15, backgroundColor: c.fillQuiet, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={[type.headline, { color: c.ink2, lineHeight: 20 }]}>×</Text>
+          </Pressable>
         </View>
+        {naming ? (
+          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)} style={{ gap: space[2] }}>
+            <Field label="Name this view" value={name} onChangeText={setName} maxLength={60} autoFocus returnKeyType="done" onSubmitEditing={() => name.trim() && run(() => onSave(name.trim()))} />
+            <View style={{ flexDirection: 'row', gap: space[2] }}>
+              <Button size="sm" title="Save" busy={busy} disabled={!name.trim()} onPress={() => run(() => onSave(name.trim()))} />
+              <Button size="sm" variant="plain" title="Cancel" onPress={() => setNaming(false)} />
+            </View>
+          </Animated.View>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: space[2] }}>
+            <Button size="sm" variant="secondary" title="Edit" onPress={onEdit} />
+            {saved ? (
+              <Button size="sm" variant="plain" title="Delete view" busy={busy} onPress={() => run(() => onDelete(saved))} />
+            ) : (
+              <Button size="sm" variant="tinted" title="Save view" onPress={() => setNaming(true)} />
+            )}
+          </View>
+        )}
+        <ErrorText error={error} />
       </Card>
+    </Animated.View>
+  );
+}
 
-      <TastingFields draft={draft} />
-      <ErrorText error={error} />
-      <View style={{ gap: 10 }}>
-        <Button title={draft.kind === 'cellar' ? 'Add to cellar' : 'Log tasting'} busy={busy} onPress={log} />
-        {confirmedId !== selected.wineId ? <Button title="Not this wine" variant="secondary" size="md" style={{ alignSelf: 'stretch' }} onPress={() => setSelected(null)} /> : null}
+function LockedCard({ rated, needed }: { rated: number; needed: number }) {
+  const { c } = useTheme();
+  return (
+    <Card style={{ gap: 14 }}>
+      <SparkleIcon color={c.accent} size={26} />
+      <Heading style={type.title2}>
+        Rate {needed - rated} more {needed - rated === 1 ? 'wine' : 'wines'} to unlock suggestions
+      </Heading>
+      <Muted style={type.subhead}>Suggestions come from what you like, so we wait until we know a little about your taste.</Muted>
+      <View style={{ flexDirection: 'row', gap: 6 }} accessible accessibilityLabel={`${rated} of ${needed} rated`}>
+        {Array.from({ length: needed }, (_, i) => (
+          <View key={i} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i < rated ? c.accent : c.fillQuiet }} />
+        ))}
       </View>
-    </Screen>
+      <Muted style={type.tabular}>{rated} of {needed} rated</Muted>
+      <Button title="Add a wine" onPress={() => router.push('/add')} />
+    </Card>
+  );
+}
+
+/** Two rows of card-shaped placeholders while a filter or search loads. */
+function CardBones() {
+  return (
+    <Skeleton label="Finding wines">
+      {[0, 1].map((row) => (
+        <View key={row} style={{ flexDirection: 'row', gap: space[3] }}>
+          {[0, 1].map((col) => (
+            <View key={col} style={{ flex: 1, gap: space[2] }}>
+              <View style={{ aspectRatio: 4 / 5 }}><Bone height="100%" radius={radius.md} /></View>
+              <Bone width="85%" height={16} />
+              <Bone width="55%" />
+            </View>
+          ))}
+        </View>
+      ))}
+    </Skeleton>
+  );
+}
+
+/** Photo-first tile: the bottle, its price in a glass chip, the name and why it was picked. */
+function WineCard({ r, index }: { r: Recommendation; index: number }) {
+  const { c } = useTheme();
+  const style = r.style ? STYLE_DOT[r.style] : wineStyleOf(r.colour, r.wineType);
+  return (
+    <Animated.View entering={FadeInDown.duration(280).delay(Math.min(index, 8) * 45)} style={{ flex: 1, maxWidth: '50%' }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
+        onPress={() => router.push(`/wine/${r.wineId}`)}
+        style={({ pressed }) => [{ gap: space[2] }, pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] }]}
+      >
+        <WinePhoto uri={r.imageUrl} wineStyle={style} padding={space[3]} style={{ width: '100%', aspectRatio: 4 / 5, borderRadius: radius.md }}>
+          <View style={{ position: 'absolute', left: space[2], bottom: space[2] }}>
+            <Glass style={{ borderRadius: radius.pill }}>
+              <Text style={[type.subhead, type.tabular, { fontWeight: '700', color: c.ink, paddingVertical: 5, paddingHorizontal: space[3] }]}>{dollars(r.medianCents)}</Text>
+            </Glass>
+          </View>
+        </WinePhoto>
+        <View style={{ gap: 2, paddingHorizontal: 2 }}>
+          <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={2}>{r.displayName}</Text>
+          <Muted numberOfLines={1}>
+            {[r.region, r.country].filter(Boolean).join(' · ')}
+            {r.nMerchants ? ` · ${r.nMerchants} ${r.nMerchants === 1 ? 'shop' : 'shops'}` : ''}
+          </Muted>
+          {r.reasons[0] ? (
+            <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
+              <View style={{ marginTop: 2 }}><SparkleIcon color={c.accent} size={13} /></View>
+              <Text style={[type.footnote, { flex: 1, color: c.accent }]} numberOfLines={2}>{r.reasons[0]}</Text>
+            </View>
+          ) : null}
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }

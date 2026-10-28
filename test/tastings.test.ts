@@ -78,7 +78,7 @@ describe('tastings API', () => {
     const a = app();
     const wineId = await createWine(db, { producer: 'X', name: 'Y', source: 'user' });
     expect((await request(a).put(`/api/saved/${wineId}`).set('Authorization', 'Dev r').send({})).status).toBe(204);
-    expect((await request(a).get('/api/saved').set('Authorization', 'Dev r')).body.saved).toHaveLength(1);
+    expect((await request(a).get('/api/saved').set('Authorization', 'Dev r')).body.saved).toEqual([expect.objectContaining({ wine_id: wineId, vintage_key: '*', image_url: null, colour: expect.any(String) })]);
     expect((await request(a).delete(`/api/saved/${wineId}`).set('Authorization', 'Dev r')).status).toBe(204);
   });
 });
