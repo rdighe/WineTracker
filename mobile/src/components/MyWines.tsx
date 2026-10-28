@@ -8,15 +8,18 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { Alert, FlatList, Platform, Pressable, RefreshControl, Text, View } from 'react-native';
+import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../lib/auth';
-import { dollars, dollarsExact, shortDate, wineTitle } from '../lib/format';
+import { dollars, shortDate, wineTitle } from '../lib/format';
 import type { ImportSummary, Tasting } from '../lib/types';
 import { useApi } from '../lib/useApi';
+import { AppearanceSettings } from './Appearance';
 import { DateField } from './DateField';
+import { ChevronIcon } from './icons';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
-import { Button, Card, Chip, ErrorText, Eyebrow, Mono, Muted, RatingDots, Segmented, Title, colors, fonts, styles, useScreenPadding } from './ui';
+import { Button, Card, Divider, ErrorText, Heading, Label, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
 export type Mode = 'cellar' | 'tastings';
 type Sort = 'recent' | 'value' | 'rating';
@@ -74,7 +77,8 @@ function confirm(title: string, message: string, action: string): Promise<boolea
 
 export function MyWines({ mode }: { mode: Mode }) {
   const api = useApi();
-  const padding = useScreenPadding();
+  const insets = useSafeAreaInsets();
+  const { c } = useTheme();
   const { label, signOut } = useAuth();
   const [rows, setRows] = useState<Tasting[] | null>(null);
   const [sort, setSort] = useState<Sort>('recent');
@@ -112,25 +116,24 @@ export function MyWines({ mode }: { mode: Mode }) {
   const cellarRows = visible.flatMap((g) => g.cellar).filter((t) => t.paid_750_cents && t.market_now_cents);
   const paid = cellarRows.reduce((s, t) => s + t.paid_750_cents! * (t.bottles ?? 1), 0);
   const worth = cellarRows.reduce((s, t) => s + t.market_now_cents! * (t.bottles ?? 1), 0);
-  const pct = paid ? ((worth - paid) / paid) * 100 : 0;
   const bottles = visible.reduce((s, g) => s + g.bottles, 0);
-  const eyebrow = mode === 'cellar'
-    ? `${visible.length} ${visible.length === 1 ? 'Wine' : 'Wines'} · ${bottles} ${bottles === 1 ? 'Bottle' : 'Bottles'}`
-    : `${visible.length} ${visible.length === 1 ? 'Wine' : 'Wines'} Tasted`;
+  const countLine = mode === 'cellar'
+    ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'}`
+    : `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} tasted`;
 
   return (
     <FlatList
-      style={styles.screen}
-      contentContainerStyle={padding}
+      style={{ flex: 1, backgroundColor: c.bg }}
+      contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120 }}
       data={visible}
       keyExtractor={(g) => String(g.wineId)}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.muted} />}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
       ListHeaderComponent={
-        <View style={{ gap: 16 }}>
+        <View style={{ gap: space[4], marginBottom: space[4] }}>
           <View>
-            <Eyebrow>{rows ? eyebrow : ' '}</Eyebrow>
-            <Title style={{ marginTop: 4 }}>{mode === 'cellar' ? 'My Cellar' : 'My Tastings'}</Title>
+            <Title>{mode === 'cellar' ? 'My cellar' : 'My tastings'}</Title>
+            <Muted style={{ marginTop: 2 }}>{rows ? countLine : ' '}</Muted>
           </View>
           <View style={{ alignSelf: 'flex-start' }}>
             <Segmented
@@ -144,10 +147,10 @@ export function MyWines({ mode }: { mode: Mode }) {
           </View>
           {groups.length ? <WineFilters items={groups.flatMap((g) => g.rows)} query={query} onQuery={setQuery} filters={filters} onFilters={setFilters} /> : null}
           {mode === 'cellar' && cellarRows.length > 0 && (
-            <Card style={{ flexDirection: 'row', paddingHorizontal: 20 }}>
+            <Card style={{ flexDirection: 'row', padding: 0, gap: 0 }}>
               <Stat label="Cost" value={dollars(paid)} />
-              <Stat label="Value now" value={dollars(worth)} gold />
-              <Stat label="Change" value={`${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%`} gold={pct >= 0} />
+              <Stat label="Value now" value={dollars(worth)} />
+              <Stat label="Change" value={<PriceDelta paid={paid} now={worth} percentOnly />} />
             </Card>
           )}
           <ErrorText error={error} />
@@ -155,23 +158,32 @@ export function MyWines({ mode }: { mode: Mode }) {
       }
       ListEmptyComponent={
         rows && narrowed && groups.length ? (
-          <View style={{ gap: 10, alignItems: 'flex-start' }}>
+          <View style={{ gap: space[3], alignItems: 'flex-start' }}>
             <Muted>No wines match.</Muted>
-            <Button title="Clear search and filters" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => { setQuery(''); setFilters({}); }} />
+            <Button title="Clear search and filters" variant="secondary" size="sm" onPress={() => { setQuery(''); setFilters({}); }} />
           </View>
         ) : rows ? (
-          <Muted>{mode === 'cellar' ? 'No bottles in your cellar yet. Add a wine and choose "In my cellar".' : 'No tastings yet. Add a wine and log what you thought of it.'}</Muted>
+          <Muted style={type.subhead}>{mode === 'cellar' ? 'No bottles in your cellar yet. Add a wine and choose "In my cellar".' : 'No tastings yet. Add a wine and log what you thought of it.'}</Muted>
         ) : null
       }
-      renderItem={({ item: g }) => (
-        <WineEntry g={g} mode={mode} open={open === g.wineId} onToggle={() => setOpen(open === g.wineId ? null : g.wineId)} onChanged={load} />
+      renderItem={({ item: g, index }) => (
+        <WineEntry
+          g={g}
+          mode={mode}
+          first={index === 0}
+          last={index === visible.length - 1}
+          open={open === g.wineId}
+          onToggle={() => setOpen(open === g.wineId ? null : g.wineId)}
+          onChanged={load}
+        />
       )}
       ListFooterComponent={
-        <View style={{ marginTop: 8, gap: 16 }}>
+        <View style={{ marginTop: space[6], gap: space[5] }}>
           {mode === 'tastings' ? <VivinoImport onDone={load} /> : null}
+          <AppearanceSettings />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Muted>Signed in as {label}</Muted>
-            <Button title="Sign out" variant="pill" style={{ borderColor: colors.line2 }} onPress={async () => { await signOut(); router.replace('/sign-in'); }} />
+            <Button title="Sign out" variant="secondary" size="sm" onPress={async () => { await signOut(); router.replace('/sign-in'); }} />
           </View>
         </View>
       }
@@ -179,24 +191,30 @@ export function MyWines({ mode }: { mode: Mode }) {
   );
 }
 
-function Stat({ label, value, gold }: { label: string; value: string; gold?: boolean }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
+  const { c } = useTheme();
   return (
-    <View style={{ flex: 1, gap: 6 }}>
-      <Eyebrow style={{ fontSize: 10 }}>{label}</Eyebrow>
-      <Mono style={{ fontSize: 18, color: gold ? colors.gold : colors.text }}>{value}</Mono>
+    <View style={{ flex: 1, gap: 2, paddingVertical: space[3], paddingHorizontal: space[4], borderLeftWidth: label === 'Cost' ? 0 : StyleSheet.hairlineWidth, borderColor: c.hairline }}>
+      <Muted>{label}</Muted>
+      {typeof value === 'string' ? <Text style={[type.figure, { color: c.ink }]}>{value}</Text> : <View style={{ minHeight: 22, justifyContent: 'center' }}>{value}</View>}
     </View>
   );
 }
 
 function Badge({ children }: { children: ReactNode }) {
+  const { c } = useTheme();
   return (
-    <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: colors.line2 }}>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.text2 }}>{children}</Text>
+    <View style={{ paddingHorizontal: space[2], paddingVertical: 2, borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
+      <Text style={[type.footnote, { fontWeight: '500', color: c.ink2 }]}>{children}</Text>
     </View>
   );
 }
 
-function WineEntry({ g, mode, open, onToggle, onChanged }: { g: Group; mode: Mode; open: boolean; onToggle: () => void; onChanged: () => Promise<void> }) {
+/** One wine as a row in a grouped list: thumbnail, name, what you have or tasted, and its price. Tap to open. */
+function WineEntry({ g, mode, first, last, open, onToggle, onChanged }: {
+  g: Group; mode: Mode; first: boolean; last: boolean; open: boolean; onToggle: () => void; onChanged: () => Promise<void>;
+}) {
+  const { c } = useTheme();
   const w = g.wine;
   const vintages = [...new Set(g.cellar.map((t) => t.vintage_key ?? 'NV'))].sort().reverse();
   const market = (mode === 'cellar' ? g.cellar : g.notes).find((t) => t.market_now_cents)?.market_now_cents ?? null;
@@ -206,64 +224,73 @@ function WineEntry({ g, mode, open, onToggle, onChanged }: { g: Group; mode: Mod
     : `Rated in your cellar · ${shortDate(g.notes[0]?.tasted_on)}`;
   const summary = mode === 'cellar' ? `${g.bottles} ${g.bottles === 1 ? 'bottle' : 'bottles'} · ${vintages.join(', ')}` : tastedLine;
   const firstVintage = (mode === 'cellar' ? g.cellar : g.notes)[0]?.vintage_key ?? '';
+  const change = groupChange(g);
+  const name = wineTitle(w.display_name, w.sub_region);
 
   return (
-    <Card style={{ marginBottom: 12, padding: 16, gap: 12 }}>
+    <View
+      style={{
+        backgroundColor: c.surface, borderColor: c.hairline, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth,
+        borderTopWidth: first ? StyleSheet.hairlineWidth : 0, borderBottomWidth: last ? StyleSheet.hairlineWidth : 0,
+        borderTopLeftRadius: first ? radius.md : 0, borderTopRightRadius: first ? radius.md : 0,
+        borderBottomLeftRadius: last ? radius.md : 0, borderBottomRightRadius: last ? radius.md : 0, overflow: 'hidden',
+      }}
+    >
+      {first ? null : <Divider style={{ marginLeft: space[4] + size.thumbW + space[3] }} />}
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${name}, ${summary}${market ? `, now ${dollars(market)}` : ''}${g.rating != null ? `, rated ${g.rating}` : ''}`}
         onPress={onToggle}
-        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 14 }, pressed && { opacity: 0.7 }]}
+        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.rowPhoto, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
       >
-        <WineThumb uri={w.image_url} />
-        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: colors.text }} numberOfLines={2}>{wineTitle(w.display_name, w.sub_region)}</Text>
-          {w.sub_region || w.region ? <Muted style={{ fontSize: 12 }}>{w.sub_region || w.region}</Muted> : null}
-          <Muted style={{ fontSize: 12, color: colors.text2 }}>{summary}</Muted>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            {market ? <Mono style={{ fontSize: 12, color: colors.gold }}>Now {dollarsExact(market)}</Mono> : <Muted style={{ fontSize: 12 }}>No market price yet</Muted>}
-            {g.rating != null ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent }} />
-                <Mono style={{ fontSize: 12, color: colors.text }}>{g.rating}</Mono>
-              </View>
-            ) : null}
-          </View>
+        <WineThumb uri={w.image_url} wineStyle={wineStyleOf(w.colour, w.wine_type)} />
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text style={[type.wineTitle, { fontSize: 17, lineHeight: 22, color: c.ink }]} numberOfLines={2}>{name}</Text>
+          <Text style={[type.subhead, { color: c.ink2 }]} numberOfLines={1}>{[w.sub_region || w.region, summary].filter(Boolean).join(' · ')}</Text>
         </View>
-        <Text style={{ fontFamily: fonts.mono, fontSize: 16, color: colors.muted }}>{open ? '−' : '+'}</Text>
+        <View style={{ alignItems: 'flex-end', gap: 3 }}>
+          {market ? <Text style={[type.figure, { color: c.ink }]}>{dollars(market)}</Text> : <Muted style={{ color: c.ink3 }}>No price</Muted>}
+          {mode === 'cellar' && change !== null ? (
+            <PriceDelta change={change} />
+          ) : g.rating != null ? (
+            <Rating value={g.rating} />
+          ) : null}
+        </View>
+        <ChevronIcon color={c.ink3} direction={open ? 'up' : 'down'} />
       </Pressable>
 
       {open ? (
-        <View style={{ gap: 14 }}>
+        <View style={{ gap: space[4], paddingHorizontal: space[4], paddingBottom: space[4] }}>
           {mode === 'cellar' ? (
             <Section title="In the cellar">
               {g.cellar.map((t) => <CellarRow key={t.tasting_id} t={t} onChanged={onChanged} />)}
             </Section>
           ) : g.cellar.length ? (
-            <Muted style={{ fontSize: 12 }}>
+            <Muted>
               In your cellar: {g.bottles} {g.bottles === 1 ? 'bottle' : 'bottles'} ({vintages.join(', ')})
             </Muted>
           ) : null}
           <Section title={mode === 'cellar' ? 'Your tasting notes' : 'Tastings'}>
             {(mode === 'cellar' ? g.tasted : g.notes).length
               ? (mode === 'cellar' ? g.tasted : g.notes).map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={onChanged} />)
-              : <Muted style={{ fontSize: 12 }}>Not tasted yet.</Muted>}
+              : <Muted>Not tasted yet.</Muted>}
           </Section>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <Button title="+ Tasting" variant="pill" onPress={() => router.push(`/wine/${g.wineId}?add=tasted&vintage=${encodeURIComponent(firstVintage)}`)} />
-            <Button title="+ Bottles" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => router.push(`/wine/${g.wineId}?add=cellar&vintage=${encodeURIComponent(firstVintage)}`)} />
-            <Button title="Wine page" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => router.push(`/wine/${g.wineId}`)} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+            <Button title="Log tasting" variant="tinted" size="sm" onPress={() => router.push(`/wine/${g.wineId}?add=tasted&vintage=${encodeURIComponent(firstVintage)}`)} />
+            <Button title="Add bottles" variant="secondary" size="sm" onPress={() => router.push(`/wine/${g.wineId}?add=cellar&vintage=${encodeURIComponent(firstVintage)}`)} />
+            <Button title="Wine page" variant="secondary" size="sm" onPress={() => router.push(`/wine/${g.wineId}`)} icon={(fg) => <ChevronIcon color={fg} size={14} />} />
           </View>
         </View>
       ) : null}
-    </Card>
+    </View>
   );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <View style={{ gap: 8 }}>
-      <Eyebrow style={{ fontSize: 10 }}>{title}</Eyebrow>
+    <View style={{ gap: space[2] }}>
+      <Label>{title}</Label>
       {children}
     </View>
   );
@@ -272,25 +299,27 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 /** Pick a new date for an entry, then save it. */
 function DateEdit({ t, onChanged, label }: { t: Tasting; onChanged: () => Promise<void>; label: string }) {
   const api = useApi();
+  const { c } = useTheme();
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(t.tasted_on);
   const [error, setError] = useState<unknown>(null);
   if (!editing) {
     return (
-      <Pressable accessibilityRole="button" accessibilityLabel={`${label} ${shortDate(t.tasted_on)}, change date`} onPress={() => setEditing(true)}>
-        <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: colors.muted }}>
-          {label} {shortDate(t.tasted_on)} <Text style={{ color: colors.accent }}>· change</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${label} ${shortDate(t.tasted_on)}, change date`} onPress={() => setEditing(true)} hitSlop={6}>
+        <Text style={[type.footnote, { color: c.ink2 }]}>
+          {label} {shortDate(t.tasted_on)} <Text style={{ color: c.accent, fontWeight: '600' }}>· Change</Text>
         </Text>
       </Pressable>
     );
   }
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: space[2] }}>
       <DateField label={label} value={date} onChange={setDate} />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flexDirection: 'row', gap: space[2] }}>
         <Button
           title="Save date"
-          variant="pill"
+          variant="tinted"
+          size="sm"
           onPress={async () => {
             try {
               if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Use a date like 2026-03-07');
@@ -302,7 +331,7 @@ function DateEdit({ t, onChanged, label }: { t: Tasting; onChanged: () => Promis
             }
           }}
         />
-        <Button title="Cancel" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => { setDate(t.tasted_on); setEditing(false); }} />
+        <Button title="Cancel" variant="secondary" size="sm" onPress={() => { setDate(t.tasted_on); setEditing(false); }} />
       </View>
       <ErrorText error={error} />
     </View>
@@ -311,6 +340,7 @@ function DateEdit({ t, onChanged, label }: { t: Tasting; onChanged: () => Promis
 
 function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<void> }) {
   const api = useApi();
+  const { c } = useTheme();
   const [error, setError] = useState<unknown>(null);
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -323,35 +353,35 @@ function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<void
   };
   const n = t.bottles ?? 1;
   return (
-    <View style={{ gap: 6, paddingTop: 8, borderTopWidth: 1, borderColor: colors.line }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Mono style={{ color: colors.gold }}>{t.vintage_key ?? 'NV'}</Mono>
-          <Badge>{`${n} ${n === 1 ? 'BOTTLE' : 'BOTTLES'}`}</Badge>
-          {t.paid_750_cents ? <Muted style={{ fontSize: 12 }}>paid {dollars(t.price_paid_cents)}</Muted> : null}
+    <View style={{ gap: 6, paddingTop: space[2], borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.hairline }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], flexShrink: 1, flexWrap: 'wrap' }}>
+          <Text style={[type.headline, type.tabular, { color: c.ink }]}>{t.vintage_key ?? 'NV'}</Text>
+          <Badge>{`${n} ${n === 1 ? 'bottle' : 'bottles'}`}</Badge>
+          {t.paid_750_cents ? <Muted style={type.tabular}>paid {dollars(t.price_paid_cents)}</Muted> : null}
+          <PriceDelta paid={t.paid_750_cents} now={t.market_now_cents} percentOnly />
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Button title="−" variant="pill" style={{ borderColor: colors.line2, minWidth: 34, alignItems: 'center' }} onPress={() => run(() => (n > 1 ? api.updateTasting(t.tasting_id, { bottles: n - 1 }) : Promise.resolve()))} />
-          <Button title="+" variant="pill" style={{ borderColor: colors.line2, minWidth: 34, alignItems: 'center' }} onPress={() => run(() => api.updateTasting(t.tasting_id, { bottles: n + 1 }))} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
+          <Button title="−" variant="secondary" size="sm" accessibilityLabel="One bottle fewer" onPress={() => run(() => (n > 1 ? api.updateTasting(t.tasting_id, { bottles: n - 1 }) : Promise.resolve()))} />
+          <Button title="+" variant="secondary" size="sm" accessibilityLabel="One bottle more" onPress={() => run(() => api.updateTasting(t.tasting_id, { bottles: n + 1 }))} />
         </View>
       </View>
       <DateEdit t={t} onChanged={onChanged} label="Added" />
-      {t.rating != null || t.notes ? <Muted style={{ fontSize: 12 }}>{[t.rating != null ? `Rated ${t.rating}` : '', t.notes].filter(Boolean).join(' · ')}</Muted> : null}
-      <View style={{ alignSelf: 'flex-start' }}>
-        <Button
-          title="Remove from cellar"
-          variant="pill"
-          style={{ borderColor: colors.line2 }}
-          onPress={async () => {
-            const ok = await confirm(
-              'Remove from your cellar?',
-              `${t.vintage_key ?? 'NV'}, ${n} ${n === 1 ? 'bottle' : 'bottles'}. Your tastings of this wine stay in My Tastings.`,
-              'Remove'
-            );
-            if (ok) await run(() => api.removeFromCellar(t.tasting_id));
-          }}
-        />
-      </View>
+      {t.rating != null || t.notes ? <Muted>{[t.rating != null ? `Rated ${t.rating}` : '', t.notes].filter(Boolean).join(' · ')}</Muted> : null}
+      <Button
+        title="Remove from cellar"
+        variant="plain"
+        size="sm"
+        style={{ paddingHorizontal: 0 }}
+        onPress={async () => {
+          const ok = await confirm(
+            'Remove from your cellar?',
+            `${t.vintage_key ?? 'NV'}, ${n} ${n === 1 ? 'bottle' : 'bottles'}. Your tastings of this wine stay in My tastings.`,
+            'Remove'
+          );
+          if (ok) await run(() => api.removeFromCellar(t.tasting_id));
+        }}
+      />
       <ErrorText error={error} />
     </View>
   );
@@ -361,6 +391,7 @@ const SETTING_LABEL = { home: 'At home', restaurant: 'Restaurant', other: 'Elsew
 
 function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<void> }) {
   const api = useApi();
+  const { c } = useTheme();
   const [error, setError] = useState<unknown>(null);
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -372,36 +403,35 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
     }
   };
   return (
-    <View style={{ gap: 6, paddingTop: 8, borderTopWidth: 1, borderColor: colors.line }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
-          <Mono style={{ color: colors.gold }}>{t.vintage_key ?? 'NV'}</Mono>
-          {t.kind === 'cellar' ? <Badge>{`CELLAR · ${t.bottles ?? 1}`}</Badge> : t.setting ? <Badge>{SETTING_LABEL[t.setting].toUpperCase()}</Badge> : null}
-          {t.price_paid_cents ? <Muted style={{ fontSize: 12 }}>{dollars(t.price_paid_cents)}{t.price_context === 'restaurant' ? ' (restaurant)' : ''}</Muted> : null}
-        </View>
+    <View style={{ gap: 6, paddingTop: space[2], borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.hairline }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' }}>
+        <Text style={[type.headline, type.tabular, { color: c.ink }]}>{t.vintage_key ?? 'NV'}</Text>
+        {t.kind === 'cellar' ? <Badge>{`Cellar · ${t.bottles ?? 1}`}</Badge> : t.setting ? <Badge>{SETTING_LABEL[t.setting]}</Badge> : null}
+        {t.price_paid_cents ? <Muted style={type.tabular}>{dollars(t.price_paid_cents)}{t.price_context === 'restaurant' ? ' (restaurant)' : ''}</Muted> : null}
       </View>
       <DateEdit t={t} onChanged={onChanged} label={t.kind === 'cellar' ? 'Added' : 'Tasted'} />
-      <RatingDots value={t.rating} size={20} onChange={(rating) => run(() => api.updateTasting(t.tasting_id, { rating }))} />
-      {t.notes ? <Text style={{ fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: colors.text2 }}>{t.notes}</Text> : null}
+      <Rating value={t.rating} size="md" onChange={(rating) => run(() => api.updateTasting(t.tasting_id, { rating }))} showValue />
+      {t.notes ? <Text style={[type.body, { color: c.ink }]}>{t.notes}</Text> : null}
       {t.tags?.length ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {t.tags.map((tag) => <Chip key={tag} tone="tag">{tag}</Chip>)}
+          {t.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}
         </View>
       ) : null}
       {t.kind === 'cellar' ? (
-        <Muted style={{ fontSize: 12 }}>Rated when added to your cellar. The bottles are managed in My Cellar.</Muted>
-      ) : <View style={{ alignSelf: 'flex-start' }}>
+        <Muted>Rated when added to your cellar. The bottles are managed in My cellar.</Muted>
+      ) : (
         <Button
           title="Delete tasting"
-          variant="pill"
-          style={{ borderColor: colors.line2 }}
+          variant="plain"
+          size="sm"
+          style={{ paddingHorizontal: 0 }}
           onPress={async () => {
             if (await confirm('Delete this tasting?', `${shortDate(t.tasted_on)}${t.rating != null ? `, rated ${t.rating}` : ''}. This can't be undone.`, 'Delete')) {
               await run(() => api.deleteTasting(t.tasting_id));
             }
           }}
         />
-      </View>}
+      )}
       <ErrorText error={error} />
     </View>
   );
@@ -410,6 +440,7 @@ function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Promise<voi
 /** Pick a Vivino export (CSV) and import its ratings. */
 function VivinoImport({ onDone }: { onDone: () => void }) {
   const api = useApi();
+  const { c } = useTheme();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportSummary | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -435,22 +466,22 @@ function VivinoImport({ onDone }: { onDone: () => void }) {
 
   return (
     <Card>
-      <Eyebrow>Import from Vivino</Eyebrow>
+      <Heading>Import from Vivino</Heading>
       <Muted>
         Request a copy of your data from Vivino (in the app&apos;s account or privacy settings), then pick the wine list CSV from the download. Ratings, reviews and dates come across; importing the same file again adds nothing.
       </Muted>
-      <Button title="Choose Vivino CSV" variant="secondary" busy={busy} onPress={pick} />
+      <Button title="Choose Vivino CSV" variant="secondary" size="md" busy={busy} onPress={pick} />
       {result ? (
         <View style={{ gap: 4 }}>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: colors.gold }}>
+          <Text style={[type.subhead, { fontWeight: '600', color: c.positive }]}>
             Imported {result.imported} {result.imported === 1 ? 'wine' : 'wines'}
             {result.alreadyImported ? ` · ${result.alreadyImported} already here` : ''}
           </Text>
-          <Muted style={{ fontSize: 12 }}>
+          <Muted>
             {result.matched} matched to our catalog{result.addedWines ? `, ${result.addedWines} added as new wines` : ''}.
           </Muted>
-          {result.addedNames.length ? <Muted style={{ fontSize: 12 }}>New: {result.addedNames.slice(0, 5).join(' · ')}{result.addedNames.length > 5 ? ' …' : ''}</Muted> : null}
-          {result.missingColumns.includes('rating') ? <Muted style={{ fontSize: 12, color: colors.error }}>No rating column found, so wines came in unrated.</Muted> : null}
+          {result.addedNames.length ? <Muted>New: {result.addedNames.slice(0, 5).join(' · ')}{result.addedNames.length > 5 ? ' …' : ''}</Muted> : null}
+          {result.missingColumns.includes('rating') ? <Muted style={{ color: c.negative }}>No rating column found, so wines came in unrated.</Muted> : null}
         </View>
       ) : null}
       <ErrorText error={error} />

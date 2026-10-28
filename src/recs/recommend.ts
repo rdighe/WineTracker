@@ -28,6 +28,10 @@ export interface Recommendation {
   displayName: string;
   region: string;
   country: string;
+  /** Still or other style, and a reference photo (a shop's packshot), for the app's photo-first cards. */
+  colour: string;
+  wineType: string;
+  imageUrl: string | null;
   medianCents: number;
   nMerchants: number;
   score: number;
@@ -85,7 +89,7 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
   // memory is ~100 ms). Move this to a precomputed table if the catalog grows
   // past a few hundred thousand priced wines.
   const { rows } = await db.query(
-    `SELECT ${WINE_COLS}, p.median_cents, p.n_merchants, ${NOTES_COLS}
+    `SELECT ${WINE_COLS}, w.image_url, p.median_cents, p.n_merchants, ${NOTES_COLS}
        FROM wine_prices p JOIN wines w USING (wine_id)
        ${NOTES_JOIN}
       WHERE ${filters.join(' AND ')}`,
@@ -119,12 +123,15 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
   return { mode: 'profile', items };
 }
 
-function toRec(r: WineRow & { median_cents: number; n_merchants: number }, score: number, reasons: string[]): Recommendation {
+function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_url?: string | null }, score: number, reasons: string[]): Recommendation {
   return {
     wineId: r.wine_id,
     displayName: r.display_name,
     region: r.region,
     country: r.country,
+    colour: r.colour ?? '',
+    wineType: r.wine_type ?? '',
+    imageUrl: r.image_url ?? null,
     medianCents: r.median_cents,
     nMerchants: r.n_merchants,
     score: Math.round(score * 1000) / 1000,

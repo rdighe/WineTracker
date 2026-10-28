@@ -55,6 +55,7 @@ export interface Wine {
   sub_region: string;
   country: string;
   colour: string;
+  wine_type?: string;
   grape: string;
   lwin: string | null;
   /** Reference photo (a shop's packshot on white); image_match says how close it is. */
@@ -125,6 +126,9 @@ export interface Recommendation {
   displayName: string;
   region: string;
   country: string;
+  colour?: string;
+  wineType?: string;
+  imageUrl?: string | null;
   medianCents: number;
   nMerchants: number;
   score: number;

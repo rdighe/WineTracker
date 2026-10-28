@@ -4,7 +4,7 @@ import { Linking, Pressable, Text, View } from 'react-native';
 import type { InfoResponse, WineInfo } from '../lib/types';
 import { useApi } from '../lib/useApi';
 import { Skeleton, TextBones } from './Skeleton';
-import { Button, Card, Chip, Eyebrow, Muted, colors, fonts } from './ui';
+import { Button, Card, Chip, Heading, Label, Muted, space, type, useTheme } from './ui';
 
 const POLL_MS = 4000;
 /** Research takes 10-40 s; stop asking after this long. */
@@ -40,25 +40,36 @@ export function useWineInfo(wineId: number): InfoResponse | null {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={{ gap: 6 }}>
-      <Eyebrow style={{ fontSize: 10 }}>{title}</Eyebrow>
+      <Label>{title}</Label>
       {children}
     </View>
   );
 }
 
-const Body = ({ children }: { children: ReactNode }) => (
-  <Text style={{ fontFamily: fonts.regular, fontSize: 14, lineHeight: 21, color: colors.text2 }}>{children}</Text>
-);
+function Body({ children }: { children: ReactNode }) {
+  const { c } = useTheme();
+  return <Text style={[type.subhead, { lineHeight: 22, color: c.ink }]}>{children}</Text>;
+}
+
+function Link({ children, url }: { children: ReactNode; url: string }) {
+  const { c } = useTheme();
+  return (
+    <Pressable accessibilityRole="link" onPress={() => Linking.openURL(url)} hitSlop={4}>
+      <Text style={[type.subhead, { color: c.accent }]} numberOfLines={1}>{children}</Text>
+    </Pressable>
+  );
+}
 
 function Facts({ rows }: { rows: [string, string][] }) {
+  const { c } = useTheme();
   const shown = rows.filter(([, v]) => v);
   if (!shown.length) return null;
   return (
     <View style={{ gap: 8 }}>
       {shown.map(([k, v]) => (
         <View key={k} style={{ flexDirection: 'row', gap: 12 }}>
-          <Text style={{ width: 96, fontFamily: fonts.medium, fontSize: 12, color: colors.muted }}>{k}</Text>
-          <Text style={{ flex: 1, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: colors.text }}>{v}</Text>
+          <Text style={[type.footnote, { width: 96, fontWeight: '600', color: c.ink2 }]}>{k}</Text>
+          <Text style={[type.subhead, { flex: 1, color: c.ink }]}>{v}</Text>
         </View>
       ))}
     </View>
@@ -71,8 +82,8 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
   // Still asking, or the research is under way: the card's shape with placeholder lines.
   if (!res || res.status === 'pending') {
     return (
-      <Card style={{ paddingHorizontal: 20, gap: 14 }}>
-        <Eyebrow>About this wine</Eyebrow>
+      <Card style={{ gap: 14 }}>
+        <Heading>About this wine</Heading>
         <Skeleton label="Loading tasting notes and background">
           <TextBones lines={3} height={13} />
           <View style={{ gap: 8 }}>
@@ -84,14 +95,14 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
             ))}
           </View>
         </Skeleton>
-        {res ? <Muted style={{ fontSize: 12 }}>Looking up tasting notes, the producer and the wine&apos;s specs…</Muted> : null}
+        {res ? <Muted>Looking up tasting notes, the producer and the wine&apos;s specs…</Muted> : null}
       </Card>
     );
   }
   if (res.status === 'failed' || !res.info) {
     return (
       <Card>
-        <Eyebrow>About this wine</Eyebrow>
+        <Heading>About this wine</Heading>
         <Muted>Couldn&apos;t find background for this wine. It will try again tomorrow.</Muted>
       </Card>
     );
@@ -107,8 +118,8 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
   const hasMore = [i.producer.history, i.vineyard, ...specs.map(([, v]) => v), ...serving.map(([, v]) => v), ...i.foodPairings].some(Boolean);
 
   return (
-    <Card style={{ paddingHorizontal: 20, gap: 16 }}>
-      <Eyebrow>About this wine</Eyebrow>
+    <Card style={{ gap: space[4] }}>
+      <Heading>About this wine</Heading>
       {i.summary ? <Body>{i.summary}</Body> : null}
       {notes.some(([, v]) => v) ? (
         <Section title="Tasting notes">
@@ -117,7 +128,7 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
       ) : null}
       {i.descriptors.length ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {i.descriptors.map((d) => <Chip key={d} tone="tag">{d}</Chip>)}
+          {i.descriptors.map((d) => <Chip key={d} small>{d}</Chip>)}
         </View>
       ) : null}
       {more ? (
@@ -127,9 +138,7 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
               {i.producer.history ? <Body>{i.producer.history}</Body> : null}
               <Facts rows={producer} />
               {i.producer.website ? (
-                <Pressable accessibilityRole="link" onPress={() => Linking.openURL(i.producer.website)}>
-                  <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.accent }}>{i.producer.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</Text>
-                </Pressable>
+                <Link url={i.producer.website}>{i.producer.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</Link>
               ) : null}
             </Section>
           ) : null}
@@ -151,16 +160,14 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
           {i.sources.length ? (
             <Section title="Sources">
               {i.sources.map((s) => (
-                <Pressable key={s.url} accessibilityRole="link" onPress={() => Linking.openURL(s.url)}>
-                  <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.accent }} numberOfLines={1}>{s.title}</Text>
-                </Pressable>
+                <Link key={s.url} url={s.url}>{s.title}</Link>
               ))}
             </Section>
           ) : null}
         </>
       ) : null}
-      {hasMore ? <Button title={more ? 'Show less' : 'Producer, vineyards & spec sheet'} variant="pill" style={{ borderColor: colors.line2 }} onPress={() => setMore(!more)} /> : null}
-      <Muted style={{ fontSize: 11 }}>
+      {hasMore ? <Button title={more ? 'Show less' : 'Producer, vineyards & spec sheet'} variant="secondary" size="sm" onPress={() => setMore(!more)} /> : null}
+      <Muted style={{ fontSize: 12 }}>
         {i.grounded ? 'Researched by AI from the web pages listed.' : "From the AI's general knowledge, not checked against the web: it can be wrong."}
       </Muted>
     </Card>

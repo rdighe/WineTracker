@@ -7,16 +7,17 @@ import { useEffect, useState } from 'react';
 import { Platform, Pressable, Text, TextInput, View } from 'react-native';
 import type { Candidate } from '../lib/types';
 import { useApi } from '../lib/useApi';
-import { SearchIcon } from './icons';
-import { Button, Card, ErrorText, Eyebrow, Field, Muted, colors, fonts } from './ui';
+import { ChevronIcon, SearchIcon } from './icons';
+import { Button, Card, Divider, ErrorText, Field, Heading, Muted, radius, size, space, type, useTheme } from './ui';
 
 const webNoOutline = Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null;
 
 /** The search field; on the Add Wine page it sits next to the photo-library button. */
 export function SearchBar({ value, onChangeText, onFocus, autoFocus }: { value: string; onChangeText: (q: string) => void; onFocus?: () => void; autoFocus?: boolean }) {
+  const { c, scheme } = useTheme();
   return (
-    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, height: 52, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface }}>
-      <SearchIcon color={colors.muted} size={20} />
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2], height: size.controlLg, paddingHorizontal: space[4], borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
+      <SearchIcon color={c.ink2} size={20} />
       <TextInput
         accessibilityLabel="Search or add manually"
         value={value}
@@ -25,10 +26,11 @@ export function SearchBar({ value, onChangeText, onFocus, autoFocus }: { value: 
         autoFocus={autoFocus}
         returnKeyType="search"
         placeholder="Search or add manually"
-        placeholderTextColor={colors.faint}
+        placeholderTextColor={c.ink3}
         autoCorrect={false}
         clearButtonMode="while-editing"
-        style={[{ flex: 1, fontFamily: fonts.regular, fontSize: 16, color: colors.text, minHeight: 44 }, webNoOutline]}
+        keyboardAppearance={scheme}
+        style={[type.body, { flex: 1, color: c.ink, minHeight: 44 }, webNoOutline]}
       />
     </View>
   );
@@ -37,6 +39,7 @@ export function SearchBar({ value, onChangeText, onFocus, autoFocus }: { value: 
 /** Catalog matches for the query (as you type), then "add it manually". */
 export function SearchResults({ query }: { query: string }) {
   const api = useApi();
+  const { c } = useTheme();
   // Results remember their query, so stale ones never show for newer text.
   const [found, setFound] = useState<{ q: string; results: Candidate[] } | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -60,21 +63,33 @@ export function SearchResults({ query }: { query: string }) {
   }, [api, q]);
 
   return (
-    <View style={{ gap: 10 }}>
-      {results?.map((r) => (
-        <Pressable key={r.wineId} accessibilityRole="button" onPress={() => router.push(`/wine/${r.wineId}`)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-          <Card style={{ padding: 16, gap: 4 }}>
-            <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: colors.text }}>{r.displayName}</Text>
-            <Muted style={{ fontSize: 12 }}>{[r.region, r.country].filter(Boolean).join(' · ') || ' '}</Muted>
-          </Card>
-        </Pressable>
-      ))}
+    <View style={{ gap: space[4] }}>
+      {results?.length ? (
+        <Card flush>
+          {results.map((r, i) => (
+            <View key={r.wineId}>
+              {i ? <Divider style={{ marginLeft: space[4] }} /> : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push(`/wine/${r.wineId}`)}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
+              >
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                  <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={1}>{r.displayName}</Text>
+                  <Text style={[type.subhead, { color: c.ink2 }]} numberOfLines={1}>{[r.region, r.country].filter(Boolean).join(' · ') || ' '}</Text>
+                </View>
+                <ChevronIcon color={c.ink3} />
+              </Pressable>
+            </View>
+          ))}
+        </Card>
+      ) : null}
       {results && !results.length ? <Muted>No matches in the catalog.</Muted> : null}
       <ErrorText error={error} />
       {manual ? (
         <ManualAdd initial={q} />
       ) : (
-        <Button title={q.length >= 2 ? "Can't find it? Add it manually" : 'Add a wine manually'} variant="secondary" onPress={() => setManual(true)} />
+        <Button title={q.length >= 2 ? "Can't find it? Add it manually" : 'Add a wine manually'} variant="secondary" size="md" style={{ alignSelf: 'stretch' }} onPress={() => setManual(true)} />
       )}
     </View>
   );
@@ -108,14 +123,14 @@ function ManualAdd({ initial }: { initial: string }) {
 
   return (
     <Card>
-      <Eyebrow>Add a wine manually</Eyebrow>
+      <Heading>Add a wine manually</Heading>
       <Field label="Producer" value={producer} onChangeText={setProducer} placeholder="Château Lafleur" />
       <Field label="Wine" value={name} onChangeText={setName} placeholder="Les Pensées (if it has a name)" />
       <Field label="Region" value={region} onChangeText={setRegion} placeholder="Pomerol" />
-      <Field label="Vintage" mono value={vintage} onChangeText={setVintage} placeholder="2019 or NV" autoCapitalize="characters" maxLength={4} />
+      <Field label="Vintage" numeric value={vintage} onChangeText={setVintage} placeholder="2019 or NV" autoCapitalize="characters" maxLength={4} />
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <Button title="Add to cellar" busy={busy} onPress={() => add('cellar')} style={{ flex: 1 }} />
-        <Button title="Log tasting" variant="secondary" busy={busy} onPress={() => add('tasted')} style={{ flex: 1 }} />
+        <Button title="Log tasting" variant="tinted" busy={busy} onPress={() => add('tasted')} style={{ flex: 1 }} />
       </View>
       <ErrorText error={error} />
     </Card>

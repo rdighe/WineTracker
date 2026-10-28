@@ -5,7 +5,7 @@ import { Text, TextInput, View } from 'react-native';
 import { useApi } from '../lib/useApi';
 import { todayIso } from '../lib/format';
 import { DateField } from './DateField';
-import { Button, Card, Chip, ErrorText, Eyebrow, Field, RatingDots, Segmented, colors, fonts, styles } from './ui';
+import { Button, Card, Chip, ErrorText, Field, Label, Rating, Segmented, space, type, useStyles, useTheme } from './ui';
 
 export type PriceContext = 'retail' | 'restaurant';
 export type TastingKind = 'tasted' | 'cellar';
@@ -44,6 +44,8 @@ export function useTastingDraft(initialVintage?: string | null, initialKind: Tas
 export type TastingDraft = ReturnType<typeof useTastingDraft>;
 
 export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draft: TastingDraft; showVintage?: boolean; suggestedTags?: string[] }) {
+  const { c, scheme } = useTheme();
+  const s = useStyles();
   const [tagInput, setTagInput] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(Boolean(draft.notes));
   const addTag = () => {
@@ -53,24 +55,28 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
   };
 
   return (
-    <Card style={{ gap: 16 }}>
+    <Card style={{ gap: space[5] }}>
       <Segmented
         options={[{ key: 'tasted', label: 'Tasted it' }, { key: 'cellar', label: 'In my cellar' }]}
         value={draft.kind}
         onChange={draft.setKind}
       />
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Label>{draft.kind === 'cellar' ? 'Rating (optional)' : 'Your rating'}</Label>
+        <Rating value={draft.rating} onChange={draft.setRating} size="lg" />
+      </View>
       {draft.kind === 'cellar' ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Eyebrow>Bottles</Eyebrow>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Button title="−" variant="pill" style={{ borderColor: colors.line2, minWidth: 40, alignItems: 'center' }} onPress={() => draft.setBottles(Math.max(1, draft.bottles - 1))} />
-            <Text style={{ fontFamily: fonts.mono, fontSize: 18, color: colors.text, minWidth: 28, textAlign: 'center' }} accessibilityLabel={`${draft.bottles} bottles`}>{draft.bottles}</Text>
-            <Button title="+" variant="pill" style={{ borderColor: colors.line2, minWidth: 40, alignItems: 'center' }} onPress={() => draft.setBottles(Math.min(9999, draft.bottles + 1))} />
+          <Label>Bottles</Label>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            <Button title="−" variant="secondary" size="sm" accessibilityLabel="One bottle fewer" onPress={() => draft.setBottles(Math.max(1, draft.bottles - 1))} />
+            <Text style={[type.headline, type.tabular, { color: c.ink, minWidth: 28, textAlign: 'center' }]} accessibilityLabel={`${draft.bottles} bottles`}>{draft.bottles}</Text>
+            <Button title="+" variant="secondary" size="sm" accessibilityLabel="One bottle more" onPress={() => draft.setBottles(Math.min(9999, draft.bottles + 1))} />
           </View>
         </View>
       ) : (
-        <View style={{ gap: 8 }}>
-          <Eyebrow>Where</Eyebrow>
+        <View style={{ gap: space[2] }}>
+          <Label>Where</Label>
           <Segmented
             options={[{ key: 'home', label: 'At home' }, { key: 'restaurant', label: 'Restaurant' }, { key: 'other', label: 'Elsewhere' }]}
             value={draft.setting}
@@ -80,22 +86,24 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
       )}
       <DateField label={draft.kind === 'cellar' ? 'Added on' : 'Tasted on'} value={draft.date} onChange={draft.setDate} />
       {showVintage ? (
-        <Field label="Vintage" mono value={draft.vintage} onChangeText={draft.setVintage} placeholder="2019 or NV" autoCapitalize="characters" maxLength={4} />
+        <Field label="Vintage" numeric value={draft.vintage} onChangeText={draft.setVintage} placeholder="2019 or NV" autoCapitalize="characters" maxLength={4} />
       ) : null}
-      <View style={{ gap: 8 }}>
-        <Eyebrow>{draft.kind === 'cellar' ? 'Price per bottle' : draft.setting === 'home' ? 'What the bottle cost' : 'What you paid'}</Eyebrow>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ gap: 6 }}>
+        <Label>{draft.kind === 'cellar' ? 'Price per bottle' : draft.setting === 'home' ? 'What the bottle cost' : 'What you paid'}</Label>
+        <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
           <TextInput
             accessibilityLabel="What you paid"
             value={draft.price}
             onChangeText={draft.setPrice}
             placeholder="$0.00"
-            placeholderTextColor={colors.faint}
+            placeholderTextColor={c.ink3}
             keyboardType="decimal-pad"
-            style={[styles.input, { flex: 1, minWidth: 0, fontFamily: fonts.mono }]}
+            keyboardAppearance={scheme}
+            style={[s.input, type.tabular, { flex: 1, minWidth: 0 }]}
           />
           {draft.kind === 'tasted' && draft.setting === 'other' ? (
             <Segmented
+              small
               options={[{ key: 'retail', label: 'Shop' }, { key: 'restaurant', label: 'Restaurant' }]}
               value={draft.context}
               onChange={draft.setContext}
@@ -103,16 +111,12 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
           ) : null}
         </View>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Eyebrow>{draft.kind === 'cellar' ? 'Rating (optional)' : 'Your rating'}</Eyebrow>
-        <RatingDots value={draft.rating} onChange={draft.setRating} />
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignItems: 'center' }}>
         {draft.tags.map((t) => (
-          <Chip key={t} tone="tag" onPress={() => draft.setTags(draft.tags.filter((x) => x !== t))}>{t}  ×</Chip>
+          <Chip key={t} selected onPress={() => draft.setTags(draft.tags.filter((x) => x !== t))}>{`${t}  ×`}</Chip>
         ))}
         {tagInput === null ? (
-          <Button title="+ Tag" variant="pill" onPress={() => setTagInput('')} style={{ borderStyle: 'dashed', borderColor: colors.line2 }} />
+          <Button title="Add tag" variant="secondary" size="sm" onPress={() => setTagInput('')} />
         ) : (
           <TextInput
             autoFocus
@@ -122,26 +126,27 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
             onSubmitEditing={addTag}
             onBlur={addTag}
             placeholder="dark cherry"
-            placeholderTextColor={colors.faint}
+            placeholderTextColor={c.ink3}
             autoCapitalize="none"
             returnKeyType="done"
-            style={{ minWidth: 110, height: 32, borderRadius: 999, borderWidth: 1, borderColor: colors.line2, paddingHorizontal: 12, color: colors.text, fontFamily: fonts.regular, fontSize: 12 }}
+            keyboardAppearance={scheme}
+            style={[type.subhead, { minWidth: 120, height: 34, borderRadius: 999, borderWidth: 1, borderColor: c.focus, paddingHorizontal: space[3], color: c.ink }]}
           />
         )}
-        {!noteOpen ? <Button title="+ Note" variant="pill" onPress={() => setNoteOpen(true)} style={{ borderStyle: 'dashed', borderColor: colors.line2 }} /> : null}
+        {!noteOpen ? <Button title="Add note" variant="secondary" size="sm" onPress={() => setNoteOpen(true)} /> : null}
       </View>
       {suggestedTags.some((t) => !draft.tags.includes(t)) ? (
-        <View style={{ gap: 8 }}>
-          <Eyebrow style={{ fontSize: 10 }}>Typical notes · tap to add</Eyebrow>
+        <View style={{ gap: space[2] }}>
+          <Label>Typical notes · tap to add</Label>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {suggestedTags.filter((t) => !draft.tags.includes(t)).map((t) => (
-              <Chip key={t} onPress={() => draft.setTags([...draft.tags, t])}>+ {t}</Chip>
+              <Chip key={t} small onPress={() => draft.setTags([...draft.tags, t])}>{`+ ${t}`}</Chip>
             ))}
           </View>
         </View>
       ) : null}
       {noteOpen ? (
-        <Field label="Notes" value={draft.notes} onChangeText={draft.setNotes} placeholder="What stood out?" multiline style={{ height: 96, paddingTop: 12, textAlignVertical: 'top' }} />
+        <Field label="Notes" value={draft.notes} onChangeText={draft.setNotes} placeholder="What stood out?" multiline style={{ height: 110, paddingTop: space[3], textAlignVertical: 'top' }} />
       ) : null}
     </Card>
   );

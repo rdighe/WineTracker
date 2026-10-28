@@ -88,3 +88,28 @@ export function BottleIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
     </Svg>
   );
 }
+
+export function ChevronIcon({ color, size = 16, strokeWidth = 1.8, direction = 'right' }: IconProps & { direction?: 'right' | 'down' | 'up' }) {
+  const d = { right: 'M9.5 6l6 6-6 6', down: 'M6 9.5l6 6 6-6', up: 'M6 14.5l6-6 6 6' }[direction];
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d={d} />
+    </Svg>
+  );
+}
+
+export function RefreshIcon({ color, size = 16, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4" />
+    </Svg>
+  );
+}
+
+export function FilterIcon({ color, size = 16, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round">
+      <Path d="M4 6h16M7 12h10M10 18h4" />
+    </Svg>
+  );
+}

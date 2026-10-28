@@ -5,7 +5,7 @@
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
-import { Card, colors } from './ui';
+import { Card, useTheme } from './ui';
 
 const Pulse = createContext<Animated.Value | null>(null);
 
@@ -42,7 +42,8 @@ export function Skeleton({ children, label = 'Loading' }: { children: ReactNode;
 /** One placeholder block. */
 export function Bone({ width = '100%', height = 12, radius = 6, style }: { width?: DimensionValue; height?: number; radius?: number; style?: StyleProp<ViewStyle> }) {
   const pulse = useContext(Pulse);
-  return <Animated.View style={[{ width, height, borderRadius: radius, backgroundColor: colors.line2, opacity: pulse ?? 1 }, style]} />;
+  const { c } = useTheme();
+  return <Animated.View style={[{ width, height, borderRadius: radius, backgroundColor: c.fillQuiet, opacity: pulse ?? 1 }, style]} />;
 }
 
 /** Lines of text still loading: full width, then shorter. */
@@ -61,8 +62,8 @@ export function TextBones({ lines = 3, height = 12 }: { lines?: number; height?:
 export function PriceBones() {
   return (
     <>
-      <Bone width={150} height={30} radius={8} />
-      <Bone height={6} radius={3} style={{ marginTop: 4 }} />
+      <Bone width={150} height={34} radius={8} />
+      <Bone height={8} radius={4} style={{ marginTop: 4 }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
         <Bone width={70} height={10} />
         <Bone width={70} height={10} />
@@ -76,21 +77,18 @@ export function WineSkeleton() {
   const bars: DimensionValue[] = ['82%', '64%', '91%', '55%', '73%'];
   return (
     <Skeleton label="Loading wine">
-      <View style={{ alignItems: 'center' }}>
-        <Bone width={150} height={210} radius={22} />
-      </View>
+      <Bone height={300} radius={16} />
       <View style={{ gap: 10 }}>
-        <Bone width={140} height={10} />
-        <Bone width="85%" height={26} radius={8} />
-        <Bone width="55%" height={26} radius={8} />
-        <Bone width={180} height={10} />
+        <Bone width="85%" height={28} radius={8} />
+        <Bone width="55%" height={28} radius={8} />
+        <Bone width={180} height={12} />
       </View>
-      <Card style={{ paddingHorizontal: 20, gap: 10 }}>
-        <Bone width={90} height={10} />
+      <Card style={{ gap: 10 }}>
+        <Bone width={90} height={12} />
         <PriceBones />
       </Card>
-      <Card style={{ paddingHorizontal: 20, gap: 12 }}>
-        <Bone width={80} height={10} />
+      <Card style={{ gap: 12 }}>
+        <Bone width={80} height={12} />
         {bars.map((w, i) => (
           <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Bone width={44} height={12} />
@@ -101,8 +99,8 @@ export function WineSkeleton() {
           </View>
         ))}
       </Card>
-      <Card style={{ paddingHorizontal: 20, gap: 14 }}>
-        <Bone width={120} height={10} />
+      <Card style={{ gap: 14 }}>
+        <Bone width={120} height={12} />
         <TextBones lines={4} height={13} />
       </Card>
     </Skeleton>

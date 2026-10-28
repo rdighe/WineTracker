@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.rohanatstanford.winetracker",
@@ -42,9 +42,13 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0D0A0E",
+          "backgroundColor": "#F6F4F2",
           "image": "./assets/splash-icon.png",
-          "imageWidth": 120
+          "imageWidth": 120,
+          "dark": {
+            "backgroundColor": "#0E0C0D",
+            "image": "./assets/splash-icon.png"
+          }
         }
       ],
       "expo-web-browser",
@@ -54,7 +58,7 @@
     "experiments": {
       "typedRoutes": true
     },
-    "backgroundColor": "#0D0A0E",
+    "backgroundColor": "#0E0C0D",
     "extra": {
       "router": {},
       "eas": {

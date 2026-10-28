@@ -1,9 +1,9 @@
 /** Search box and "Filter by" panel for My wines; filtering happens on the phone. */
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Platform, TextInput, View } from 'react-native';
 import type { Tasting } from '../lib/types';
-import { SearchIcon } from './icons';
-import { Button, Chip, Eyebrow, colors, fonts, styles } from './ui';
+import { FilterIcon, SearchIcon } from './icons';
+import { Button, Card, Chip, Label, radius, space, type, useStyles, useTheme, wineStyleOf } from './ui';
 
 export interface Filters {
   colour?: string;
@@ -81,60 +81,59 @@ export function WineFilters({ items, query, onQuery, filters, onFilters }: {
   }, [items]);
   const n = activeCount(filters);
   const toggle = (k: Key, v: string) => onFilters({ ...filters, [k]: filters[k] === v ? undefined : v });
+  const { c, scheme } = useTheme();
+  const s = useStyles();
 
   return (
-    <View style={{ gap: 10 }}>
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <View style={[styles.input, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 0 }]}>
-          <SearchIcon color={colors.faint} />
+    <View style={{ gap: space[3] }}>
+      <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
+        <View style={[s.input, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2], borderRadius: radius.pill }]}>
+          <SearchIcon color={c.ink3} size={18} />
           <TextInput
             accessibilityLabel="Search your wines"
             value={query}
             onChangeText={onQuery}
             placeholder="Search wines or producers"
-            placeholderTextColor={colors.faint}
+            placeholderTextColor={c.ink3}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
             clearButtonMode="while-editing"
-            style={[{ flex: 1, minHeight: 44, color: colors.text, fontFamily: fonts.regular, fontSize: 15 }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]}
+            keyboardAppearance={scheme}
+            style={[type.callout, { flex: 1, minHeight: 42, color: c.ink }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]}
           />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded: open }}
+        <Button
+          title={n ? `Filter · ${n}` : 'Filter'}
+          variant={n ? 'tinted' : 'secondary'}
+          size="md"
           accessibilityLabel={n ? `Filter by, ${n} active` : 'Filter by'}
+          icon={(fg) => <FilterIcon color={fg} />}
           onPress={() => setOpen(!open)}
-          style={({ pressed }) => [
-            { height: 44, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: n ? colors.gold : colors.line2, justifyContent: 'center' },
-            pressed && { opacity: 0.6 },
-          ]}
-        >
-          <Text style={{ fontFamily: fonts.medium, fontSize: 13, color: n ? colors.gold : colors.text }}>{n ? `Filter · ${n}` : 'Filter'}</Text>
-        </Pressable>
+        />
       </View>
 
       {open ? (
-        <View style={{ gap: 14, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface }}>
+        <Card style={{ gap: space[4] }}>
           {groups.map(([k, title, opts]) => (
-            <View key={k} style={{ gap: 8 }}>
-              <Eyebrow style={{ fontSize: 10 }}>{title}</Eyebrow>
+            <View key={k} style={{ gap: space[2] }}>
+              <Label>{title}</Label>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {opts.map((o) => (
-                  <Chip key={o.key} tone={filters[k] === o.key ? 'gold' : 'plain'} onPress={() => toggle(k, o.key)}>{o.label}</Chip>
+                  <Chip key={o.key} small selected={filters[k] === o.key} dot={k === 'colour' && o.key in COLOUR_LABEL ? wineStyleOf(o.key, o.key) : undefined} onPress={() => toggle(k, o.key)}>{o.label}</Chip>
                 ))}
               </View>
             </View>
           ))}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Button title="Clear filters" variant="pill" style={{ borderColor: colors.line2 }} disabled={!n} onPress={() => onFilters({})} />
-            <Button title="Done" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => setOpen(false)} />
+            <Button title="Clear filters" variant="plain" size="sm" disabled={!n} onPress={() => onFilters({})} />
+            <Button title="Done" variant="secondary" size="sm" onPress={() => setOpen(false)} />
           </View>
-        </View>
+        </Card>
       ) : n ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {(Object.entries(filters) as [Key, string | undefined][]).filter(([, v]) => v).map(([k, v]) => (
-            <Chip key={k} tone="gold" onPress={() => onFilters({ ...filters, [k]: undefined })}>
+            <Chip key={k} small selected onPress={() => onFilters({ ...filters, [k]: undefined })}>
               {`${k === 'rating' ? RATINGS.find((r) => r.key === v)?.label : COLOUR_LABEL[v!] ?? v}  ×`}
             </Chip>
           ))}

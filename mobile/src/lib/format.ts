@@ -1,8 +1,6 @@
+/** Whole dollars, as the design system shows prices: "$48", "$1,220". */
 export const dollars = (cents: number | null | undefined) =>
-  cents == null ? '—' : `$${(cents / 100).toFixed(cents >= 10000 ? 0 : 2)}`;
-
-/** Always with cents: prices shown as figures ("$319.05"). */
-export const dollarsExact = (cents: number | null | undefined) => (cents == null ? '—' : `$${(cents / 100).toFixed(2)}`);
+  cents == null ? '—' : `$${Math.round(cents / 100).toLocaleString('en-US')}`;
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

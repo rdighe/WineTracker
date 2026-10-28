@@ -60,6 +60,20 @@ cloudflared tunnel --url http://127.0.0.1:5050   # prints https://<random>.trycl
 and enter that address under **Server**. The address changes each time the tunnel restarts. Anyone who has it
 can use your API (and its development sign-in) while the tunnel runs, so stop it when you're done.
 
+## Look and feel
+
+The app follows the WineTracker design system (https://claude.ai/artifact/GYN2DuUbpCJ8eqerSf1U1F). Its tokens live
+in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
+
+- **Light and dark** follow the phone, or the Theme choice under Appearance (bottom of My cellar / My tastings).
+- **Liquid glass** (tab bar, wine-page toolbar, buttons over photos) is `src/components/Glass.tsx`: native Liquid Glass
+  on iOS 26 (`expo-glass-effect`), a blur elsewhere. It follows the phone's Liquid Glass (Clear/Tinted), Reduce
+  Transparency and Increase Contrast settings; Reduce Transparency and Increase Contrast always win over the in-app
+  Glass choice. `expo-glass-effect` is native code: make a new development or TestFlight build after pulling this.
+- **Photos first:** a wine's page opens on its photo; rows lead with a thumbnail; For you is a grid of photo cards.
+- Wine names are set in a serif (New York on iOS, Newsreader elsewhere); everything else is the system font, with
+  tabular figures for prices.
+
 ## Checks
 
 ```bash

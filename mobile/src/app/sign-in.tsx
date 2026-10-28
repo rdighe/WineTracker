@@ -1,13 +1,14 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { Button, Card, ErrorText, Eyebrow, Field, Muted, Screen, colors, fonts } from '../components/ui';
+import { Button, Card, ErrorText, Field, Heading, Muted, Screen, space, type, useTheme } from '../components/ui';
 import { checkServer, type ServerInfo } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { getApiUrl, setApiUrl } from '../lib/config';
 
 export default function SignIn() {
   const auth = useAuth();
+  const { c } = useTheme();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -36,17 +37,17 @@ export default function SignIn() {
 
   return (
     <Screen tabBar={false}>
-      <View style={{ marginTop: 24, marginBottom: 8, gap: 10 }}>
-        <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>WineTracker</Text>
-        <Text style={{ fontFamily: fonts.semibold, fontSize: 30, lineHeight: 36, letterSpacing: -0.6, color: colors.text }}>
+      <View style={{ marginTop: space[6], marginBottom: space[2], gap: space[3] }}>
+        <Text style={[type.wineTitle, { fontSize: 22, fontWeight: '600', color: c.accent }]}>WineTracker</Text>
+        <Text accessibilityRole="header" style={[type.largeTitle, { color: c.ink }]}>
           Every bottle you taste, and what it&apos;s worth now.
         </Text>
-        <Muted>Scan a label, log what you paid, and find more you&apos;ll like.</Muted>
+        <Muted style={type.body}>Scan a label, log what you paid, and find more you&apos;ll like.</Muted>
       </View>
 
       <Card>
         {!info ? (
-          <Muted>{serverError ? 'Can\'t reach the server below. Check its address.' : 'Connecting…'}</Muted>
+          <Muted style={type.subhead}>{serverError ? 'Can\'t reach the server below. Check its address.' : 'Connecting…'}</Muted>
         ) : (
           <>
             {info.signIn.includes('google') ? (
@@ -54,10 +55,10 @@ export default function SignIn() {
             ) : null}
             {info.signIn.includes('dev') ? (
               <>
-                <Eyebrow>Development sign-in</Eyebrow>
+                <Heading>Development sign-in</Heading>
                 <Muted>This server accepts any name (ALLOW_DEV_AUTH=true).</Muted>
                 <Field label="Name" value={name} onChangeText={setName} autoCapitalize="none" placeholder="rohan" />
-                <Button title="Continue" variant={info.signIn.includes('google') ? 'secondary' : undefined} busy={busy} onPress={() => run(async () => { await auth.signInDev(name); done(); })} />
+                <Button title="Continue" variant={info.signIn.includes('google') ? 'tinted' : undefined} busy={busy} onPress={() => run(async () => { await auth.signInDev(name); done(); })} />
               </>
             ) : null}
             {!info.signIn.length ? <Muted>This server has no sign-in set up.</Muted> : null}
@@ -67,12 +68,13 @@ export default function SignIn() {
       </Card>
 
       <Card>
-        <Eyebrow>Server</Eyebrow>
+        <Heading>Server</Heading>
         <Muted>The WineTracker API this app talks to. On iPhone it must be an https:// address (a deployed API or a tunnel).</Muted>
-        <Field label="API address" mono value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." />
+        <Field label="API address" value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." />
         <Button
           title="Save and check"
           variant="secondary"
+          size="md"
           busy={busy}
           onPress={() =>
             run(async () => {
@@ -86,7 +88,7 @@ export default function SignIn() {
             }, setServerError)
           }
         />
-        {serverStatus ? <Muted style={{ color: colors.gold }}>{serverStatus}</Muted> : null}
+        {serverStatus ? <Muted style={{ color: c.positive }}>{serverStatus}</Muted> : null}
         <ErrorText error={serverError} />
       </Card>
     </Screen>

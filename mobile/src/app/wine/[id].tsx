@@ -1,24 +1,29 @@
-/** Wine: market price (all vintages or one), price by vintage, where to buy, save, log a tasting. */
+/** Wine: the photo first, then market price (all vintages or one), price by vintage, where to buy, save, log a tasting. */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
-import { BackIcon, BookmarkIcon } from '../../components/icons';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Glass } from '../../components/Glass';
+import { BackIcon, BookmarkIcon, BottleIcon, PlusIcon, RefreshIcon } from '../../components/icons';
 import { TastingForm, type TastingKind } from '../../components/TastingForm';
 import { WineAbout, useWineInfo } from '../../components/WineAbout';
 import { PriceBones, Skeleton, WineSkeleton } from '../../components/Skeleton';
-import { WineThumb } from '../../components/WineThumb';
-import { Button, Card, ErrorText, Eyebrow, IconButton, Mono, Muted, Screen, colors, fonts } from '../../components/ui';
-import { dollarsExact as dollars, wineTitle } from '../../lib/format';
+import { WinePhoto } from '../../components/WineThumb';
+import { Button, Card, Divider, ErrorText, Heading, IconButton, Muted, StyleDot, radius, size, space, type, useTheme, wineStyleOf } from '../../components/ui';
+import { dollars, wineTitle } from '../../lib/format';
 import type { PriceSummary, PricesResponse, Wine } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
-const capitalize = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
+const STYLE_LABEL = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', fortified: 'Fortified' } as const;
 
 export default function WineScreen() {
   // add=cellar|tasted (and vintage): open the form straight away, from My Cellar / My Tastings.
   const { id, add, vintage: addVintage } = useLocalSearchParams<{ id: string; add?: string; vintage?: string }>();
   const wineId = Number(id);
   const api = useApi();
+  const insets = useSafeAreaInsets();
+  const { c, glass } = useTheme();
   const [wine, setWine] = useState<Wine | null>(null);
   const [summaries, setSummaries] = useState<PriceSummary[]>([]);
   const [vintage, setVintage] = useState<string | null>(null);
@@ -30,6 +35,7 @@ export default function WineScreen() {
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [allVintages, setAllVintages] = useState(false);
+  const [allShops, setAllShops] = useState(false);
   // Which vintage the prices on screen are for; until it matches, the price card shows placeholders.
   const [pricesFor, setPricesFor] = useState<string | null>(null);
   const about = useWineInfo(wineId);
@@ -80,139 +86,191 @@ export default function WineScreen() {
   }
 
   const title = wine ? wineTitle(wine.display_name, wine.sub_region) : '';
+  const style = wineStyleOf(wine?.colour, wine?.wine_type);
   const byVintage = summaries.filter((s) => s.vintage_key !== '*').sort((a, b) => b.vintage_key.localeCompare(a.vintage_key));
   const max = Math.max(1, ...byVintage.map((s) => s.median_cents));
   const summary = prices?.summary;
   const span = summary ? summary.p90_cents - summary.p10_cents : 0;
   const marker = summary && span > 0 ? Math.min(1, Math.max(0, (summary.median_cents - summary.p10_cents) / span)) : 0.5;
+  const offers = prices?.offers ?? [];
+  const solidTint = glass === 'solid' || glass === 'contrast';
 
   return (
-    <Screen tabBar={false}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <IconButton label="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
-          <BackIcon color={colors.text} />
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+      <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" bottomOffset={24} contentContainerStyle={{ paddingBottom: insets.bottom + (logging ? space[6] : 110) }}>
+        {/* The photo leads: full width, under the status bar; glass controls float over it. */}
+        {!wine && !error ? (
+          <View style={{ paddingTop: insets.top + 64, paddingHorizontal: space[4] }}>
+            <WineSkeleton />
+          </View>
+        ) : wine ? (
+          <WinePhoto uri={wine.image_url} wineStyle={style} padding={space[6]} emptyLabel="No photo yet" style={{ width: '100%', height: wine.image_url ? size.photoHero + insets.top : 220 + insets.top, paddingTop: wine.image_url ? insets.top : insets.top + 40 }}>
+            {wine.image_url && wine.image_match === 'producer' ? (
+              <View style={{ position: 'absolute', left: space[3], bottom: space[3] }}>
+                <Glass style={{ borderRadius: radius.pill }}>
+                  <Text style={[type.footnote, { color: c.ink, paddingVertical: 6, paddingHorizontal: space[3] }]}>Photo of another wine from this producer</Text>
+                </Glass>
+              </View>
+            ) : null}
+          </WinePhoto>
+        ) : (
+          <View style={{ height: insets.top + 64 }} />
+        )}
+
+        <View style={{ paddingHorizontal: space[4], paddingTop: space[4], gap: space[5] }}>
+          {wine && (
+            <View style={{ gap: 6 }}>
+              <Text accessibilityRole="header" style={[type.wineDisplay, { color: c.ink }]}>{title}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' }}>
+                <StyleDot wineStyle={style} />
+                <Text style={[type.subhead, { color: c.ink2 }]}>
+                  {[STYLE_LABEL[style], [wine.sub_region, wine.region, wine.country].filter(Boolean).slice(0, 2).join(', ')].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+              {wine.grape || wine.lwin ? <Muted style={{ color: c.ink3 }}>{[wine.grape, wine.lwin && `LWIN ${wine.lwin}`].filter(Boolean).join(' · ')}</Muted> : null}
+            </View>
+          )}
+
+          {wine ? (
+            <Card>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Heading>Market price · {vintage ?? 'all vintages'}</Heading>
+                <Button title="Check" variant="plain" size="sm" busy={busy} onPress={refresh} icon={(fg) => <RefreshIcon color={fg} />} accessibilityLabel="Check prices now" />
+              </View>
+              {pricesFor !== (vintage ?? '*') ? (
+                <Skeleton label="Loading prices">
+                  <View style={{ gap: 10 }}>
+                    <PriceBones />
+                  </View>
+                </Skeleton>
+              ) : summary ? (
+                <View style={{ gap: space[2] }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space[2], flexWrap: 'wrap' }}>
+                    <Text style={[type.figureLg, { color: c.ink }]}>{dollars(summary.median_cents)}</Text>
+                    <Muted>median · per 750 ml · {summary.n_observations} {summary.n_observations === 1 ? 'offer' : 'offers'}</Muted>
+                  </View>
+                  <View accessible accessibilityLabel={`Range ${dollars(summary.p10_cents)} to ${dollars(summary.p90_cents)}`} style={{ height: 8, borderRadius: 4, marginTop: space[2], backgroundColor: c.accentSoft, borderWidth: 1, borderColor: c.accent }}>
+                    <View style={{ position: 'absolute', left: `${marker * 100}%`, top: -5, width: 3, height: 16, marginLeft: -1.5, borderRadius: 2, backgroundColor: c.accent }} />
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Muted style={type.tabular}>{dollars(summary.p10_cents)} low</Muted>
+                    <Muted style={type.tabular}>{dollars(summary.p90_cents)} high</Muted>
+                  </View>
+                  {summary.out_of_stock_only ? <Muted style={{ color: c.caution }}>Out of stock everywhere: this is what shops listed it at.</Muted> : null}
+                  {summary.window_days > 30 ? <Muted style={{ color: c.caution }}>Based on the last year (nothing more recent).</Muted> : null}
+                </View>
+              ) : (
+                <Muted>No current retail price.</Muted>
+              )}
+            </Card>
+          ) : null}
+
+          {byVintage.length > 0 && (
+            <Card>
+              <Heading>By vintage</Heading>
+              {(allVintages ? byVintage : byVintage.slice(0, 8)).map((s) => {
+                const on = s.vintage_key === vintage;
+                return (
+                  <Pressable
+                    key={s.vintage_key}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`${s.vintage_key}, ${dollars(s.median_cents)}`}
+                    onPress={() => setVintage(on ? null : s.vintage_key)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 32 }}
+                  >
+                    <Text style={[type.subhead, type.tabular, { width: 44, fontWeight: on ? '700' : '400', color: on ? c.accent : c.ink }]}>{s.vintage_key}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ height: 8, borderRadius: 4, width: `${(s.median_cents / max) * 100}%`, backgroundColor: on ? c.accent : c.accentSoft }} />
+                    </View>
+                    <Text style={[type.subhead, type.tabular, { width: 84, textAlign: 'right', fontWeight: '600', color: c.ink }]}>{dollars(s.median_cents)}</Text>
+                  </Pressable>
+                );
+              })}
+              {byVintage.length > 8 ? (
+                <Button title={allVintages ? 'Show fewer' : `Show all ${byVintage.length} vintages`} variant="plain" size="sm" onPress={() => setAllVintages(!allVintages)} />
+              ) : null}
+            </Card>
+          )}
+
+          {offers.length > 0 && (
+            <Card>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Heading>Where to buy</Heading>
+                {offers.length > 3 ? <Button title={allShops ? 'Fewer' : `All ${Math.min(offers.length, 8)}`} variant="plain" size="sm" onPress={() => setAllShops(!allShops)} /> : null}
+              </View>
+              <View>
+                {offers.slice(0, allShops ? 8 : 3).map((o, i) => (
+                  <View key={o.url + o.observed_at}>
+                    {i ? <Divider /> : null}
+                    <Pressable
+                      accessibilityRole="link"
+                      onPress={() => o.url.startsWith('http') && Linking.openURL(o.url)}
+                      style={({ pressed }) => [{ minHeight: size.tapMin, paddingVertical: space[2], flexDirection: 'row', alignItems: 'center', gap: space[3] }, pressed && { opacity: 0.6 }]}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[type.subhead, { color: c.ink }]} numberOfLines={1}>{o.merchant ?? 'Shop'}</Text>
+                        <Muted style={o.in_stock === false ? { color: c.negative } : undefined}>
+                          {[o.in_stock === false ? 'Out of stock' : null, o.vintage_key, o.bottle_ml !== 750 ? `${o.bottle_ml} ml` : null].filter(Boolean).join(' · ') || ' '}
+                        </Muted>
+                      </View>
+                      <Text style={[type.figure, { color: c.ink }]}>{dollars(o.price_cents)}</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          )}
+
+          {wine ? <WineAbout res={about} /> : null}
+
+          {message ? <Muted>{message}</Muted> : null}
+          <ErrorText error={error} />
+
+          {wine && logging ? (
+            <TastingForm key={logging} wineId={wineId} vintage={vintage ?? (addVintage || null)} kind={logging} suggestedTags={about?.info?.descriptors} onSaved={(k) => { setLogging(null); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }} />
+          ) : null}
+        </View>
+      </KeyboardAwareScrollView>
+
+      {/* Floating controls: glass over the photo and the content scrolling under it. */}
+      <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + space[2], left: space[4], right: space[4], flexDirection: 'row', justifyContent: 'space-between' }}>
+        <IconButton glass label="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
+          <BackIcon color={c.ink} size={20} />
         </IconButton>
-        <IconButton label="Save to watch list" onPress={save}>
-          <BookmarkIcon color={colors.accent} filled={saved} />
+        <IconButton glass label={saved ? 'Saved to watch list' : 'Save to watch list'} onPress={save}>
+          <BookmarkIcon color={saved ? c.accent : c.ink} filled={saved} />
         </IconButton>
       </View>
 
-      {!wine && !error ? <WineSkeleton /> : null}
-
-      {wine?.image_url ? (
-        <View style={{ alignItems: 'center', gap: 6 }}>
-          <WineThumb uri={wine.image_url} width={150} height={210} radius={22} />
-          {wine.image_match === 'producer' ? <Muted style={{ fontSize: 11 }}>Photo of another wine from this producer</Muted> : null}
+      {wine && !logging ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: space[4], right: space[4], bottom: Math.max(insets.bottom - 6, space[3]), alignItems: 'center' }}>
+          <Glass style={{ borderRadius: radius.pill }}>
+            <View accessibilityRole="toolbar" style={{ flexDirection: 'row', padding: 4, gap: 2 }}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setLogging('cellar')}
+                style={({ pressed }) => [{ height: size.controlLg - 4, paddingHorizontal: space[4], borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space[2] }, pressed && { opacity: 0.7 }]}
+              >
+                <BottleIcon color={c.ink} size={20} />
+                <Text style={[type.subhead, { fontWeight: '600', color: c.ink }]}>Add to cellar</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setLogging('tasted')}
+                style={({ pressed }) => [
+                  { height: size.controlLg - 4, paddingHorizontal: space[5], borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space[2], backgroundColor: solidTint ? c.accent : c.glassTint },
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <PlusIcon color={c.onAccent} size={20} />
+                <Text style={[type.subhead, { fontWeight: '600', color: c.onAccent }]}>Log tasting</Text>
+              </Pressable>
+            </View>
+          </Glass>
         </View>
       ) : null}
-      {wine && (
-        <View style={{ gap: 6 }}>
-          <Eyebrow>{[wine.sub_region, wine.region, wine.country].filter(Boolean).slice(0, 2).join(' · ')}</Eyebrow>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 28, lineHeight: 32, letterSpacing: -0.6, color: colors.text }}>{title}</Text>
-          <Mono style={{ fontSize: 11, color: colors.muted }}>{[wine.lwin && `LWIN ${wine.lwin}`, capitalize(wine.colour), wine.grape].filter(Boolean).join(' · ')}</Mono>
-        </View>
-      )}
-
-      {wine ? <Card style={{ paddingHorizontal: 20, gap: 10 }}>
-        <Eyebrow>{vintage ?? 'All vintages'}</Eyebrow>
-        {pricesFor !== (vintage ?? '*') ? (
-          <Skeleton label="Loading prices">
-            <View style={{ gap: 10 }}>
-              <PriceBones />
-            </View>
-          </Skeleton>
-        ) : summary ? (
-          <>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <Mono style={{ fontFamily: fonts.monoMedium, fontSize: 30, color: colors.gold }}>{dollars(summary.median_cents)}</Mono>
-              <Muted style={{ fontSize: 12 }}>median · {summary.n_observations} {summary.n_observations === 1 ? 'offer' : 'offers'}</Muted>
-            </View>
-            <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.line2, marginTop: 4 }}>
-              <View style={{ position: 'absolute', left: `${marker * 100}%`, top: -4, width: 2, height: 14, borderRadius: 1, backgroundColor: colors.gold }} />
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Mono style={{ fontSize: 11, color: colors.muted }}>{dollars(summary.p10_cents)} low</Mono>
-              <Mono style={{ fontSize: 11, color: colors.muted }}>{dollars(summary.p90_cents)} high</Mono>
-            </View>
-            {summary.out_of_stock_only ? <Muted style={{ fontSize: 12 }}>Out of stock everywhere: this is what shops listed it at.</Muted> : null}
-            {summary.window_days > 30 ? <Muted style={{ fontSize: 12 }}>Based on the last year (nothing more recent).</Muted> : null}
-          </>
-        ) : (
-          <Muted>No current retail price.</Muted>
-        )}
-      </Card> : null}
-
-      {byVintage.length > 0 && (
-        <Card style={{ paddingHorizontal: 20, gap: 12 }}>
-          <Eyebrow>By vintage</Eyebrow>
-          {(allVintages ? byVintage : byVintage.slice(0, 8)).map((s) => {
-            const on = s.vintage_key === vintage;
-            return (
-              <Pressable
-                key={s.vintage_key}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={`${s.vintage_key}, ${dollars(s.median_cents)}`}
-                onPress={() => setVintage(on ? null : s.vintage_key)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 24 }}
-              >
-                <Mono style={{ width: 44, fontSize: 12, color: on ? colors.gold : colors.text2 }}>{s.vintage_key}</Mono>
-                <View style={{ flex: 1 }}>
-                  <View
-                    style={{
-                      height: 8, borderRadius: 4, width: `${(s.median_cents / max) * 100}%`, backgroundColor: on ? colors.gold : colors.line2,
-                      ...(on ? { shadowColor: colors.gold, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } } : {}),
-                    }}
-                  />
-                </View>
-                <Mono style={{ width: 72, textAlign: 'right', fontSize: 12, color: on ? colors.gold : colors.text }}>{dollars(s.median_cents)}</Mono>
-              </Pressable>
-            );
-          })}
-          {byVintage.length > 8 ? (
-            <Button title={allVintages ? 'Show fewer' : `Show all ${byVintage.length} vintages`} variant="pill" style={{ borderColor: colors.line2 }} onPress={() => setAllVintages(!allVintages)} />
-          ) : null}
-        </Card>
-      )}
-
-      {wine ? <WineAbout res={about} /> : null}
-
-      {prices && prices.offers.length > 0 && (
-        <Card style={{ paddingHorizontal: 20, gap: 4 }}>
-          <Eyebrow>Where to buy</Eyebrow>
-          {prices.offers.slice(0, 8).map((o, i) => (
-            <Pressable
-              key={o.url + o.observed_at}
-              accessibilityRole="link"
-              onPress={() => o.url.startsWith('http') && Linking.openURL(o.url)}
-              style={({ pressed }) => [{ paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: colors.line }, pressed && { opacity: 0.6 }]}
-            >
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                <Text style={{ flex: 1, fontFamily: fonts.regular, fontSize: 14, color: colors.text }} numberOfLines={1}>{o.merchant ?? 'Shop'}</Text>
-                <Mono style={{ fontSize: 13, color: colors.gold }}>{dollars(o.price_cents)}</Mono>
-              </View>
-              <Mono style={{ fontSize: 11, color: colors.muted }}>
-                {[o.vintage_key, o.bottle_ml !== 750 ? `${o.bottle_ml} ml` : null, o.in_stock === false ? 'out of stock' : null].filter(Boolean).join(' · ') || ' '}
-              </Mono>
-            </Pressable>
-          ))}
-        </Card>
-      )}
-
-      {message ? <Muted>{message}</Muted> : null}
-      <ErrorText error={error} />
-
-      {!wine ? null : logging ? (
-        <TastingForm key={logging} wineId={wineId} vintage={vintage ?? (addVintage || null)} kind={logging} suggestedTags={about?.info?.descriptors} onSaved={(k) => { setLogging(null); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }} />
-      ) : (
-        <View style={{ gap: 10 }}>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Button title="Add to cellar" onPress={() => setLogging('cellar')} style={{ flex: 1 }} />
-            <Button title="Log tasting" onPress={() => setLogging('tasted')} style={{ flex: 1 }} />
-          </View>
-          <Button title="Refresh prices" variant="secondary" busy={busy} onPress={refresh} />
-        </View>
-      )}
-    </Screen>
+    </View>
   );
 }
+

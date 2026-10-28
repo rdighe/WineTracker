@@ -10,12 +10,13 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SearchBar, SearchResults } from '../../components/AddSearch';
-import { BackIcon, CheckIcon, PhotosIcon } from '../../components/icons';
+import { Glass } from '../../components/Glass';
+import { BackIcon, CheckIcon, ChevronIcon, PhotosIcon } from '../../components/icons';
 import { LineupReview } from '../../components/LineupReview';
 import { TastingFields, useTastingDraft } from '../../components/TastingForm';
-import { Button, Card, Chip, ErrorText, Eyebrow, Field, IconButton, Mono, Muted, Screen, Segmented, colors, fonts, glow, styles } from '../../components/ui';
+import { Button, Card, Chip, Divider, ErrorText, Field, Heading, IconButton, Label, Muted, Screen, Segmented, Title, radius, size, space, type, useStyles, useTheme } from '../../components/ui';
 import { ApiError } from '../../lib/api';
-import { dollarsExact, wineTitle } from '../../lib/format';
+import { dollars, wineTitle } from '../../lib/format';
 import { LINEUP_MAX_SIDE, prepareLabelPhoto, readLabelText } from '../../lib/photo';
 import type { Candidate, PriceSummary, ScanResult, Wine } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
@@ -31,6 +32,7 @@ const RETICLE = { w: 236, h: 316 };
 
 export default function ScanScreen() {
   const api = useApi();
+  const { c } = useTheme();
   const [step, setStep] = useState<Step>({ kind: 'idle' });
   const [mode, setMode] = useState<Mode>('single');
   // Searching: the search bar moves to the top and the results replace the camera panel.
@@ -81,9 +83,9 @@ export default function ScanScreen() {
   if (searching) {
     return (
       <Screen keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
           <SearchBar value={query} onChangeText={setQuery} autoFocus />
-          <Button title="Cancel" variant="pill" style={{ borderColor: colors.line2 }} onPress={() => { setQuery(''); setSearching(false); }} />
+          <Button title="Cancel" variant="plain" size="md" onPress={() => { setQuery(''); setSearching(false); }} />
         </View>
         <SearchResults query={query} />
       </Screen>
@@ -91,11 +93,11 @@ export default function ScanScreen() {
   }
   return (
     <Screen scrollEnabled={false}>
-      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, letterSpacing: 3.6, textTransform: 'uppercase', color: colors.text }}>Add wine</Text>
+      <Title>Add wine</Title>
 
       <Viewfinder uri={scanning ? step.uri : null} lines={scanning ? step.lines : []} active={scanning} onPress={() => !scanning && pick(true)} />
 
-      <Text style={{ fontFamily: fonts.semibold, fontSize: lineup ? 17 : 20, lineHeight: lineup ? 23 : 26, letterSpacing: -0.2, color: colors.text, textAlign: 'center' }}>
+      <Text style={[lineup ? type.headline : type.title2, { color: c.ink, textAlign: 'center' }]}>
         {scanning
           ? lineup ? 'Reading the labels…' : 'Reading the label…'
           : lineup ? 'Line up to 12 bottles side by side with all details visible' : 'Point at the front label'}
@@ -105,9 +107,9 @@ export default function ScanScreen() {
       ) : null}
       <ErrorText error={error} />
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <IconButton label="Choose from photos" size={52} onPress={() => !scanning && pick(false)}>
-          <PhotosIcon color={colors.text} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
+        <IconButton label="Choose from photos" size={size.controlLg} onPress={() => !scanning && pick(false)}>
+          <PhotosIcon color={c.ink} />
         </IconButton>
         <SearchBar value={query} onChangeText={(q) => { setQuery(q); setSearching(true); }} onFocus={() => setSearching(true)} />
       </View>
@@ -116,10 +118,11 @@ export default function ScanScreen() {
 }
 
 function StatusPill({ children, check }: { children: string; check?: boolean }) {
+  const { c } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface }}>
-      {check ? <CheckIcon color={colors.accent} /> : null}
-      <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.muted }}>{children}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: space[3], borderRadius: radius.pill, backgroundColor: c.fillQuiet }}>
+      {check ? <CheckIcon color={c.positive} /> : null}
+      <Text style={[type.footnote, { color: c.ink2 }]}>{children}</Text>
     </View>
   );
 }
@@ -127,9 +130,10 @@ function StatusPill({ children, check }: { children: string; check?: boolean }) 
 /** The camera panel: label frame, a sweeping scan line while reading, and the words read so far. */
 function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines: string[]; active: boolean; onPress: () => void }) {
   const { height } = useWindowDimensions();
+  const { c, reduceMotion } = useTheme();
   const [sweep] = useState(() => new Animated.Value(0));
   useEffect(() => {
-    if (!active) {
+    if (!active || reduceMotion) {
       sweep.setValue(0.46);
       return;
     }
@@ -141,21 +145,21 @@ function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines
     );
     loop.start();
     return () => loop.stop();
-  }, [active, sweep]);
+  }, [active, reduceMotion, sweep]);
 
   // Short phones (iPhone SE) also need room for the mode switch and the shutter below.
   const panel = Math.min(430, height * 0.5, height - 400);
-  const corner = { position: 'absolute' as const, width: 34, height: 34, borderColor: colors.accent };
+  const corner = { position: 'absolute' as const, width: 34, height: 34, borderColor: c.accent };
   const chips = lines.map((l) => l.trim()).filter((l) => l && l.length <= 28).slice(0, 6);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={uri ? 'Label photo' : 'Take a photo of a label'}
       onPress={onPress}
-      style={{ height: panel, borderRadius: 28, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+      style={{ height: panel, borderRadius: radius.lg, backgroundColor: c.surfaceSunken, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
     >
       {uri ? (
-        <Image source={{ uri }} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: 0.85 }} resizeMode="cover" />
+        <Image source={{ uri }} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} resizeMode="cover" />
       ) : null}
       <View style={{ width: RETICLE.w, height: Math.min(RETICLE.h, panel - 90) }}>
         <View style={[corner, { left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2, borderTopLeftRadius: 14 }]} />
@@ -164,20 +168,20 @@ function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines
         <View style={[corner, { right: 0, bottom: 0, borderRightWidth: 2, borderBottomWidth: 2, borderBottomRightRadius: 14 }]} />
         <Animated.View
           style={{
-            position: 'absolute', left: 16, right: 16, top: 0, height: 1, backgroundColor: colors.accent, opacity: 0.85, ...glow, shadowOpacity: 0.9, shadowRadius: 8,
+            position: 'absolute', left: 16, right: 16, top: 0, height: 2, borderRadius: 1, backgroundColor: c.accent,
             transform: [{ translateY: sweep.interpolate({ inputRange: [0, 1], outputRange: [12, Math.min(RETICLE.h, panel - 90) - 12] }) }],
           }}
         />
       </View>
       {!uri ? (
-        <Text style={{ position: 'absolute', bottom: 20, fontFamily: fonts.medium, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: colors.faint }}>Tap to photograph a label</Text>
+        <Text style={[type.subhead, { position: 'absolute', bottom: space[5], color: c.ink2 }]}>Tap to photograph a label</Text>
       ) : null}
       {chips.length ? (
         <View style={{ position: 'absolute', left: 16, right: 16, bottom: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {chips.map((c, i) => (
-            <View key={`${c}-${i}`} style={{ paddingVertical: 5, paddingHorizontal: 9, borderRadius: 8, backgroundColor: 'rgba(13,10,14,0.72)', borderWidth: 1, borderColor: colors.line2 }}>
-              <Text style={{ fontFamily: fonts.mono, fontSize: 11, color: /^(19|20)\d\d$/.test(c) ? colors.gold : colors.text }}>{c.toUpperCase()}</Text>
-            </View>
+          {chips.map((chip, i) => (
+            <Glass key={`${chip}-${i}`} style={{ borderRadius: radius.pill }}>
+              <Text style={[type.footnote, { paddingVertical: 4, paddingHorizontal: 10, fontWeight: /^(19|20)\d\d$/.test(chip) ? '700' : '500', color: c.ink }]}>{chip}</Text>
+            </Glass>
           ))}
         </View>
       ) : null}
@@ -188,6 +192,8 @@ function Viewfinder({ uri, lines, active, onPress }: { uri: string | null; lines
 /** "Is this it?": the matched wine, today's price, and the tasting - or a choice of wines when unsure. */
 function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: () => void }) {
   const api = useApi();
+  const { c, scheme } = useTheme();
+  const s = useStyles();
   const [selected, setSelected] = useState<Candidate | null>(scan.outcome === 'auto' ? scan.candidates[0] ?? null : null);
   const [confirmedId, setConfirmedId] = useState<number | null>(null);
   const [fetched, setFetched] = useState<{ wine: Wine; prices: PriceSummary[] } | null>(null);
@@ -244,10 +250,10 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
   const header = (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <IconButton label="Back to scan" onPress={onDone}>
-        <BackIcon color={colors.text} />
+        <BackIcon color={c.ink} size={20} />
       </IconButton>
       <StatusPill check={Boolean(selected)}>{onDevice ? 'Identified on device' : 'Read in the cloud'}</StatusPill>
-      <View style={{ width: 40 }} />
+      <View style={{ width: size.tapMin }} />
     </View>
   );
 
@@ -255,34 +261,42 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
     return (
       <Screen>
         {header}
+        <Image source={{ uri }} accessibilityLabel="Your label photo" style={{ width: '100%', height: 220, borderRadius: radius.md, backgroundColor: c.surfaceSunken }} resizeMode="cover" />
         {scan.candidates.length > 0 ? (
-          <Card style={{ gap: 4 }}>
-            <Eyebrow>Which wine is it?</Eyebrow>
-            {scan.candidates.map((c, i) => (
-              <Pressable
-                key={c.wineId}
-                accessibilityRole="button"
-                onPress={() => setSelected(c)}
-                style={({ pressed }) => [{ paddingVertical: 12, borderTopWidth: i ? 1 : 0, borderColor: colors.line }, pressed && { opacity: 0.6 }]}
-              >
-                <Text style={styles.h2}>{c.displayName}</Text>
-                <Muted>{[c.region, c.country].filter(Boolean).join(' · ')}</Muted>
-              </Pressable>
-            ))}
-          </Card>
+          <View style={{ gap: space[2] }}>
+            <Heading>Which wine is it?</Heading>
+            <Card flush>
+              {scan.candidates.map((cand, i) => (
+                <View key={cand.wineId}>
+                  {i ? <Divider style={{ marginLeft: space[4] }} /> : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setSelected(cand)}
+                    style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
+                  >
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={[type.wineTitle, { color: c.ink }]}>{cand.displayName}</Text>
+                      <Muted style={type.subhead}>{[cand.region, cand.country].filter(Boolean).join(' · ')}</Muted>
+                    </View>
+                    <ChevronIcon color={c.ink3} />
+                  </Pressable>
+                </View>
+              ))}
+            </Card>
+          </View>
         ) : (
           <Card>
-            <Eyebrow>We read</Eyebrow>
-            <Text style={styles.h2}>{[scan.read.producer, scan.read.name].filter(Boolean).join(' ') || 'Nothing legible'}</Text>
+            <Label>We read</Label>
+            <Text style={[type.wineTitle, { color: c.ink }]}>{[scan.read.producer, scan.read.name].filter(Boolean).join(' ') || 'Nothing legible'}</Text>
             <Muted>Not in the catalog yet. Add it below.</Muted>
           </Card>
         )}
         <Card>
-          <Eyebrow>{scan.candidates.length ? 'None of these? Add it' : 'Add this wine'}</Eyebrow>
+          <Heading>{scan.candidates.length ? 'None of these? Add it' : 'Add this wine'}</Heading>
           <Field label="Producer" value={newWine.producer} onChangeText={(producer) => setNewWine({ ...newWine, producer })} />
           <Field label="Wine" value={newWine.name} onChangeText={(name) => setNewWine({ ...newWine, name })} />
           <Field label="Region" value={newWine.region} onChangeText={(region) => setNewWine({ ...newWine, region })} />
-          <Button title="Add wine" variant="secondary" busy={busy} onPress={addWine} />
+          <Button title="Add wine" variant="tinted" busy={busy} onPress={addWine} />
         </Card>
         <ErrorText error={error} />
       </Screen>
@@ -293,36 +307,38 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
   return (
     <Screen>
       {header}
-      <Card style={{ padding: 20, gap: 16 }}>
-        <View style={{ flexDirection: 'row', gap: 16, alignItems: 'flex-start' }}>
-          <Image source={{ uri }} style={{ width: 64, height: 88, borderRadius: 14, borderWidth: 1, borderColor: colors.line2, backgroundColor: colors.surface2 }} />
-          <View style={{ flex: 1, gap: 6 }}>
-            <Eyebrow>Is this it?</Eyebrow>
-            <Text style={{ fontFamily: fonts.semibold, fontSize: 24, lineHeight: 28, letterSpacing: -0.5, color: colors.text }}>{wineTitle(selected.displayName, w?.sub_region)}</Text>
-            <Muted>{[w?.sub_region || selected.region, w?.sub_region ? w.region : selected.country, w?.colour ? w.colour[0]!.toUpperCase() + w.colour.slice(1) : null].filter(Boolean).join(' · ')}</Muted>
-          </View>
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {/* The person's own label photo leads. */}
+      <Image source={{ uri }} accessibilityLabel="Your label photo" style={{ width: '100%', height: 300, borderRadius: radius.lg, backgroundColor: c.surfaceSunken }} resizeMode="cover" />
+      <View style={{ gap: 6 }}>
+        <Muted>Is this it?</Muted>
+        <Text accessibilityRole="header" style={[type.wineDisplay, { color: c.ink }]}>{wineTitle(selected.displayName, w?.sub_region)}</Text>
+        <Text style={[type.subhead, { color: c.ink2 }]}>
+          {[w?.sub_region || selected.region, w?.sub_region ? w.region : selected.country, w?.colour ? w.colour[0]!.toUpperCase() + w.colour.slice(1) : null].filter(Boolean).join(' · ')}
+        </Text>
+      </View>
+      <Card>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignItems: 'center' }}>
           <TextInput
             accessibilityLabel="Vintage"
             value={draft.vintage}
             onChangeText={draft.setVintage}
             placeholder="Vintage"
-            placeholderTextColor={colors.faint}
+            placeholderTextColor={c.ink3}
             autoCapitalize="characters"
+            keyboardAppearance={scheme}
             maxLength={4}
-            style={{ width: 76, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: colors.gold, color: colors.gold, fontFamily: fonts.mono, fontSize: 12 }}
+            style={[s.input, type.tabular, { width: 96, textAlign: 'center', fontWeight: '600' }]}
           />
-          {scan.bottleMl ? <Chip>{`${scan.bottleMl} ml`}</Chip> : null}
-          {w?.lwin ? <Chip>{`LWIN ${w.lwin}`}</Chip> : null}
+          {scan.bottleMl ? <Chip small>{`${scan.bottleMl} ml`}</Chip> : null}
+          {w?.lwin ? <Chip small>{`LWIN ${w.lwin}`}</Chip> : null}
         </View>
-        <View style={styles.divider} />
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <Divider />
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: space[3] }}>
           <View>
-            <Eyebrow>{market ? `Market now · ${market.vintage_key === '*' ? 'all vintages' : market.vintage_key}` : 'Market now'}</Eyebrow>
-            <Mono style={{ marginTop: 4, fontFamily: fonts.monoMedium, fontSize: 30, color: market ? colors.gold : colors.faint }}>{market ? dollarsExact(market.median_cents) : '—'}</Mono>
+            <Muted>{market ? `Market now · ${market.vintage_key === '*' ? 'all vintages' : market.vintage_key}` : 'Market now'}</Muted>
+            <Text style={[type.figureLg, { marginTop: 2, color: market ? c.ink : c.ink3 }]}>{market ? dollars(market.median_cents) : '—'}</Text>
           </View>
-          <Muted style={{ fontSize: 12, textAlign: 'right', maxWidth: 140 }}>{market ? 'Median of recent US retail offers' : details ? 'No market price yet' : ''}</Muted>
+          <Muted style={{ textAlign: 'right', maxWidth: 150 }}>{market ? 'Median of recent US retail offers, per 750 ml' : details ? 'No market price yet' : ''}</Muted>
         </View>
       </Card>
 
@@ -330,7 +346,7 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
       <ErrorText error={error} />
       <View style={{ gap: 10 }}>
         <Button title={draft.kind === 'cellar' ? 'Add to cellar' : 'Log tasting'} busy={busy} onPress={log} />
-        {confirmedId !== selected.wineId ? <Button title="Not this wine" variant="secondary" onPress={() => setSelected(null)} /> : null}
+        {confirmedId !== selected.wineId ? <Button title="Not this wine" variant="secondary" size="md" style={{ alignSelf: 'stretch' }} onPress={() => setSelected(null)} /> : null}
       </View>
     </Screen>
   );

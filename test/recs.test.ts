@@ -122,6 +122,8 @@ describe('recommendations API', () => {
     expect(ids).not.toContain(dud);
     expect(ids).not.toContain(t1); // already tasted
     expect(recs.body.items[0].reasons.length).toBeGreaterThan(0);
+    // What the app's photo-first cards need: the style and the reference photo (none yet).
+    expect(recs.body.items[0]).toMatchObject({ colour: expect.any(String), wineType: expect.any(String), imageUrl: null });
   });
 
   it('filters red / white / other, and leaves out non-wines and wines nobody has in stock', async () => {

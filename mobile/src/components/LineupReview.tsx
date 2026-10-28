@@ -9,8 +9,8 @@ import { useState } from 'react';
 import { Image, Pressable, Text, TextInput, View } from 'react-native';
 import type { ScanResult } from '../lib/types';
 import { useApi } from '../lib/useApi';
-import { BackIcon } from './icons';
-import { Button, Card, Chip, ErrorText, Eyebrow, IconButton, Muted, Screen, Segmented, colors, fonts } from './ui';
+import { BackIcon, CheckIcon } from './icons';
+import { Button, Card, Chip, ErrorText, IconButton, Label, Muted, Screen, Segmented, radius, space, type, useStyles, useTheme } from './ui';
 
 type Kind = 'cellar' | 'tasted';
 
@@ -32,6 +32,7 @@ function initialRow(scan: ScanResult): Row {
 
 export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanResult[]; onDone: () => void }) {
   const api = useApi();
+  const { c } = useTheme();
   const [rows, setRows] = useState<Row[]>(() => scans.map(initialRow));
   const [kind, setKind] = useState<Kind>('cellar');
   const [busy, setBusy] = useState(false);
@@ -94,23 +95,23 @@ export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanR
 
   return (
     <Screen>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
         <IconButton label="Back to scan" onPress={onDone}>
-          <BackIcon color={colors.text} />
+          <BackIcon color={c.ink} size={20} />
         </IconButton>
         <View style={{ flex: 1 }}>
-          <Eyebrow>Lineup</Eyebrow>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 20, color: colors.text }}>
+          <Muted>Lineup</Muted>
+          <Text accessibilityRole="header" style={[type.title2, { color: c.ink }]}>
             {scans.length ? `${scans.length} ${scans.length === 1 ? 'bottle' : 'bottles'} found` : 'No labels found'}
           </Text>
         </View>
-        <Image source={{ uri }} style={{ width: 48, height: 48, borderRadius: 10, borderWidth: 1, borderColor: colors.line2 }} />
       </View>
+      <Image source={{ uri }} accessibilityLabel="Your lineup photo" style={{ width: '100%', height: 220, borderRadius: radius.md, backgroundColor: c.surfaceSunken }} resizeMode="cover" />
 
       {!scans.length ? (
         <Card>
-          <Muted>Couldn&apos;t read any labels. Stand the bottles side by side with the front labels facing the camera, close enough to read, and try again.</Muted>
-          <Button title="Try again" variant="secondary" onPress={onDone} />
+          <Muted style={type.subhead}>Couldn&apos;t read any labels. Stand the bottles side by side with the front labels facing the camera, close enough to read, and try again.</Muted>
+          <Button title="Try again" variant="secondary" size="md" onPress={onDone} />
         </Card>
       ) : (
         <>
@@ -125,7 +126,7 @@ export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanR
             busy={busy}
             onPress={addAll}
           />
-          <Muted style={{ fontSize: 12 }}>Ratings, notes and prices can be added afterwards from My wines.</Muted>
+          <Muted>Ratings, notes and prices can be added afterwards from My cellar and My tastings.</Muted>
         </>
       )}
     </Screen>
@@ -133,61 +134,65 @@ export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanR
 }
 
 function BottleRow({ n, row, kind, failed, onChange }: { n: number; row: Row; kind: Kind; failed: boolean; onChange: (p: Partial<Row>) => void }) {
+  const { c, scheme } = useTheme();
+  const s = useStyles();
   const { scan, pick } = row;
-  const c = pick >= 0 ? scan.candidates[pick] : null;
+  const x = pick >= 0 ? scan.candidates[pick] : null;
   const unsure = scan.outcome !== 'auto';
   return (
-    <Card style={[{ gap: 12, opacity: row.include ? 1 : 0.55 }, failed && { borderColor: colors.error }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-        <Text style={{ fontFamily: fonts.mono, fontSize: 12, color: colors.muted, marginTop: 3 }}>{n}</Text>
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 16, color: colors.text }}>
-            {c ? c.displayName : `New: ${readName(scan) || 'unreadable label'}`}
+    <Card style={[{ gap: space[3], opacity: row.include ? 1 : 0.6 }, failed && { borderColor: c.negative, borderWidth: 1.5 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space[3] }}>
+        <Text style={[type.footnote, type.tabular, { color: c.ink3, marginTop: 4 }]}>{n}</Text>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[type.wineTitle, { color: c.ink }]}>
+            {x ? x.displayName : `New: ${readName(scan) || 'unreadable label'}`}
           </Text>
-          <Muted style={{ fontSize: 12 }}>
-            {c ? [c.region, c.country].filter(Boolean).join(' · ') || ' ' : 'Not in the catalog yet; it will be added.'}
+          <Muted>
+            {x ? [x.region, x.country].filter(Boolean).join(' · ') || ' ' : 'Not in the catalog yet; it will be added.'}
           </Muted>
-          {unsure && readName(scan) ? <Muted style={{ fontSize: 12 }}>Label reads: {readName(scan)}</Muted> : null}
+          {unsure && readName(scan) ? <Muted style={{ color: c.caution }}>Label reads: {readName(scan)}</Muted> : null}
         </View>
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: row.include }}
           accessibilityLabel={`Include bottle ${n}`}
           onPress={() => onChange({ include: !row.include })}
-          style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: row.include ? colors.accent : colors.line2, backgroundColor: row.include ? colors.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}
+          hitSlop={8}
+          style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: row.include ? c.accent : c.borderControl, backgroundColor: row.include ? c.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}
         >
-          {row.include ? <Text style={{ color: colors.bg, fontFamily: fonts.semibold, fontSize: 15 }}>✓</Text> : null}
+          {row.include ? <CheckIcon color={c.onAccent} size={15} /> : null}
         </Pressable>
       </View>
 
       {unsure && scan.candidates.length ? (
         <View style={{ gap: 6 }}>
-          <Eyebrow style={{ fontSize: 10 }}>{scan.outcome === 'choose' ? 'Which wine? Check this one' : 'Which wine?'}</Eyebrow>
+          <Label>{scan.outcome === 'choose' ? 'Which wine? Check this one' : 'Which wine?'}</Label>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {scan.candidates.map((x, j) => (
-              <Chip key={x.wineId} tone={pick === j ? 'gold' : 'plain'} onPress={() => onChange({ pick: j })}>{x.displayName}</Chip>
+            {scan.candidates.map((cand, j) => (
+              <Chip key={cand.wineId} small selected={pick === j} onPress={() => onChange({ pick: j })}>{cand.displayName}</Chip>
             ))}
-            {readName(scan) ? <Chip tone={pick === -1 ? 'gold' : 'plain'} onPress={() => onChange({ pick: -1 })}>None: add as new</Chip> : null}
+            {readName(scan) ? <Chip small selected={pick === -1} onPress={() => onChange({ pick: -1 })}>None: add as new</Chip> : null}
           </View>
         </View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3] }}>
         <TextInput
           accessibilityLabel={`Vintage of bottle ${n}`}
           value={row.vintage}
           onChangeText={(vintage) => onChange({ vintage })}
           placeholder="Vintage"
-          placeholderTextColor={colors.faint}
+          placeholderTextColor={c.ink3}
           autoCapitalize="characters"
+          keyboardAppearance={scheme}
           maxLength={4}
-          style={{ width: 84, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: colors.gold, color: colors.gold, fontFamily: fonts.mono, fontSize: 13 }}
+          style={[s.input, type.tabular, { width: 96, textAlign: 'center' }]}
         />
         {kind === 'cellar' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Button title="−" variant="pill" style={{ borderColor: colors.line2, minWidth: 36, alignItems: 'center' }} onPress={() => onChange({ bottles: Math.max(1, row.bottles - 1) })} />
-            <Text style={{ fontFamily: fonts.mono, fontSize: 16, color: colors.text, minWidth: 24, textAlign: 'center' }} accessibilityLabel={`${row.bottles} bottles`}>{row.bottles}</Text>
-            <Button title="+" variant="pill" style={{ borderColor: colors.line2, minWidth: 36, alignItems: 'center' }} onPress={() => onChange({ bottles: Math.min(999, row.bottles + 1) })} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
+            <Button title="−" variant="secondary" size="sm" accessibilityLabel="One bottle fewer" onPress={() => onChange({ bottles: Math.max(1, row.bottles - 1) })} />
+            <Text style={[type.headline, type.tabular, { color: c.ink, minWidth: 28, textAlign: 'center' }]} accessibilityLabel={`${row.bottles} bottles`}>{row.bottles}</Text>
+            <Button title="+" variant="secondary" size="sm" accessibilityLabel="One bottle more" onPress={() => onChange({ bottles: Math.min(999, row.bottles + 1) })} />
           </View>
         ) : null}
       </View>
