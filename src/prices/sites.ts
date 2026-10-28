@@ -2,12 +2,20 @@
  * Retailers for the bulk crawl.
  *
  * tos records what each site's terms of service say about automated access,
- * as checked on 2026-10-11. Sites marked 'prohibits_scraping' were included
- * at the project owner's explicit request; remove them from SITES (or pass
- * --exclude-tos-prohibited to the crawler) to drop them.
+ * as checked on 2026-10-11 (2026-10-28 for Flask Fine Wines and Napa Cabs).
+ * Sites marked 'prohibits_scraping' were included at the project owner's
+ * explicit request; remove them from SITES (or pass --exclude-tos-prohibited
+ * to the crawler) to drop them.
  *
- * Not listed because they refuse our crawler (bot protection / 403): wine.com,
- * totalwine.com, klwines.com, binnys.com, winelibrary.com, astorwines.com.
+ * Not listed because they refuse our crawler (bot protection / 403 / 406): wine.com,
+ * totalwine.com, binnys.com, winelibrary.com, astorwines.com, jjbuckley.com,
+ * winex.com, kermitlynch.com, ackerwines.com. Not listed because robots.txt
+ * disallows it (checked 2026-10-28): klwines.com, unionsquarewines.com,
+ * winehousesf.com, wineexchange.com. No crawlable catalog (no feed, no product
+ * sitemap): weimax.com, hitimewine.net, whwc.com, cwdc.com, baygrape.com,
+ * arlequinwinemerchant.com, morrellwine.com, esquin.com. Feeds whose terms
+ * prohibit scraping, not added without the owner's say-so: flatiron-wines.com,
+ * vintagewinemerchants.com.
  */
 export type TosStatus = 'prohibits_scraping' | 'no_clause_found' | 'not_found';
 
@@ -45,6 +53,7 @@ export const SITES: SiteConfig[] = [
   { domain: 'permanwine.com', name: 'Perman Wine Selections', kind: 'shopify', tos: 'no_clause_found' },
   { domain: 'slopecellars.com', name: 'Slope Cellars', kind: 'shopify', tos: 'not_found' },
   { domain: 'linerandelsen.com', name: 'Liner & Elsen', kind: 'shopify', tos: 'not_found' },
+  { domain: 'www.flaskfinewines.com', name: 'Flask Fine Wines', kind: 'shopify', tos: 'not_found' },
   // Sitemap + structured data on each product page.
   {
     domain: 'www.wallywine.com', name: "Wally's Wine & Spirits", kind: 'sitemap', tos: 'not_found',
@@ -52,6 +61,12 @@ export const SITES: SiteConfig[] = [
   },
   // WooCommerce Store API, 100 products per request.
   { domain: 'www.saratogawine.com', name: 'Saratoga Wine Exchange', kind: 'woocommerce', tos: 'no_clause_found' },
+  {
+    // BigCommerce: product sitemaps list wine and spirits alike; spirits, accessories and case bundles are left out by URL.
+    domain: 'www.napacabs.com', name: 'Napa Cabs', kind: 'sitemap', tos: 'no_clause_found',
+    sitemaps: ['https://www.napacabs.com/xmlsitemap.php'], childPattern: /type=products/,
+    productPattern: /^https:\/\/www\.napacabs\.com\/(?![^/]*(bourbon|whisk|vodka|gin|tequila|rum|mezcal|schnapps|shochu|sake|soju|liqueur|brandy|cognac|armagnac|scotch|beer|cider|bitters|vermouth|amaro|aperitif|glass|opener|gift-card|case|pack))[^/]+\.html$/i,
+  },
   {
     domain: 'specsonline.com', name: "Spec's", kind: 'sitemap', tos: 'not_found',
     sitemaps: ['https://specsonline.com/sitemap.xml'], childPattern: /products-\d+\.xml/, productPattern: /\/shop\/wine\//,
