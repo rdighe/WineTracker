@@ -13,9 +13,11 @@ import { createWine, getWine } from '../catalog/wines.js';
 import { matchWine } from '../match/matcher.js';
 import { per750 } from '../lib/listing.js';
 import { ProviderUnavailableError, type LlmProvider } from '../llm/types.js';
-import { createNoteProvider } from '../llm/index.js';
+import { createNoteProvider, createPickReaders } from '../llm/index.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
-import { inputSha, pickWines, readListEntries, readShelfEntries } from '../picks/picks.js';
+import {
+  deletePick, inputSha, listSavedPicks, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos,
+} from '../picks/picks.js';
 import { FLAVOR_KEYS } from '../recs/flavors.js';
 import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
 import { confirmScan, scanLabel, scanLineup, ScanError } from '../scan/scan.js';
@@ -48,6 +50,8 @@ export interface AppDeps {
   places?: Places;
   /** Reads flavors from tasting notes the phone couldn't (default: OpenRouter's free models, when a key is set). */
   noteReader?: NoteFlavorReader;
+  /** What reads wine lists and shelf photos, in order (default: OpenRouter's free models, then `provider`). */
+  pickReaders?: LlmProvider[];
   /** Fetches shop images for /api/photo (tests pass a fake). */
   photoFetch?: typeof fetch;
   /** Override limits (tests). */
@@ -103,7 +107,7 @@ const tastingBody = z.object({
   noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
   const noteReader = noteReaderDep ?? createNoteFlavorReader(db, createNoteProvider());
   const places = placesDep ?? createPlaces(db, provider);
@@ -153,7 +157,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   // send a file part), so that one route gets a larger body limit.
   const smallJson = express.json({ limit: '100kb' });
   const bigBody = new Set(['/api/scans', '/api/scans/lineup', '/api/import/vivino', '/api/picks']);
-  app.use((req, res, next) => (bigBody.has(req.path) ? next() : smallJson(req, res, next)));
+  app.use((req, res, next) => (bigBody.has(req.path) || /^\/api\/picks\/\d+\/photos$/.test(req.path) ? next() : smallJson(req, res, next)));
   const scanJson = express.json({ limit: '12mb' });
   const importJson = express.json({ limit: '8mb' });
   const importLimit = limiter(60 * 60_000, 20);
@@ -509,7 +513,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   }));
 
   // ── Picks: a wine list (or shelf) ranked for the person ──────────────────
-  const listReaders = [provider, createNoteProvider()];
+  const pickReaders = pickReadersDep ?? createPickReaders(provider);
   const cents = z.number().int().min(1).max(10_000_000).nullable().default(null);
   const listEntry = z.object({
     producer: z.string().max(120).default(''),
@@ -527,39 +531,82 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     text: z.string().max(300).default(''),
   });
 
-  // A wine list: the entries the phone read (Apple Intelligence), and/or text it couldn't, for the server to read.
-  // A shelf: the entries the phone read off its tags, or the photo for a vision model (imageBase64).
+  // A wine list: each page's text as the phone read it off the photo (pages), read here.
+  // A shelf: the photo (imageBase64), with the text the phone read off it as a hint.
+  // entries: wines read on the phone by older app versions.
   app.post('/api/picks', auth.requireUser, scanLimit, scanJson, wrap(async (req, res) => {
     const b = parse(
       z.object({
         kind: z.enum(['list', 'shelf']),
+        pages: z.array(z.string().max(MAX_LIST_CHARS)).max(MAX_PICK_PHOTOS).optional(),
         entries: z.array(listEntry).max(MAX_LIST_ENTRIES).optional(),
         text: z.string().max(MAX_LIST_CHARS).optional(),
         imageBase64: z.string().max(12_000_000).optional(),
         mimeType: z.string().max(40).optional(),
-      }).refine((x) => x.entries?.length || x.text?.trim() || x.imageBase64, 'entries, text or imageBase64 required'),
+      }).refine((x) => x.pages?.some((p) => p.trim()) || x.entries?.length || x.text?.trim() || x.imageBase64, 'pages, entries, text or imageBase64 required'),
       req.body
     );
-    if (b.kind === 'shelf') {
-      if (!b.imageBase64) {
-        const entries = (b.entries ?? []).filter((e) => e.producer || e.name);
-        return res.json(await pickWines(db, req.user!.userId, 'shelf', entries, 'apple', inputSha(JSON.stringify(entries))));
-      }
+    const userId = req.user!.userId;
+    if (b.kind === 'shelf' && b.imageBase64) {
       const mimeType = b.mimeType ?? 'image/jpeg';
       if (!IMAGE_TYPES.has(mimeType)) throw new HttpError(400, 'unsupported image type');
       const image = Buffer.from(b.imageBase64.replace(/^data:[^,]*,/, ''), 'base64');
-      const read = await readShelfEntries(db, image, mimeType, b.text, listReaders).catch((err) => {
+      const read = await readShelfPhoto(db, image, mimeType, b.text, pickReaders).catch((err: unknown) => {
         if (err instanceof ProviderUnavailableError) throw new HttpError(503, err.message);
         console.error('shelf read failed:', err);
         throw new HttpError(502, "Couldn't read the shelf photo. Try again, a little closer.");
       });
-      return res.json(await pickWines(db, req.user!.userId, 'shelf', read.entries, read.source, read.sha));
+      return res.json(await pickWines(db, userId, 'shelf', read.entries, read.source, read.sha));
     }
+    const pages = [...(b.pages ?? []), ...(b.text?.trim() ? [b.text] : [])].filter((p) => p.trim());
     const device = (b.entries ?? []).filter((e) => e.producer || e.name);
-    const server = b.text?.trim() ? await readListEntries(db, b.text, listReaders) : null;
-    const entries = [...device, ...(server?.entries ?? [])];
-    const source = [device.length ? 'apple' : '', server?.source ?? ''].filter(Boolean).join('+');
-    res.json(await pickWines(db, req.user!.userId, 'list', entries, source, inputSha(b.text?.trim() ? b.text : JSON.stringify(device))));
+    const read = pages.length ? await readListPages(db, pages, pickReaders) : null;
+    const entries = [...device, ...(read?.entries ?? [])];
+    const source = [device.length ? 'apple' : '', read?.source ?? ''].filter(Boolean).join('+');
+    res.json(await pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device))));
+  }));
+
+  // Saved lists and shelves: name one to keep it; its photos are sent separately.
+  app.get('/api/picks', auth.requireUser, wrap(async (req, res) => {
+    res.json({ saved: await listSavedPicks(db, req.user!.userId) });
+  }));
+
+  app.get('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
+    const r = await openPick(db, req.user!.userId, parse(idParam, req.params.id));
+    if (!r) throw new HttpError(404, 'not found');
+    res.json(r);
+  }));
+
+  app.patch('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
+    const { name } = parse(z.object({ name: z.string().trim().min(1).max(80) }), req.body);
+    if (!(await savePick(db, req.user!.userId, parse(idParam, req.params.id), name))) throw new HttpError(404, 'not found');
+    res.json({ ok: true });
+  }));
+
+  app.put('/api/picks/:id/photos', auth.requireUser, scanJson, wrap(async (req, res) => {
+    const { photos } = parse(
+      z.object({ photos: z.array(z.object({ base64: z.string().max(5_000_000), mimeType: z.string().max(40) })).max(MAX_PICK_PHOTOS) }),
+      req.body
+    );
+    const decoded = photos.map((p) => {
+      if (!IMAGE_TYPES.has(p.mimeType)) throw new HttpError(400, 'unsupported image type');
+      const bytes = Buffer.from(p.base64.replace(/^data:[^,]*,/, ''), 'base64');
+      if (bytes.length > MAX_PICK_PHOTO_BYTES) throw new HttpError(413, 'photo too large');
+      return { contentType: p.mimeType, bytes };
+    });
+    if (!(await setPickPhotos(db, req.user!.userId, parse(idParam, req.params.id), decoded))) throw new HttpError(404, 'not found');
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/picks/:id/photos/:n', auth.requireUser, wrap(async (req, res) => {
+    const ph = await pickPhoto(db, req.user!.userId, parse(idParam, req.params.id), parse(z.coerce.number().int().min(0).max(MAX_PICK_PHOTOS), req.params.n));
+    if (!ph) throw new HttpError(404, 'not found');
+    res.set('Content-Type', ph.contentType).set('Cache-Control', 'private, max-age=31536000, immutable').send(ph.bytes);
+  }));
+
+  app.delete('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
+    if (!(await deletePick(db, req.user!.userId, parse(idParam, req.params.id)))) throw new HttpError(404, 'not found');
+    res.status(204).end();
   }));
 
   // ── Recommendations ──────────────────────────────────────────────────────

@@ -167,4 +167,59 @@ describe('picks API', () => {
     const none = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
     expect((await as(request(none).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('third').toString('base64') })).status).toBe(503);
   });
+
+  it('reads long lists in parts at once, free models first, and only reads a new page when one is added', async () => {
+    const wine = (producer: string) => ({ producer, name: 'Cuvée', vintage: '', region: '', country: '', grape: '', colour: '', style: '', section: '', glassCents: null, bottleCents: 9000, bottleMl: null, text: producer });
+    const free = Object.assign(new NullProvider(), {
+      name: 'openrouter',
+      // Busy on the part that mentions Busy; otherwise one wine per part, named after its first line.
+      readWineList: vi.fn(async (text: string) => {
+        if (text.includes('Busy')) throw new Error('429');
+        return [wine(text.split('\n')[0]!)];
+      }),
+    });
+    const paid = Object.assign(new NullProvider(), { name: 'gemini', readWineList: vi.fn(async (text: string) => [wine(`paid ${text.split('\n')[0]}`)]) });
+    const app = createApp({ db, provider: paid, pickReaders: [free, paid], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const page1 = [...Array(130)].map((_, i) => (i === 0 ? 'REDS' : i === 70 ? 'Busy line 90' : `Wine ${i} 90`)).join('\n');
+    const a = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1] });
+    expect(a.status).toBe(200);
+    // 130 rows: three parts; the second (with Busy) fell back to the paid reader; later parts carry the heading.
+    expect(free.readWineList).toHaveBeenCalledTimes(3);
+    expect(paid.readWineList).toHaveBeenCalledTimes(1);
+    expect(free.readWineList.mock.calls.map((c) => c[0].split('\n')[0]).sort()).toEqual(['REDS', 'REDS', 'REDS']);
+    expect(a.body.source).toBe('openrouter+gemini');
+    expect(a.body.items).toHaveLength(3);
+
+    const b = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1, 'WHITES\nVacheron Sancerre 70'] });
+    expect(b.body.items).toHaveLength(4);
+    expect(free.readWineList).toHaveBeenCalledTimes(4);
+  });
+
+  it('saves a list with its photos, lists it, opens it scored afresh, and deletes it', async () => {
+    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const other = (r: request.Test) => r.set('Authorization', 'Dev someone-else');
+    await priced({ producer: 'Clape', name: 'Cornas', colour: 'red', grape: 'Syrah', source: 'lwin' }, 9000);
+    const scan = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: ['RED\nClape, Cornas 2019 34 / 160'] });
+    const id = scan.body.pickId;
+    expect((await as(request(app).get('/api/picks'))).body.saved).toEqual([]);
+
+    expect((await as(request(app).patch(`/api/picks/${id}`)).send({ name: 'Rich Table' })).status).toBe(200);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    expect((await as(request(app).put(`/api/picks/${id}/photos`)).send({ photos: [{ base64: jpeg.toString('base64'), mimeType: 'image/jpeg' }] })).status).toBe(200);
+    // Not someone else's to change or see.
+    expect((await other(request(app).patch(`/api/picks/${id}`)).send({ name: 'Mine now' })).status).toBe(404);
+    expect((await other(request(app).get(`/api/picks/${id}/photos/0`))).status).toBe(404);
+
+    const list = await as(request(app).get('/api/picks'));
+    expect(list.body.saved).toEqual([expect.objectContaining({ pickId: id, kind: 'list', name: 'Rich Table', wines: 1, photos: 1, topPick: expect.stringContaining('Clape') })]);
+    const opened = await as(request(app).get(`/api/picks/${id}`));
+    expect(opened.body).toMatchObject({ pickId: id, name: 'Rich Table', saved: true, photos: 1, items: [{ entry: { producer: 'Clape', glassCents: 3400, bottleCents: 16000 } }] });
+    const photo = await as(request(app).get(`/api/picks/${id}/photos/0`));
+    expect(photo.headers['content-type']).toBe('image/jpeg');
+    expect(Buffer.from(photo.body)).toEqual(jpeg);
+
+    expect((await as(request(app).delete(`/api/picks/${id}`))).status).toBe(204);
+    expect((await as(request(app).get('/api/picks'))).body.saved).toEqual([]);
+    expect((await as(request(app).get(`/api/picks/${id}`))).status).toBe(404);
+  });
 });

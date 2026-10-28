@@ -23,6 +23,8 @@ export interface OpenRouterOptions {
   baseUrl?: string;
   fetch?: FetchFn;
   timeoutMs?: number;
+  /** Give up after this many models (default: all of them), so a caller who is waiting can fall back quickly. */
+  maxTries?: number;
 }
 
 // Free models that take images, best label readers first; "openrouter/free" lets OpenRouter pick any free vision model.
@@ -78,7 +80,7 @@ export class OpenRouterProvider implements LlmProvider {
    * (402/403), which every model would repeat.
    */
   private async firstGood<T>(run: (model: string) => Promise<string>, parse: (text: string) => T | null): Promise<T> {
-    const order = [...new Set([this.working, ...this.models].filter((m): m is string => Boolean(m)))];
+    const order = [...new Set([this.working, ...this.models].filter((m): m is string => Boolean(m)))].slice(0, this.opts.maxTries);
     let lastErr: unknown = new Error('no usable reply');
     for (const model of order) {
       try {

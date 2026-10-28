@@ -25,6 +25,18 @@ export function createNoteProvider(): LlmProvider | null {
   return config.openrouterApiKey ? new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined }) : null;
 }
 
+/**
+ * What reads wine lists and shelf photos for picks, in order: OpenRouter's
+ * free models first (when its key is set), given little time each since
+ * someone is waiting, then the main provider (Gemini: fast and cheap).
+ */
+export function createPickReaders(main: LlmProvider): LlmProvider[] {
+  const free = config.openrouterApiKey
+    ? new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined, timeoutMs: 25_000, maxTries: 2 })
+    : null;
+  return [free, main].filter((p): p is LlmProvider => p !== null);
+}
+
 export function createProvider(): LlmProvider {
   const gemini = () => new GeminiProvider({ apiKey: config.geminiApiKey, model: config.geminiModel || undefined });
   const openrouter = () =>
