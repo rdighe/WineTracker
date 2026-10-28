@@ -1,4 +1,6 @@
 /** Small typed client for the WineTracker API. */
+import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
 
@@ -38,20 +40,54 @@ export function createApi(authHeader: AuthHeader) {
     if (!res.ok) throw new ApiError(res.status, body.error ?? `HTTP ${res.status}`);
     return body as T;
   }
+  /**
+   * A label photo, sent through an iOS background upload session: if the
+   * person switches apps mid-scan, the upload still finishes and the server
+   * reads the label; the app collects the answer when it's back (scanJob).
+   * On the web, a plain JSON request.
+   */
+  async function sendPhoto<T>(path: string, photo: { uri: string; base64?: string | null; mimeType?: string | null }, fields: Record<string, string>): Promise<T> {
+    const mimeType = photo.mimeType ?? 'image/jpeg';
+    if (Platform.OS === 'web' || !photo.uri.startsWith('file:')) {
+      const imageBase64 = photo.base64 ?? (photo.uri.startsWith('data:') ? photo.uri : null);
+      if (!imageBase64) throw new ApiError(0, 'could not read the photo');
+      return request<T>(path, json('POST', { imageBase64, mimeType, ...fields }));
+    }
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    const auth = await authHeader();
+    if (auth) headers.Authorization = auth;
+    const res = await FileSystem.uploadAsync(`${getApiUrl()}${path}`, photo.uri, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'image',
+      mimeType,
+      parameters: fields,
+      headers,
+      sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
+    });
+    let body: { error?: string } = {};
+    try {
+      body = JSON.parse(res.body);
+    } catch {
+      // Not JSON: the status says what happened.
+    }
+    if (res.status < 200 || res.status >= 300) throw new ApiError(res.status, body.error ?? `HTTP ${res.status}`);
+    return body as T;
+  }
+
   const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
   return {
-    scan(photo: { uri: string; base64?: string | null; mimeType?: string | null; ocrText?: string }) {
-      // Sent as base64 JSON: Expo's fetch drops React Native {uri, name, type}
-      // file parts from FormData, so the server never saw the photo.
-      const imageBase64 = photo.base64 ?? (photo.uri.startsWith('data:') ? photo.uri : null);
-      if (!imageBase64) throw new ApiError(0, 'could not read the photo');
-      return request<ScanResult>('/api/scans', json('POST', { imageBase64, mimeType: photo.mimeType ?? 'image/jpeg', ocrText: photo.ocrText }));
+    /** ref: the app's id for this scan, to collect the answer later with scanJob if the app was away. */
+    scan(photo: { uri: string; base64?: string | null; mimeType?: string | null; ocrText?: string }, ref: string) {
+      return sendPhoto<ScanResult>('/api/scans', photo, { ref, ...(photo.ocrText ? { ocrText: photo.ocrText } : {}) });
     },
     /** A photo of several bottles: one scan per label, left to right. */
-    scanLineup(photo: { base64: string; mimeType: string }) {
-      return request<{ scans: ScanResult[] }>('/api/scans/lineup', json('POST', { imageBase64: photo.base64, mimeType: photo.mimeType }));
+    scanLineup(photo: { uri: string; base64: string; mimeType: string }, ref: string) {
+      return sendPhoto<{ scans: ScanResult[] }>('/api/scans/lineup', photo, { ref });
     },
+    /** How a scan sent with `ref` came out (pending, done with its answer, or failed). */
+    scanJob: (ref: string) => request<{ status: 'pending' | 'done' | 'failed'; result?: unknown; error?: string; httpStatus?: number }>(`/api/scans/jobs/${encodeURIComponent(ref)}`),
     confirmScan: (scanId: number, choice: { wineId: number } | { newWine: { producer: string; name: string; region?: string } }) =>
       request<{ wineId: number; wine: Wine }>(`/api/scans/${scanId}/confirm`, json('POST', choice)),
     search: (q: string) => request<{ results: Candidate[] }>(`/api/wines/search?q=${encodeURIComponent(q)}`),

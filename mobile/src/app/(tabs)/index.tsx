@@ -7,8 +7,8 @@
  */
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, AppState, Animated, Easing, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SearchBar, SearchResults } from '../../components/AddSearch';
 import { Glass } from '../../components/Glass';
 import { BackIcon, CheckIcon, ChevronIcon, PhotosIcon } from '../../components/icons';
@@ -18,10 +18,11 @@ import { Button, Card, Chip, Divider, ErrorText, Field, Heading, IconButton, Lab
 import { ApiError } from '../../lib/api';
 import { dollars, wineTitle } from '../../lib/format';
 import { LINEUP_MAX_SIDE, prepareLabelPhoto, readLabelText } from '../../lib/photo';
+import { forgetScan, newScanRef, pendingScan, rememberScan, scanAnswer, type ScanMode } from '../../lib/pendingScan';
 import type { Candidate, PriceSummary, ScanResult, Wine } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 
-type Mode = 'single' | 'lineup';
+type Mode = ScanMode;
 type Step =
   | { kind: 'idle' }
   | { kind: 'scanning'; uri: string; lines: string[] }
@@ -39,6 +40,57 @@ export default function ScanScreen() {
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // The scan in progress (its ref), and whether its answer is already being collected from the server.
+  const active = useRef<string | null>(null);
+  const collecting = useRef<string | null>(null);
+
+  const finish = useCallback((ref: string, mode: Mode, uri: string, result: unknown) => {
+    if (active.current !== ref) return;
+    active.current = null;
+    void forgetScan();
+    setStep(mode === 'lineup' ? { kind: 'lineup', uri, scans: (result as { scans: ScanResult[] }).scans } : { kind: 'review', uri, scan: result as ScanResult });
+  }, []);
+  const fail = useCallback((ref: string, e: unknown) => {
+    if (active.current !== ref) return;
+    active.current = null;
+    void forgetScan();
+    setError(e instanceof ApiError && e.status === 503 ? new Error('Label reading is not set up on the server yet.') : e);
+    setStep({ kind: 'idle' });
+  }, []);
+  // Ask the server how the scan came out (the app was away when the answer came back).
+  const collect = useCallback(async (ref: string, mode: Mode, uri: string) => {
+    if (collecting.current === ref) return;
+    collecting.current = ref;
+    try {
+      finish(ref, mode, uri, await scanAnswer(api, ref));
+    } catch (e) {
+      fail(ref, e);
+    } finally {
+      if (collecting.current === ref) collecting.current = null;
+    }
+  }, [api, finish, fail]);
+
+  // A scan started before the app was switched away (or closed by iOS): pick it up again.
+  useEffect(() => {
+    let cancelled = false;
+    const resume = async () => {
+      const p = await pendingScan();
+      if (cancelled || !p) return;
+      if (active.current && active.current !== p.ref) return;
+      if (!active.current) {
+        active.current = p.ref;
+        setMode(p.mode);
+        setStep({ kind: 'scanning', uri: p.uri, lines: [] });
+      }
+      void collect(p.ref, p.mode, p.uri);
+    };
+    void resume();
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && void resume());
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [collect]);
 
   async function pick(fromCamera: boolean) {
     setError(null);
@@ -51,23 +103,32 @@ export default function ScanScreen() {
     const res = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (res.canceled || !res.assets[0]) return;
     const asset = res.assets[0];
+    const ref = newScanRef();
+    const scanMode = mode;
+    active.current = ref;
     setStep({ kind: 'scanning', uri: asset.uri, lines: [] });
+    let sent = false;
     try {
-      if (mode === 'lineup') {
+      // Remembered until the answer is in, so it survives switching apps.
+      const send = async <T,>(upload: () => Promise<T>) => {
+        await rememberScan({ ref, uri: asset.uri, mode: scanMode, startedAt: Date.now() });
+        sent = true;
+        return upload();
+      };
+      if (scanMode === 'lineup') {
         // Several labels in one photo: the phone's text reader would run them together, so the API reads them.
         const photo = await prepareLabelPhoto(asset, LINEUP_MAX_SIDE);
-        const { scans } = await api.scanLineup(photo);
-        setStep({ kind: 'lineup', uri: asset.uri, scans });
+        finish(ref, scanMode, asset.uri, await send(() => api.scanLineup(photo, ref)));
         return;
       }
       const photo = await prepareLabelPhoto(asset);
       const ocrText = await readLabelText(photo.uri);
-      if (ocrText) setStep({ kind: 'scanning', uri: asset.uri, lines: ocrText.split('\n') });
-      const scan = await api.scan({ ...photo, ocrText });
-      setStep({ kind: 'review', uri: asset.uri, scan });
+      if (ocrText && active.current === ref) setStep({ kind: 'scanning', uri: asset.uri, lines: ocrText.split('\n') });
+      finish(ref, scanMode, asset.uri, await send(() => api.scan({ ...photo, ocrText }, ref)));
     } catch (e) {
-      setError(e instanceof ApiError && e.status === 503 ? new Error('Label reading is not set up on the server yet.') : e);
-      setStep({ kind: 'idle' });
+      // The connection dropped while the app was away, or the server is still reading it: collect the answer instead.
+      if (sent && (!(e instanceof ApiError) || e.status === 409)) void collect(ref, scanMode, asset.uri);
+      else fail(ref, e);
     }
   }
 

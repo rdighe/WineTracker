@@ -81,6 +81,13 @@ in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
   that grows out of the button (`ExpandingSheet.tsx`); the tab highlight and segmented controls slide; rows fade in,
   and slide gently (220 ms ease-out, no bounce) as a tasted row opens; buttons spring when pressed.
 
+## Scans in the background
+
+Switching apps mid-scan loses nothing. Each scan gets an id (`ref`); the photo goes up through an iOS background
+upload session (`expo-file-system`), so it finishes uploading while the app is away, and the server keeps the
+answer under that id (`scan_jobs`). Back in the app - even after iOS closed it - Add wine asks
+`GET /api/scans/jobs/:ref` and shows the result (`src/lib/pendingScan.ts`).
+
 ## Checks
 
 ```bash

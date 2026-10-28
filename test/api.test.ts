@@ -46,6 +46,29 @@ describe('scan API', () => {
     expect((await request(app(providerReading({}))).post('/api/scans').attach('image', Buffer.from('x'), { filename: 'a.txt', contentType: 'text/plain' })).status).toBe(415);
     expect((await request(app(new NullProvider())).post('/api/scans').attach('image', jpeg, { filename: 'l.jpg', contentType: 'image/jpeg' })).status).toBe(503);
   });
+
+  it('keeps the outcome of a tagged scan for the app to collect, and runs a repeated upload once', async () => {
+    await createWine(db, { producer: 'Chateau Montelena', name: 'Chardonnay', region: 'Napa Valley', colour: 'white', source: 'lwin' });
+    const provider = providerReading({ producer: 'Château Montelena', name: 'Chardonnay', vintage: '2021', region: 'Napa Valley' });
+    const a = app(provider);
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const ref = 'scan-0123456789abcdef';
+    const send = () => as(request(a).post('/api/scans')).field('ref', ref).attach('image', jpeg, { filename: 'l.jpg', contentType: 'image/jpeg' });
+    const first = await send();
+    expect(first.status).toBe(201);
+    const job = await as(request(a).get(`/api/scans/jobs/${ref}`));
+    expect(job.body).toMatchObject({ status: 'done', result: { outcome: 'auto', scanId: first.body.scanId } });
+    // The phone retried the upload: same answer, no second read.
+    expect((await send()).body.scanId).toBe(first.body.scanId);
+    expect(provider.readLabel).toHaveBeenCalledTimes(1);
+    // Someone else can't see it.
+    expect((await request(a).get(`/api/scans/jobs/${ref}`).set('Authorization', 'Dev other')).status).toBe(404);
+
+    // A failed scan is kept as failed, with the status the app would have got.
+    const failed = await as(request(app(new NullProvider())).post('/api/scans')).field('ref', 'scan-fedcba9876543210').attach('image', jpeg, { filename: 'l.jpg', contentType: 'image/jpeg' });
+    expect(failed.status).toBe(503);
+    expect((await as(request(a).get('/api/scans/jobs/scan-fedcba9876543210'))).body).toMatchObject({ status: 'failed', httpStatus: 503 });
+  });
 });
 
 describe('rate limits', () => {

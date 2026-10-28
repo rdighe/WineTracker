@@ -168,22 +168,71 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     return file;
   }
 
-  // Optional "ocrText": label text read on the phone.
+  /**
+   * A scan tagged by the app with its own id ("ref"): the outcome is kept in
+   * scan_jobs, so if the app was switched away and never got the answer, it
+   * collects it from GET /api/scans/jobs/:ref. The same ref sent twice (an
+   * upload retried by the phone) runs once. Without a ref, a plain request.
+   */
+  async function scanJob(req: Request, kind: 'single' | 'lineup', run: () => Promise<unknown>): Promise<unknown> {
+    const ref = typeof req.body?.ref === 'string' && /^[A-Za-z0-9-]{16,64}$/.test(req.body.ref) ? req.body.ref : null;
+    if (!ref) return run();
+    // Outcomes are only needed until the app has collected them; a week is plenty.
+    await db.query(`DELETE FROM scan_jobs WHERE created_at < NOW() - INTERVAL '7 days'`);
+    const { rows: [claimed] } = await db.query(
+      `INSERT INTO scan_jobs (ref, user_id, kind) VALUES ($1, $2, $3) ON CONFLICT (ref) DO NOTHING RETURNING ref`,
+      [ref, req.user?.userId ?? null, kind]
+    );
+    if (!claimed) {
+      // Already running or finished: answer with what it came to (the app polls while it's pending).
+      const { rows: [job] } = await db.query('SELECT status, result, error, http_status FROM scan_jobs WHERE ref = $1', [ref]);
+      if (job?.status === 'done') return job.result;
+      if (job?.status === 'failed') throw new HttpError(job.http_status ?? 500, job.error ?? 'scan failed');
+      throw new HttpError(409, 'this scan is still being read');
+    }
+    try {
+      const result = await run();
+      await db.query(`UPDATE scan_jobs SET status = 'done', result = $2, updated_at = NOW() WHERE ref = $1`, [ref, JSON.stringify(result)]);
+      return result;
+    } catch (e) {
+      const status = e instanceof HttpError || e instanceof ScanError ? e.status : e instanceof ProviderUnavailableError ? 503 : 500;
+      const message = status === 500 ? 'internal error' : (e as Error).message;
+      await db.query(`UPDATE scan_jobs SET status = 'failed', error = $2, http_status = $3, updated_at = NOW() WHERE ref = $1`, [ref, message, status]);
+      throw e;
+    }
+  }
+
+  // Optional "ocrText": label text read on the phone. Optional "ref": see scanJob.
   app.post('/api/scans', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
     const file = photo(req);
     // Text the phone's OCR read off the label: lets the server identify the wine without the LLM.
     const ocrText = typeof req.body?.ocrText === 'string' ? req.body.ocrText : undefined;
-    const result = await scanLabel(db, provider, file.buffer, file.mimetype, { ocrText });
-    if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, result.scanId]);
+    const result = await scanJob(req, 'single', async () => {
+      const r = await scanLabel(db, provider, file.buffer, file.mimetype, { ocrText });
+      if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, r.scanId]);
+      return r;
+    });
     res.status(201).json(result);
   }));
 
   // A photo of several bottles: one scan per label read, left to right.
   app.post('/api/scans/lineup', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
     const file = photo(req);
-    const scans = await scanLineup(db, provider, file.buffer, file.mimetype);
-    if (req.user && scans.length) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = ANY($2)', [req.user.userId, scans.map((x) => x.scanId)]);
-    res.status(201).json({ scans });
+    const result = await scanJob(req, 'lineup', async () => {
+      const scans = await scanLineup(db, provider, file.buffer, file.mimetype);
+      if (req.user && scans.length) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = ANY($2)', [req.user.userId, scans.map((x) => x.scanId)]);
+      return { scans };
+    });
+    res.status(201).json(result);
+  }));
+
+  // How a tagged scan came out: pending, done (with the same body the scan request would have answered), or failed.
+  app.get('/api/scans/jobs/:ref', auth.optionalUser, wrap(async (req, res) => {
+    const ref = parse(z.string().regex(/^[A-Za-z0-9-]{16,64}$/), req.params.ref);
+    const { rows: [job] } = await db.query('SELECT user_id, status, result, error, http_status FROM scan_jobs WHERE ref = $1', [ref]);
+    // Someone else's scan reads as not found.
+    if (!job || (job.user_id !== null && Number(job.user_id) !== req.user?.userId)) throw new HttpError(404, 'scan not found');
+    res.json({ status: job.status, result: job.result ?? undefined, error: job.error ?? undefined, httpStatus: job.http_status ?? undefined });
   }));
 
   app.post('/api/scans/:id/confirm', wrap(async (req, res) => {

@@ -147,6 +147,8 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | GET | `/api/health` | | |
 | POST | `/api/scans` | multipart `image` (jpeg/png/webp/heic, ≤ 8 MB) or JSON `{imageBase64, mimeType}`; optional `ocrText` | → `{scanId, read, outcome, vintage, bottleMl, candidates}`; with `ocrText` the wine is often identified without the LLM |
 | POST | `/api/scans/lineup` | same photo body (several bottles in one photo) | → `{scans: [...]}`, one scan per label read, left to right; confirm each like a single scan |
+| GET | `/api/scans/jobs/:ref` | | a scan sent with `ref` (form field or JSON): `{status: pending\|done\|failed, result?, error?, httpStatus?}`, so the app can collect an answer it missed while in the background; the same ref sent twice is read once |
+| GET | `/api/photo?u=<image_url>` | | a wine's photo, fetched from the shop once, resized and kept; only URLs that are some wine's `image_url` |
 | POST | `/api/scans/:id/confirm` | `{wineId}` or `{newWine: {producer, name, region, …}}` | learns an alias |
 | GET | `/api/wines/search?q=` | | ranked matches |
 | POST | `/api/wines` | `{producer, name, …}` | user-created wine |
