@@ -73,12 +73,18 @@ export interface Offer {
   source_type: string;
   url: string;
   observed_at: string;
+  /** With a location: is the shop close by (miles away, when known) or does it ship there; null if neither. */
+  nearby?: { local: boolean; miles: number | null; city: string; ships: boolean } | null;
 }
+
+/** How a location-aware request went: applied false when nothing was near, so everything is shown; pending: shops still being looked up. */
+export interface NearResult { applied: boolean; state: string; pending: number }
 
 export interface PricesResponse {
   summary: PriceSummary | null;
   history: { day: string; median_cents: number; n: number }[];
   offers: Offer[];
+  near?: NearResult;
 }
 
 export interface Tasting {
@@ -134,6 +140,8 @@ export interface Recommendation {
   /** red | white | rose | sparkling | orange | sweet, or '' when unknown. */
   style?: RecStyle | '';
   imageUrl?: string | null;
+  /** With a location: the closest way to get it. */
+  nearby?: { shop: string; local: boolean; miles: number | null; city: string; ships: boolean };
   medianCents: number;
   nMerchants: number;
   score: number;
@@ -168,7 +176,7 @@ export interface RecView {
 
 /** styles: the ones the user has liked, best-liked first. Older servers send no styles or summary. */
 export type RecommendationsResponse =
-  | { mode: 'profile'; items: Recommendation[]; styles?: RecStyle[]; summary?: TasteSummary }
+  | { mode: 'profile'; items: Recommendation[]; styles?: RecStyle[]; summary?: TasteSummary; near?: NearResult }
   | { mode: 'locked'; rated: number; needed: number; items: [] };
 
 /** Researched background for a wine (see ../../src/llm/types.ts). Any field may be empty. */

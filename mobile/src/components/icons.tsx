@@ -122,3 +122,12 @@ export function GearIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
     </Svg>
   );
 }
+
+export function PinIcon({ color, size, strokeWidth = 1.7 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" />
+      <Circle cx="12" cy="10" r="2.3" />
+    </Svg>
+  );
+}

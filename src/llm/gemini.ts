@@ -6,9 +6,9 @@
  * GEMINI_MODEL puts a specific model first.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, researchPrompt } from './prompts.js';
-import { sanitizeLabel, sanitizeLabels, sanitizePriceHits, sanitizeWineInfo } from './sanitize.js';
-import type { LabelRead, LlmProvider, WebPriceHit, WineInfo, WineInfoQuery, WineQuery } from './types.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, merchantPrompt, researchPrompt } from './prompts.js';
+import { sanitizeLabel, sanitizeLabels, sanitizeMerchantPlaces, sanitizePriceHits, sanitizeWineInfo } from './sanitize.js';
+import type { LabelRead, LlmProvider, MerchantPlaces, WebPriceHit, WineInfo, WineInfoQuery, WineQuery } from './types.js';
 
 type FetchFn = typeof fetch;
 
@@ -146,6 +146,14 @@ export class GeminiProvider implements LlmProvider {
     } catch {
       return ask(false);
     }
+  }
+
+  /** Web search only: store addresses and shipping states recalled from memory would be guesses. */
+  researchMerchant(q: { name: string; domain: string }): Promise<MerchantPlaces> {
+    return this.firstGood(
+      (m) => this.generate(m, [{ text: merchantPrompt(q) }], { grounded: true, json: false }),
+      (text) => sanitizeMerchantPlaces(extractJson(text, 'object'))
+    );
   }
 
   searchPrices(q: WineQuery): Promise<WebPriceHit[]> {

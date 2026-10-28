@@ -1,8 +1,9 @@
-/** Settings: appearance, account, importing from Vivino, and which server the app talks to. */
+/** Settings: appearance, location, account, importing from Vivino, and which server the app talks to. */
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { View } from 'react-native';
 import { AppearanceSettings } from '../../components/Appearance';
+import { LocationSettings } from '../../components/LocationSettings';
 import { ServerSettings } from '../../components/ServerSettings';
 import { VivinoImport } from '../../components/VivinoImport';
 import { Button, Card, Heading, Muted, Screen, Title, space, type } from '../../components/ui';
@@ -14,6 +15,7 @@ export default function Settings() {
     <Screen>
       <Title>Settings</Title>
       <AppearanceSettings />
+      <LocationSettings />
       <Card>
         <Heading>Account</Heading>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3] }}>

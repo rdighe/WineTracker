@@ -16,6 +16,8 @@ import { Button, Card, Divider, ErrorText, Heading, IconButton, Muted, StyleDot,
 import { dollars, wineTitle } from '../../lib/format';
 import type { PriceSummary, PricesResponse, Tasting, Wine } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
+import { useLocation } from '../../lib/location';
+import { NearBar, nearNote, nearbyLabel } from '../../components/NearBar';
 
 const STYLE_LABEL = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', fortified: 'Fortified' } as const;
 
@@ -42,6 +44,10 @@ export default function WineScreen() {
   const [reloadKey, setReloadKey] = useState(0);
   const [allVintages, setAllVintages] = useState(false);
   const [allShops, setAllShops] = useState(false);
+  // Where to buy near you: on whenever a location is known, unless switched to Anywhere.
+  const loc = useLocation();
+  const [anywhere, setAnywhere] = useState(false);
+  const near = anywhere ? undefined : loc.near;
   // Which vintage the prices on screen are for; until it matches, the price card shows placeholders.
   const [pricesFor, setPricesFor] = useState<string | null>(null);
   const about = useWineInfo(wineId);
@@ -63,7 +69,7 @@ export default function WineScreen() {
     (async () => {
       try {
         const w = await api.wine(wineId);
-        const p = await api.prices(wineId, vintage);
+        const p = await api.prices(wineId, vintage, near);
         if (cancelled) return;
         setWine(w.wine);
         setSummaries(w.prices);
@@ -76,7 +82,7 @@ export default function WineScreen() {
     return () => {
       cancelled = true;
     };
-  }, [api, wineId, vintage, reloadKey]);
+  }, [api, wineId, vintage, reloadKey, near]);
 
   // Opened from My wines ("Log tasting", "Add bottles"): grow from where the toolbar sits.
   const openedFromParam = useRef(false);
@@ -138,7 +144,9 @@ export default function WineScreen() {
   const summary = prices?.summary;
   const span = summary ? summary.p90_cents - summary.p10_cents : 0;
   const marker = summary && span > 0 ? Math.min(1, Math.max(0, (summary.median_cents - summary.p10_cents) / span)) : 0.5;
-  const offers = prices?.offers ?? [];
+  const allOffers = prices?.offers ?? [];
+  // Near you: only the shops close by or shipping there (closest first), unless none are.
+  const offers = prices?.near?.applied ? allOffers.filter((o) => o.nearby) : allOffers;
   const solidTint = glass === 'solid' || glass === 'contrast';
 
   return (
@@ -258,6 +266,10 @@ export default function WineScreen() {
                 <Heading>Where to buy</Heading>
                 {offers.length > 3 ? <Button title={allShops ? 'Fewer' : `All ${Math.min(offers.length, 8)}`} variant="plain" size="sm" onPress={() => setAllShops(!allShops)} /> : null}
               </View>
+              <View style={{ gap: space[2], marginTop: space[2], marginBottom: space[1] }}>
+                <NearBar on={!anywhere} onChange={(on) => setAnywhere(!on)} />
+                {nearNote(prices?.near, 'shops') ? <Muted>{nearNote(prices?.near, 'shops')}</Muted> : null}
+              </View>
               <View>
                 {offers.slice(0, allShops ? 8 : 3).map((o, i) => (
                   <View key={o.url + o.observed_at}>
@@ -272,6 +284,11 @@ export default function WineScreen() {
                         <Muted style={o.in_stock === false ? { color: c.negative } : undefined}>
                           {[o.in_stock === false ? 'Out of stock' : null, o.vintage_key, o.bottle_ml !== 750 ? `${o.bottle_ml} ml` : null].filter(Boolean).join(' · ') || ' '}
                         </Muted>
+                        {o.nearby ? (
+                          <Text style={[type.footnote, { color: c.positive }]} numberOfLines={1}>
+                            {nearbyLabel(o.nearby)}{o.nearby.local && o.nearby.ships ? ' · also ships' : ''}
+                          </Text>
+                        ) : null}
                       </View>
                       <Text style={[type.figure, { color: c.ink }]}>{dollars(o.price_cents)}</Text>
                     </Pressable>

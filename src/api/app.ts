@@ -25,6 +25,7 @@ import { maybeQueueWineImage } from '../catalog/images.js';
 import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { recommend } from '../recs/recommend.js';
+import { createPlaces, parseNear, type Places } from '../places/places.js';
 
 export interface AppDeps {
   db: pg.Pool;
@@ -38,6 +39,8 @@ export interface AppDeps {
   trustProxy?: number;
   /** Wine background research (default: one using `provider`); tests pass their own to await it. */
   infoResearcher?: InfoResearcher;
+  /** Where shops are and ship (default: researched with `provider`); tests pass their own to await it. */
+  places?: Places;
   /** Fetches shop images for /api/photo (tests pass a fake). */
   photoFetch?: typeof fetch;
   /** Override limits (tests). */
@@ -89,8 +92,9 @@ const tastingBody = z.object({
   bottles: z.number().int().min(1).max(9999).nullable().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
+  const places = placesDep ?? createPlaces(db, provider);
   const app = express();
   app.set('trust proxy', trustProxy);
   app.use(helmet());
@@ -326,7 +330,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
       db.query(`SELECT day, median_cents, n FROM wine_price_daily WHERE wine_id = $1 AND vintage_key = $2 ORDER BY day`, [wineId, key]),
       db.query(
         `SELECT DISTINCT ON (COALESCE(o.listing_id::text, o.url)) o.vintage_key, o.bottle_ml, o.pack_size, o.price_cents,
-                o.unit_750_cents, o.in_stock, o.source_type, o.confidence, o.url, o.observed_at, m.name AS merchant
+                o.unit_750_cents, o.in_stock, o.source_type, o.confidence, o.url, o.observed_at, m.name AS merchant, o.merchant_id
            FROM price_observations o LEFT JOIN merchants m USING (merchant_id)
           WHERE o.wine_id = $1 AND ($2::text IS NULL OR o.vintage_key = $2) AND o.source_type <> 'user'
             AND o.observed_at > NOW() - INTERVAL '90 days'
@@ -335,10 +339,27 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
       ),
     ]);
     const summary = (await priceSummary(db, wineId)).find((p) => p.vintage_key === key) ?? null;
+    let list = offers.rows.sort((a, b) => a.unit_750_cents - b.unit_750_cents).slice(0, 50);
+    // near=lat,lng,ST: each offer says whether the shop is close by or ships there; those come first.
+    const near = parseNear(req.query.near);
+    let nearResult: { applied: boolean; state: string; pending: number } | undefined;
+    if (near) {
+      const ids = list.map((o) => Number(o.merchant_id)).filter(Boolean);
+      void places.request(ids).catch(() => {});
+      const { reach, pending } = await places.reach(ids, near);
+      list = list.map((o) => {
+        const r = reach.get(Number(o.merchant_id));
+        return { ...o, nearby: r ? { local: r.local, miles: r.miles, city: r.city, ships: r.ships } : null };
+      });
+      const rank = (o: { nearby: { local: boolean; miles: number | null } | null }) => (!o.nearby ? 2 : o.nearby.local ? 0 : 1);
+      list.sort((a, b) => rank(a) - rank(b) || (a.nearby?.miles ?? 0) - (b.nearby?.miles ?? 0) || a.unit_750_cents - b.unit_750_cents);
+      nearResult = { applied: list.some((o) => o.nearby), state: near.state, pending };
+    }
     res.json({
       summary,
       history: history.rows,
-      offers: offers.rows.sort((a, b) => a.unit_750_cents - b.unit_750_cents).slice(0, 50),
+      offers: list.map(({ merchant_id: _m, ...o }) => o),
+      ...(nearResult ? { near: nearResult } : {}),
     });
   }));
 
@@ -516,6 +537,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         region: q.region,
         notes: q.notes,
         food: q.food,
+        near: parseNear(req.query.near) ?? undefined,
+        places,
       })
     );
   }));

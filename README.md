@@ -163,6 +163,7 @@ shop pages. Paid endpoints are rate limited per user (30 scans and 30 price refr
 | GET, PUT/DELETE | `/api/saved`, `/api/saved/:wineId` | | watch list (auth) |
 | GET | `/api/recommendations?bestValue=&colour=red\|white\|other&maxPrice=&limit=` | | auth; `{mode: 'locked', rated, needed}` until 3 ratings, then personal; in-stock wines only |
 | GET | `/api/recommendations?styles=red,white&minPrice=&maxPrice=&region=&notes=&food=` | | Find wines: a search on top of the taste profile (prices in dollars; styles red\|white\|rose\|sparkling\|orange\|sweet); every response has `summary` (rated count, styles, usual price band, leading flavors) |
+| | `…&near=lat,lng,ST` (on recommendations and `/api/wines/:id/prices`) | | only wines / shops near the person (a store within 30 miles) or shipping to their state; each item or offer gets `nearby`, and the response `near: {applied, state, pending}` (applied false: nothing near, so everything is shown). Shops' stores and shipping states are researched once from the web (`merchant_places`, `src/places/places.ts`) |
 | GET, POST / DELETE | `/api/rec-views`, `/api/rec-views/:id` | `{name, criteria}` (criteria as the search above, styles as a list) | saved For you searches (auth, up to 50) |
 | POST | `/api/import/vivino` | `{csv}` (a Vivino data export, ≤ 8 MB) | auth; matches each row, adds unknown wines as the user's own; re-importing adds nothing |
 

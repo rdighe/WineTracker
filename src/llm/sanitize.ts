@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { MAX_LINEUP } from './prompts.js';
-import type { LabelRead, WebPriceHit, WineInfo } from './types.js';
+import type { LabelRead, WebPriceHit, WineInfo, MerchantPlaces } from './types.js';
 
 const str = (max: number) => z.preprocess((v) => (v == null ? '' : String(v)), z.string()).transform((s) => s.replace(/\s+/g, ' ').trim().slice(0, max));
 
@@ -126,6 +126,38 @@ const webUrl = (s: string): string => {
     return '';
   }
 };
+
+export const US_STATES = new Set('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' '));
+
+/** A shop's stores and shipping states, with anything malformed dropped. Null when the reply isn't the right shape. */
+export function sanitizeMerchantPlaces(raw: unknown): MerchantPlaces | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as { stores?: unknown; ships_to?: unknown; sources?: unknown };
+  const text = (v: unknown, max: number) => (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim().slice(0, max);
+  const coord = (v: unknown, lim: number) => {
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) && Math.abs(n) <= lim && n !== 0 ? Math.round(n * 1e4) / 1e4 : null;
+  };
+  const stores: MerchantPlaces['stores'] = [];
+  for (const s of Array.isArray(r.stores) ? r.stores : []) {
+    if (!s || typeof s !== 'object') continue;
+    const o = s as Record<string, unknown>;
+    const state = text(o.state, 2).toUpperCase();
+    const lat = coord(o.lat, 90);
+    const lng = coord(o.lng, 180);
+    // A store is only useful with a place: coordinates, or at least a city in a state.
+    if (!(lat !== null && lng !== null) && !(text(o.city, 80) && US_STATES.has(state))) continue;
+    stores.push({ name: text(o.name, 120), address: text(o.address, 160), city: text(o.city, 80), state: US_STATES.has(state) ? state : '', postal: text(o.postal, 10), lat, lng });
+  }
+  const shipsTo = [...new Set((Array.isArray(r.ships_to) ? r.ships_to : []).map((x) => text(x, 2).toUpperCase()).filter((x) => US_STATES.has(x)))].sort();
+  const sources: MerchantPlaces['sources'] = [];
+  for (const s of Array.isArray(r.sources) ? r.sources : []) {
+    const o = (s && typeof s === 'object' ? s : {}) as { title?: unknown; url?: unknown };
+    const url = webUrl(String(o.url ?? ''));
+    if (url) sources.push({ title: text(o.title, 120) || new URL(url).hostname, url });
+  }
+  return { stores: stores.slice(0, 40), shipsTo, sources: sources.slice(0, 5) };
+}
 
 export function sanitizeWineInfo(raw: unknown, grounded: boolean): WineInfo | null {
   const r = infoSchema.safeParse(raw ?? {});

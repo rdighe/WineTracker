@@ -17,6 +17,7 @@ import { normalize } from '../lib/normalize.js';
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
 import { flavorLabel, mergeFlavors, textFlavors, type Flavor } from './flavors.js';
 import { buildProfile, explain, scoreWine, type Profile } from './profile.js';
+import type { Near, Places, Reach } from '../places/places.js';
 
 export const MIN_RATED = 3;
 const PER_PRODUCER = 2;
@@ -41,7 +42,13 @@ export interface RecOptions {
   region?: string;
   notes?: string;
   food?: string;
+  /** Only wines a shop near the person has, or ships to them; everything when none do. */
+  near?: Near;
+  places?: Places;
 }
+
+/** How a location-aware request went: applied false when no shop near the person had any match. */
+export interface NearResult { applied: boolean; state: string; pending: number }
 
 /** What the suggestions are based on, so the app can say so. */
 export interface ProfileSummary {
@@ -66,6 +73,8 @@ export interface Recommendation {
   /** red | white | rose | sparkling | orange | sweet, or '' when unknown. */
   style: RecStyle | '';
   imageUrl: string | null;
+  /** With a location: the closest way to get it (a store nearby, or a shop that ships there). */
+  nearby?: { shop: string; local: boolean; miles: number | null; city: string; ships: boolean };
   medianCents: number;
   nMerchants: number;
   score: number;
@@ -124,6 +133,8 @@ interface Candidate {
   notes: string;
   /** Researched food pairings, as written and normalized. */
   pairings: { text: string; norm: string }[];
+  /** Shops with it in stock lately. */
+  merchants: number[];
 }
 
 /** Rebuilt when prices or researched notes change, and at least this often. */
@@ -141,6 +152,13 @@ async function buildCandidates(db: Db): Promise<Candidate[]> {
        ${NOTES_JOIN}
       WHERE p.vintage_key = '*' AND p.currency = 'USD' AND NOT p.out_of_stock_only`
   );
+  // Which shops have each wine in stock (seen in the last month).
+  const { rows: stocked } = await db.query(
+    `SELECT wine_id, array_agg(DISTINCT merchant_id) AS merchants FROM price_observations
+      WHERE merchant_id IS NOT NULL AND in_stock IS NOT FALSE AND source_type <> 'user' AND observed_at > NOW() - INTERVAL '30 days'
+      GROUP BY wine_id`
+  );
+  const shopsOf = new Map<number, number[]>(stocked.map((s) => [Number(s.wine_id), (s.merchants as unknown[]).map(Number)]));
   // Shops also sell spirits, beer and water; some of those ended up in the catalog.
   return rows.filter((r) => parseTitle(r.display_name).isWine).map((r): Candidate => {
     const f = wineFeatures(r as WineRow, notesOf(r));
@@ -152,6 +170,7 @@ async function buildCandidates(db: Db): Promise<Candidate[]> {
       place: ` ${normalize(`${r.display_name} ${r.sub_region} ${r.region} ${r.country}`)} `,
       notes: ` ${normalize([...(Array.isArray(r.descriptors) ? r.descriptors.map(String) : []), r.notes_text ?? ''].join(' '))} `,
       pairings: pairings.map((text) => ({ text, norm: ` ${normalize(text)} ` })),
+      merchants: shopsOf.get(Number(r.wine_id)) ?? [],
     };
   });
 }
@@ -193,7 +212,7 @@ export function forgetRecommendationCandidates(db: Db): void {
 
 export type RecResult =
   /** styles: what the user has liked, for the app's filter (best-liked first). */
-  | { mode: 'profile'; items: Recommendation[]; styles: RecStyle[]; summary: ProfileSummary }
+  | { mode: 'profile'; items: Recommendation[]; styles: RecStyle[]; summary: ProfileSummary; near?: NearResult }
   /** Not enough ratings to say anything personal yet: no suggestions, just how far along the user is. */
   | { mode: 'locked'; rated: number; needed: number; items: [] };
 
@@ -230,7 +249,7 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
         if (regionWords.length) extra.push(`From ${titleCase(r.sub_region || r.region || opts.region!)}`);
       }
       const reasons = [...extra, ...explain(s.contributions)].slice(0, 2);
-      return { r, style, score, rank: score + (r.image_url ? PHOTO_BONUS : 0), reasons };
+      return { r, style, score, rank: score + (r.image_url ? PHOTO_BONUS : 0), reasons, merchants: c.merchants };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => b.rank - a.rank || b.r.n_merchants - a.r.n_merchants);
@@ -258,6 +277,25 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
     ordered = scored.filter((x) => x.score > 0);
   }
 
+  // Near the person: only wines a shop close by has, or ships to them. If none do, everything, and say so.
+  let near: NearResult | undefined;
+  const bestReach = new Map<number, Reach>();
+  if (opts.near && opts.places) {
+    const shops = new Set(ordered.flatMap((x) => x.merchants));
+    void opts.places.request(shops).catch(() => {});
+    const { reach, pending } = await opts.places.reach(shops, opts.near);
+    const closest = (a: Reach, b: Reach) => (a.local !== b.local ? (a.local ? a : b) : (a.miles ?? Infinity) <= (b.miles ?? Infinity) ? a : b);
+    for (const x of ordered) {
+      for (const m of x.merchants) {
+        const r = reach.get(m);
+        if (r) bestReach.set(x.r.wine_id, bestReach.has(x.r.wine_id) ? closest(bestReach.get(x.r.wine_id)!, r) : r);
+      }
+    }
+    const reachable = ordered.filter((x) => bestReach.has(x.r.wine_id));
+    near = { applied: reachable.length > 0, state: opts.near.state, pending };
+    if (reachable.length) ordered = reachable;
+  }
+
   const perProducer = new Map<string, number>();
   const picked: typeof ordered = [];
   for (const x of ordered) {
@@ -277,9 +315,12 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
     const now = photo.get(Number(x.r.wine_id)) ?? x.r;
     // No photo yet: look for one in the background, so it shows next time.
     if (!now.image_url) maybeQueueWineImage(db, { wine_id: x.r.wine_id, image_url: now.image_url, image_checked_at: now.image_checked_at });
-    return toRec({ ...x.r, image_url: now.image_url }, x.style, x.score, x.reasons);
+    const rec = toRec({ ...x.r, image_url: now.image_url }, x.style, x.score, x.reasons);
+    const r = near?.applied ? bestReach.get(x.r.wine_id) : undefined;
+    if (r) rec.nearby = { shop: r.shop, local: r.local, miles: r.miles, city: r.city, ships: r.ships };
+    return rec;
   });
-  return { mode: 'profile', items, styles, summary: summarize(profile, styles) };
+  return { mode: 'profile', items, styles, summary: summarize(profile, styles), ...(near ? { near } : {}) };
 }
 
 function summarize(p: Profile, styles: RecStyle[]): ProfileSummary {

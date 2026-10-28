@@ -82,6 +82,14 @@ in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
   that grows out of the button (`ExpandingSheet.tsx`); the tab highlight and segmented controls slide; rows fade in,
   and slide gently (220 ms ease-out, no bounce) as a tasted row opens; buttons spring when pressed.
 
+## Near you
+
+Settings › Location (or "Shops near me" on For you and Where to buy): off, the phone's location (`expo-location`,
+permission asked when turned on), or a state typed in. The location is rounded to about a kilometer and sent only as
+`?near=lat,lng,ST` with the requests that use it; the server never stores it. For you then suggests only wines a shop
+within 30 miles has, or a shop that ships to your state, and Where to buy lists those shops first, each marked
+"6 mi away" or "Ships to you". Where none match, everything shows, with a note saying so.
+
 ## Scans in the background
 
 Switching apps mid-scan loses nothing. Each scan gets an id (`ref`); the photo goes up through an iOS background

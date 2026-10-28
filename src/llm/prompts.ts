@@ -32,6 +32,19 @@ Rules for each bottle:
 If there are no wine labels, return {"bottles": []}.`;
 
 /** Research brief for a wine; the vintage is left out on purpose (the result is shared by every vintage). */
+export function merchantPrompt(q: { name: string; domain: string }): string {
+  return `Search the web for this US wine shop: ${q.name} (${q.domain}).
+Find (1) its physical retail stores, if any, and (2) which US states it ships wine to (check its shipping or FAQ page; wine
+shipping depends on state law, so list only states the shop says it ships to).
+Only state what you found on a page; if it ships to "all states where legal" without a list, give the states its shipping
+page names, or [] if it names none. For each store, give its approximate latitude/longitude (from the address; city-level
+is fine).
+Reply with ONLY a JSON object:
+{"stores": [{"name": "", "address": "street", "city": "", "state": "CA", "postal": "", "lat": 37.77, "lng": -122.42}],
+ "ships_to": ["CA", "NY"],
+ "sources": [{"title": "", "url": "https://..."}]}`;
+}
+
 export function researchPrompt(q: { displayName: string; producer: string; region: string; country: string; grape: string; colour: string; labelText?: string }, grounded: boolean): string {
   const known = [
     `Wine: ${q.displayName}`,

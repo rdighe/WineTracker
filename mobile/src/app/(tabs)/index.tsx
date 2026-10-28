@@ -13,7 +13,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ExpandingSheet, measure, type Rect } from '../../components/ExpandingSheet';
 import { Glass } from '../../components/Glass';
-import { RefreshIcon, SearchIcon, SparkleIcon } from '../../components/icons';
+import { PinIcon, RefreshIcon, SearchIcon, SparkleIcon } from '../../components/icons';
 import { RecSearchForm, describeSearch } from '../../components/RecSearchForm';
 import { Bone, Skeleton } from '../../components/Skeleton';
 import { WinePhoto } from '../../components/WineThumb';
@@ -22,6 +22,8 @@ import type { WineStyle } from '../../components/theme';
 import { dollars } from '../../lib/format';
 import type { RecSearch, RecStyle, RecView, Recommendation, RecommendationsResponse, TasteSummary } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
+import { useLocation } from '../../lib/location';
+import { NearBar, nearNote, nearbyLabel } from '../../components/NearBar';
 
 type Filter = 'all' | 'value' | RecStyle;
 /** Your picks, or a search (a saved view has its id and name). */
@@ -51,9 +53,13 @@ export default function Recommendations() {
   const [error, setError] = useState<unknown>(null);
   const [sheet, setSheet] = useState<{ origin: Rect; closing: boolean } | null>(null);
   const findButton = useRef<View>(null);
+  // Near you: on whenever a location is known, unless switched to Anywhere.
+  const loc = useLocation();
+  const [anywhere, setAnywhere] = useState(false);
+  const near = anywhere ? undefined : loc.near;
 
   const searching = view.kind === 'search';
-  const listKey = searching ? `search-${JSON.stringify(view.criteria)}` : filter;
+  const listKey = `${searching ? `search-${JSON.stringify(view.criteria)}` : filter}|${near ?? ''}`;
   // Only the latest request's answer counts: tapping filters quickly never leaves an older list on screen.
   const latest = useRef(0);
   const load = useCallback(async () => {
@@ -61,9 +67,10 @@ export default function Recommendations() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.recommendations(
-        view.kind === 'search' ? view.criteria : filter === 'all' || filter === 'value' ? { bestValue: filter === 'value' } : { style: filter }
-      );
+      const res = await api.recommendations({
+        ...(view.kind === 'search' ? view.criteria : filter === 'all' || filter === 'value' ? { bestValue: filter === 'value' } : { style: filter }),
+        near,
+      });
       if (mine !== latest.current) return;
       setResult({ key: listKey, res });
       if (res.mode === 'profile' && res.summary) setSummary(res.summary);
@@ -72,7 +79,7 @@ export default function Recommendations() {
     } finally {
       if (mine === latest.current) setLoading(false);
     }
-  }, [api, filter, view, listKey]);
+  }, [api, filter, view, listKey, near]);
   const loadSaved = useCallback(() => {
     api.recViews().then((r) => setSaved(r.views), () => setSaved([]));
   }, [api]);
@@ -182,6 +189,8 @@ export default function Recommendations() {
                     ))}
                   </ScrollView>
                 )}
+                <NearBar on={!anywhere} onChange={(on) => setAnywhere(!on)} />
+                {current?.mode === 'profile' && nearNote(current.near, 'wines') ? <Muted>{nearNote(current.near, 'wines')}</Muted> : null}
               </>
             )}
             <ErrorText error={error} />
@@ -360,6 +369,12 @@ function WineCard({ r, index }: { r: Recommendation; index: number }) {
             {[r.region, r.country].filter(Boolean).join(' · ')}
             {r.nMerchants ? ` · ${r.nMerchants} ${r.nMerchants === 1 ? 'shop' : 'shops'}` : ''}
           </Muted>
+          {r.nearby ? (
+            <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
+              <View style={{ marginTop: 2 }}><PinIcon color={c.positive} size={13} /></View>
+              <Text style={[type.footnote, { flex: 1, color: c.positive }]} numberOfLines={1}>{nearbyLabel(r.nearby)}</Text>
+            </View>
+          ) : null}
           {r.reasons[0] ? (
             <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
               <View style={{ marginTop: 2 }}><SparkleIcon color={c.accent} size={13} /></View>

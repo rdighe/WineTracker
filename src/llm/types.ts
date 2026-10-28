@@ -82,6 +82,14 @@ export interface WineInfo {
   version?: number;
 }
 
+/** Where a wine shop is and where it ships (researched from the web). */
+export interface MerchantPlaces {
+  stores: { name: string; address: string; city: string; state: string; postal: string; lat: number | null; lng: number | null }[];
+  /** Two-letter US state codes it ships wine to. */
+  shipsTo: string[];
+  sources: { title: string; url: string }[];
+}
+
 export interface LlmProvider {
   readonly name: string;
   /** Read a wine label photo. */
@@ -92,6 +100,8 @@ export interface LlmProvider {
   searchPrices(q: WineQuery): Promise<WebPriceHit[]>;
   /** Research a wine's tasting notes, producer and specs. Providers that can't, leave it out. */
   researchWine?(q: WineInfoQuery): Promise<WineInfo>;
+  /** Find a shop's physical stores and the states it ships to. Providers that can't search the web, leave it out. */
+  researchMerchant?(q: { name: string; domain: string }): Promise<MerchantPlaces>;
 }
 
 export class ProviderUnavailableError extends Error {

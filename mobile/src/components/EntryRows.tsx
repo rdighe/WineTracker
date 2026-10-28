@@ -253,7 +253,7 @@ function EditEntry({ t, onClose, onChanged }: { t: Tasting; onClose: () => void;
       <View style={{ flexDirection: 'row', gap: space[3] }}>
         <View style={{ flex: 1 }}><Field label="Vintage" placeholder="Year or NV" autoCapitalize="characters" value={vintage} onChangeText={setVintage} maxLength={4} /></View>
         {cellar ? <View style={{ flex: 1 }}><Field label="Bottles" numeric keyboardType="number-pad" value={bottles} onChangeText={setBottles} /></View> : null}
-        <View style={{ flex: 1 }}><Field label="Paid per bottle $" numeric keyboardType="decimal-pad" placeholder="—" value={price} onChangeText={setPrice} /></View>
+        <View style={{ flex: 1 }}><Field label="Paid $ each" numeric keyboardType="decimal-pad" placeholder="—" value={price} onChangeText={setPrice} /></View>
       </View>
       <DateField label={cellar ? 'Added' : 'Tasted'} value={date} onChange={setDate} />
       <Field label="Notes" value={notes} onChangeText={setNotes} multiline style={{ minHeight: 64, textAlignVertical: 'top' }} />

@@ -94,8 +94,14 @@ export function createApi(authHeader: AuthHeader) {
     /** A wine that isn't in the catalog, added by hand. */
     createWine: (w: { producer: string; name: string; region?: string; country?: string }) => request<Wine>('/api/wines', json('POST', w)),
     wine: (id: number) => request<{ wine: Wine; prices: PriceSummary[] }>(`/api/wines/${id}`),
-    prices: (id: number, vintage?: string | null) =>
-      request<PricesResponse>(`/api/wines/${id}/prices${vintage ? `?vintage=${encodeURIComponent(vintage)}` : ''}`),
+    /** near: "lat,lng,ST" (lib/location.tsx) - each offer then says if the shop is close by or ships there. */
+    prices: (id: number, vintage?: string | null, near?: string) => {
+      const q = new URLSearchParams();
+      if (vintage) q.set('vintage', vintage);
+      if (near) q.set('near', near);
+      const qs = q.toString();
+      return request<PricesResponse>(`/api/wines/${id}/prices${qs ? `?${qs}` : ''}`);
+    },
     refreshPrices: (id: number, vintage?: string | null) => request<{ prices: PriceSummary[] }>(`/api/wines/${id}/prices/refresh`, json('POST', { vintage: vintage ?? null })),
     tastings: () => request<{ tastings: Tasting[] }>('/api/tastings?limit=1000'),
     wineInfo: (id: number) => request<InfoResponse>(`/api/wines/${id}/info`),
@@ -115,8 +121,9 @@ export function createApi(authHeader: AuthHeader) {
     saved: () => request<{ saved: SavedWine[] }>('/api/saved'),
     saveWine: (id: number) => request<void>(`/api/saved/${id}`, json('PUT', {})),
     unsaveWine: (id: number) => request<void>(`/api/saved/${id}`, { method: 'DELETE' }),
-    recommendations: (opts: RecSearch & { bestValue?: boolean; style?: RecStyle } = {}) => {
+    recommendations: (opts: RecSearch & { bestValue?: boolean; style?: RecStyle; near?: string } = {}) => {
       const q = new URLSearchParams();
+      if (opts.near) q.set('near', opts.near);
       if (opts.bestValue) q.set('bestValue', 'true');
       if (opts.style) q.set('style', opts.style);
       if (opts.styles?.length) q.set('styles', opts.styles.join(','));

@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AuthProvider } from '../lib/auth';
+import { LocationProvider } from '../lib/location';
 import { SplashIntro } from '../components/SplashIntro';
 import { ThemeProvider, useTheme } from '../components/theme';
 
@@ -16,7 +17,9 @@ export default function RootLayout() {
     <KeyboardProvider>
       <ThemeProvider>
         <AuthProvider>
-          <Navigator />
+          <LocationProvider>
+            <Navigator />
+          </LocationProvider>
         </AuthProvider>
       </ThemeProvider>
     </KeyboardProvider>
