@@ -5,6 +5,7 @@ import { Linking, Pressable, Text, View } from 'react-native';
 import { BackIcon, BookmarkIcon } from '../../components/icons';
 import { TastingForm, type TastingKind } from '../../components/TastingForm';
 import { WineAbout, useWineInfo } from '../../components/WineAbout';
+import { PriceBones, Skeleton, WineSkeleton } from '../../components/Skeleton';
 import { WineThumb } from '../../components/WineThumb';
 import { Button, Card, ErrorText, Eyebrow, IconButton, Mono, Muted, Screen, colors, fonts } from '../../components/ui';
 import { dollarsExact as dollars, wineTitle } from '../../lib/format';
@@ -29,6 +30,8 @@ export default function WineScreen() {
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [allVintages, setAllVintages] = useState(false);
+  // Which vintage the prices on screen are for; until it matches, the price card shows placeholders.
+  const [pricesFor, setPricesFor] = useState<string | null>(null);
   const about = useWineInfo(wineId);
 
   useEffect(() => {
@@ -41,6 +44,7 @@ export default function WineScreen() {
         setWine(w.wine);
         setSummaries(w.prices);
         setPrices(p);
+        setPricesFor(vintage ?? '*');
       } catch (e) {
         if (!cancelled) setError(e);
       }
@@ -93,6 +97,8 @@ export default function WineScreen() {
         </IconButton>
       </View>
 
+      {!wine && !error ? <WineSkeleton /> : null}
+
       {wine?.image_url ? (
         <View style={{ alignItems: 'center', gap: 6 }}>
           <WineThumb uri={wine.image_url} width={150} height={210} radius={22} />
@@ -107,9 +113,15 @@ export default function WineScreen() {
         </View>
       )}
 
-      <Card style={{ paddingHorizontal: 20, gap: 10 }}>
+      {wine ? <Card style={{ paddingHorizontal: 20, gap: 10 }}>
         <Eyebrow>{vintage ?? 'All vintages'}</Eyebrow>
-        {summary ? (
+        {pricesFor !== (vintage ?? '*') ? (
+          <Skeleton label="Loading prices">
+            <View style={{ gap: 10 }}>
+              <PriceBones />
+            </View>
+          </Skeleton>
+        ) : summary ? (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
               <Mono style={{ fontFamily: fonts.monoMedium, fontSize: 30, color: colors.gold }}>{dollars(summary.median_cents)}</Mono>
@@ -126,9 +138,9 @@ export default function WineScreen() {
             {summary.window_days > 30 ? <Muted style={{ fontSize: 12 }}>Based on the last year (nothing more recent).</Muted> : null}
           </>
         ) : (
-          <Muted>{prices ? 'No current retail price.' : ' '}</Muted>
+          <Muted>No current retail price.</Muted>
         )}
-      </Card>
+      </Card> : null}
 
       {byVintage.length > 0 && (
         <Card style={{ paddingHorizontal: 20, gap: 12 }}>
@@ -163,7 +175,7 @@ export default function WineScreen() {
         </Card>
       )}
 
-      <WineAbout res={about} />
+      {wine ? <WineAbout res={about} /> : null}
 
       {prices && prices.offers.length > 0 && (
         <Card style={{ paddingHorizontal: 20, gap: 4 }}>
@@ -190,7 +202,7 @@ export default function WineScreen() {
       {message ? <Muted>{message}</Muted> : null}
       <ErrorText error={error} />
 
-      {logging ? (
+      {!wine ? null : logging ? (
         <TastingForm key={logging} wineId={wineId} vintage={vintage ?? (addVintage || null)} kind={logging} suggestedTags={about?.info?.descriptors} onSaved={(k) => { setLogging(null); setMessage(k === 'cellar' ? 'Added to your cellar' : 'Tasting saved'); }} />
       ) : (
         <View style={{ gap: 10 }}>

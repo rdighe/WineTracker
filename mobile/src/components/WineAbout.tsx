@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import type { InfoResponse, WineInfo } from '../lib/types';
 import { useApi } from '../lib/useApi';
+import { Skeleton, TextBones } from './Skeleton';
 import { Button, Card, Chip, Eyebrow, Muted, colors, fonts } from './ui';
 
 const POLL_MS = 4000;
@@ -66,12 +67,24 @@ function Facts({ rows }: { rows: [string, string][] }) {
 
 export function WineAbout({ res }: { res: InfoResponse | null }) {
   const [more, setMore] = useState(false);
-  if (!res || res.status === 'unavailable' || res.status === 'none') return null;
-  if (res.status === 'pending') {
+  if (res && (res.status === 'unavailable' || res.status === 'none')) return null;
+  // Still asking, or the research is under way: the card's shape with placeholder lines.
+  if (!res || res.status === 'pending') {
     return (
-      <Card>
+      <Card style={{ paddingHorizontal: 20, gap: 14 }}>
         <Eyebrow>About this wine</Eyebrow>
-        <Muted>Looking up tasting notes, the producer and the wine&apos;s specs…</Muted>
+        <Skeleton label="Loading tasting notes and background">
+          <TextBones lines={3} height={13} />
+          <View style={{ gap: 8 }}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ width: 96 }}><TextBones lines={1} height={11} /></View>
+                <View style={{ flex: 1 }}><TextBones lines={2} height={11} /></View>
+              </View>
+            ))}
+          </View>
+        </Skeleton>
+        {res ? <Muted style={{ fontSize: 12 }}>Looking up tasting notes, the producer and the wine&apos;s specs…</Muted> : null}
       </Card>
     );
   }
