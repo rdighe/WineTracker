@@ -46,7 +46,7 @@ export const palettes: Record<Scheme, Palette> = {
 };
 
 export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40 } as const;
-export const radius = { xs: 6, sm: 10, md: 16, lg: 24, xl: 32, pill: 999 } as const;
+export const radius = { xs: 6, sm: 10, md: 16, lg: 24, xl: 40, pill: 999 } as const;
 export const size = { controlSm: 34, controlMd: 44, controlLg: 50, tapMin: 44, row: 64, rowPhoto: 76, thumbW: 44, thumbH: 56, photoHero: 420 } as const;
 
 /**
