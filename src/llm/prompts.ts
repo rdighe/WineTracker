@@ -46,6 +46,11 @@ ${known}
 
 Several wines can share a name: use the producer and the label text to research the right one.
 Cover the wine in general, not one vintage. Use the producer's own site, importers' spec sheets, and reputable reviews.
+${grounded ? `Look in particular for the wine's technical / spec sheet (the producer's or importer's fact sheet, often a PDF) and use it for the specs.
+Then corroborate the tasting notes: find what 2-5 independent sources say it tastes like (the spec sheet, critics, shops), and write
+"tasting_notes" as what they agree on. Report each source's own words briefly in "tasting_sources", and in "consensus" say where they
+agree and where they differ.
+` : ''}
 Only state facts you can back up${grounded ? ' with a page you found' : ''}; leave a field "" (or [] for lists) when unsure. Never invent numbers.
 Reply with ONLY a JSON object with these keys (plain text values, no markdown):
 {"summary": "2-3 sentences: what this wine is and what makes it notable",
@@ -57,5 +62,8 @@ Reply with ONLY a JSON object with these keys (plain text values, no markdown):
  "vineyard": "the vineyards, site, soils and climate, 1-3 sentences",
  "specs": {"grapes": "blend with percentages when published", "abv": "", "aging": "oak, vessels, months", "vinification": "", "soil": "", "production": "cases or bottles per year"},
  "wine": {"colour": "red|white|rose|", "wine_type": "still|sparkling|fortified|dessert|", "country": "", "region": "", "sub_region": "", "grape": "main grape or blend name"},
- "sources": [{"title": "", "url": "https://..."}]}`;
+ "sources": [{"title": "", "url": "https://..."}]${grounded ? `,
+ "spec_sheets": [{"title": "e.g. 2019 technical sheet", "url": "https://..."}],
+ "tasting_sources": [{"source": "who said it, e.g. the producer, Vinous, a shop", "url": "https://...", "kind": "producer|importer|critic|retailer|other", "notes": "their tasting note, 1-2 sentences"}],
+ "consensus": "1-2 sentences: where the sources agree and differ"` : ''}}`;
 }

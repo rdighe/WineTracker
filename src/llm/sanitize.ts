@@ -111,7 +111,12 @@ const infoSchema = z.object({
   specs: obj({ grapes: str(200), abv: str(20), aging: str(300), vinification: str(400), soil: str(200), production: str(80) }),
   wine: obj({ colour: str(10), wine_type: str(12), country: str(60), region: str(80), sub_region: str(80), grape: str(80) }),
   sources: z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())),
+  spec_sheets: z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())),
+  tasting_sources: z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())),
+  consensus: str(400),
 });
+
+const SOURCE_KINDS = ['producer', 'importer', 'critic', 'retailer', 'other'] as const;
 
 const webUrl = (s: string): string => {
   try {
@@ -134,6 +139,22 @@ export function sanitizeWineInfo(raw: unknown, grounded: boolean): WineInfo | nu
     const url = webUrl(String(o.url ?? ''));
     if (url && !sources.some((x) => x.url === url)) sources.push({ title: String(o.title ?? '').trim().slice(0, 120) || new URL(url).hostname, url });
   }
+  // Links found by a web search only: without one they are recalled, not read.
+  const specSheets: WineInfo['specSheets'] = [];
+  for (const s of grounded ? d.spec_sheets : []) {
+    const o = (s && typeof s === 'object' ? s : {}) as { title?: unknown; url?: unknown };
+    const url = webUrl(String(o.url ?? ''));
+    if (url && !specSheets.some((x) => x.url === url)) specSheets.push({ title: String(o.title ?? '').trim().slice(0, 120) || 'Spec sheet', url });
+  }
+  const tastingSources: WineInfo['tastingSources'] = [];
+  for (const s of grounded ? d.tasting_sources : []) {
+    const o = (s && typeof s === 'object' ? s : {}) as { source?: unknown; url?: unknown; kind?: unknown; notes?: unknown };
+    const notes = String(o.notes ?? '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    const source = String(o.source ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!notes || !source) continue;
+    const kind = SOURCE_KINDS.find((k) => k === String(o.kind ?? '').toLowerCase()) ?? 'other';
+    tastingSources.push({ source, url: webUrl(String(o.url ?? '')), kind, notes });
+  }
   const info: WineInfo = {
     summary: d.summary,
     tastingNotes: d.tasting_notes,
@@ -150,6 +171,9 @@ export function sanitizeWineInfo(raw: unknown, grounded: boolean): WineInfo | nu
     },
     // Without a web search, "sources" are links the model recalls, not pages it read.
     sources: grounded ? sources.slice(0, 8) : [],
+    specSheets: specSheets.slice(0, 3),
+    tastingSources: tastingSources.slice(0, 6),
+    consensus: grounded ? d.consensus : '',
     grounded,
   };
   // A reply with nothing in it is a failed research, not an empty wine.

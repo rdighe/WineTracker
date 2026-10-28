@@ -65,7 +65,8 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
   const cur = rows[0];
   if (!cur) return false;
   const merged: TastingInput = {
-    wineId: cur.wine_id,
+    // A different wine: the entry was matched to the wrong one.
+    wineId: t.wineId ?? cur.wine_id,
     vintage: t.vintage !== undefined ? t.vintage : cur.vintage_key,
     rating: t.rating !== undefined ? t.rating : cur.rating === null ? null : Number(cur.rating),
     notes: t.notes ?? cur.notes,
@@ -79,20 +80,21 @@ export async function updateTasting(db: Db, userId: number, tastingId: number, t
     bottles: t.bottles !== undefined ? t.bottles : cur.bottles,
     setting: t.setting !== undefined ? t.setting : cur.setting,
   };
-  const priceChanged = t.pricePaid !== undefined || t.priceContext !== undefined || t.bottleMl !== undefined || t.vintage !== undefined || t.tastedOn !== undefined;
+  const wineChanged = merged.wineId !== cur.wine_id;
+  const priceChanged = wineChanged || t.pricePaid !== undefined || t.priceContext !== undefined || t.bottleMl !== undefined || t.vintage !== undefined || t.tastedOn !== undefined;
   let observationId = cur.observation_id;
   if (priceChanged) {
     if (observationId) await db.query('DELETE FROM price_observations WHERE observation_id = $1', [observationId]);
     observationId = await recordPrice(db, userId, merged);
   }
   await db.query(
-    `UPDATE tastings SET vintage_key = $3, rating = $4, notes = $5, tags = $6, price_paid_cents = $7, price_context = $8,
+    `UPDATE tastings SET wine_id = $16, vintage_key = $3, rating = $4, notes = $5, tags = $6, price_paid_cents = $7, price_context = $8,
             bottle_ml = $9, location = $10, tasted_on = $11::date, observation_id = $12, kind = $13, bottles = $14, setting = $15, updated_at = NOW()
       WHERE tasting_id = $1 AND user_id = $2`,
     [tastingId, userId, merged.vintage ?? null, merged.rating ?? null, merged.notes ?? '', JSON.stringify(normalizeTags(merged.tags ?? [])),
      merged.pricePaid ? Math.round(merged.pricePaid * 100) : null, merged.pricePaid ? merged.priceContext ?? 'retail' : null,
      merged.bottleMl ?? 750, merged.location ?? '', merged.tastedOn, observationId, merged.kind ?? 'tasted',
-     merged.kind === 'cellar' ? merged.bottles ?? 1 : null, merged.kind === 'cellar' ? null : merged.setting ?? null]
+     merged.kind === 'cellar' ? merged.bottles ?? 1 : null, merged.kind === 'cellar' ? null : merged.setting ?? null, merged.wineId]
   );
   return true;
 }

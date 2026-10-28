@@ -182,6 +182,12 @@ export interface WineInfo {
   vineyard: string;
   specs: { grapes: string; abv: string; aging: string; vinification: string; soil: string; production: string };
   sources: { title: string; url: string }[];
+  /** Spec / technical sheets found on the web. Missing in research from before they were looked up. */
+  specSheets?: { title: string; url: string }[];
+  /** What individual sources say it tastes like, corroborating tastingNotes. */
+  tastingSources?: { source: string; url: string; kind: 'producer' | 'importer' | 'critic' | 'retailer' | 'other'; notes: string }[];
+  /** Where those sources agree and differ. */
+  consensus?: string;
   /** False: from the model's general knowledge, not a web search. */
   grounded: boolean;
 }
@@ -189,7 +195,10 @@ export interface WineInfo {
 export interface InfoResponse {
   /** none: not researched yet (sign in to start); unavailable: the server can't research. */
   status: 'ready' | 'pending' | 'failed' | 'none' | 'unavailable';
+  /** Present while research is redone (refreshing) or after a retry failed, too: the earlier research. */
   info: WineInfo | null;
+  /** Looking again (spec sheets, more sources) while showing what's known. */
+  refreshing?: boolean;
 }
 
 /** A wine bookmarked on its page (My wines › Saved). Price is per 750 ml, all vintages. */

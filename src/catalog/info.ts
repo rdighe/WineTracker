@@ -12,6 +12,13 @@ import type { Db } from '../db/pool.js';
 import type { LlmProvider, WineInfo } from '../llm/types.js';
 import { getWine } from './wines.js';
 
+/**
+ * The research format. Version 2 added spec sheets and per-source tasting
+ * notes; research in an older format is redone when the wine is next opened,
+ * and the old notes keep showing until the new ones are in.
+ */
+export const INFO_VERSION = 2;
+
 /** A failed research is tried again after this long. */
 const RETRY_FAILED_HOURS = 24;
 /** A 'pending' row this old was lost (the API restarted mid-research) and may be claimed again. */
@@ -60,7 +67,7 @@ export function createInfoResearcher(db: Db, provider: LlmProvider, log: (msg: s
         displayName: wine.display_name, producer: wine.producer, region: wine.sub_region || wine.region,
         country: wine.country, grape: wine.grape, colour: wine.colour, labelText: scans[0]?.text ?? undefined,
       });
-      await db.query(`UPDATE wine_info SET status = 'ready', info = $2, provider = $3, error = '', updated_at = NOW() WHERE wine_id = $1`, [wineId, JSON.stringify(info), provider.name]);
+      await db.query(`UPDATE wine_info SET status = 'ready', info = $2, provider = $3, error = '', updated_at = NOW() WHERE wine_id = $1`, [wineId, JSON.stringify({ ...info, version: INFO_VERSION }), provider.name]);
       await fillBlanks(db, wineId, info.wine);
     } catch (err) {
       log(`wine info ${wineId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -99,8 +106,10 @@ export function createInfoResearcher(db: Db, provider: LlmProvider, log: (msg: s
          ON CONFLICT (wine_id) DO UPDATE SET status = 'pending', error = '', updated_at = NOW()
           WHERE (wine_info.status = 'failed' AND wine_info.updated_at < NOW() - make_interval(hours => $2))
              OR (wine_info.status = 'pending' AND wine_info.updated_at < NOW() - make_interval(mins => $3))
+             -- Researched in an older format: look again (spec sheets, sources).
+             OR (wine_info.status = 'ready' AND COALESCE((wine_info.info->>'version')::int, 1) < $4)
          RETURNING wine_id`,
-        [wineId, RETRY_FAILED_HOURS, PENDING_STALE_MINUTES]
+        [wineId, RETRY_FAILED_HOURS, PENDING_STALE_MINUTES, INFO_VERSION]
       ).finally(() => claiming--);
       if (rows[0]) queue.push(wineId);
       pump();

@@ -105,7 +105,8 @@ export function createApi(authHeader: AuthHeader) {
       kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string;
     }) => request<{ tastingId: number }>('/api/tastings', json('POST', t)),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
-    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null }) =>
+    /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
+    updateTasting: (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null; pricePaid?: number | null; wineId?: number }) =>
       request<unknown>(`/api/tastings/${id}`, json('PATCH', patch)),
     deleteTasting: (id: number) => request<void>(`/api/tastings/${id}`, { method: 'DELETE' }),
     /** Out of the cellar; a rating or notes on it stay, as a tasting. */

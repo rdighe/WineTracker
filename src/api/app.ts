@@ -308,7 +308,12 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     if (!(await getWine(db, wineId))) throw new HttpError(404, 'wine not found');
     if (req.user) await research.request(wineId);
     const found = await getWineInfo(db, wineId);
-    res.json({ status: found?.status ?? (research.available ? 'none' : 'unavailable'), info: found?.status === 'ready' ? found.info : null });
+    // Earlier research keeps showing while it's redone (refreshing) or if redoing it failed.
+    res.json({
+      status: found?.status ?? (research.available ? 'none' : 'unavailable'),
+      info: found?.info ?? null,
+      refreshing: found?.status === 'pending' && Boolean(found.info),
+    });
   }));
 
   // ── Prices ───────────────────────────────────────────────────────────────
@@ -406,7 +411,9 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
 
   app.patch('/api/tastings/:id', auth.requireUser, wrap(async (req, res) => {
     const id = parse(idParam, req.params.id);
-    const b = parse(tastingBody.partial(), req.body);
+    // wineId: move the entry to another wine (it was matched to the wrong one).
+    const b = parse(tastingBody.partial().extend({ wineId: z.number().int().positive().optional() }), req.body);
+    if (b.wineId && !(await getWine(db, b.wineId))) throw new HttpError(404, 'wine not found');
     if (!(await updateTasting(db, req.user!.userId, id, b))) throw new HttpError(404, 'tasting not found');
     res.json({ ok: true });
   }));

@@ -30,6 +30,13 @@ const rawInfo = {
   specs: { grapes: 'Semillon 90%, Sauvignon Blanc 10%', abv: '14%' },
   wine: { colour: 'White', wine_type: 'dessert', country: 'France', region: 'Bordeaux', sub_region: 'Sauternes', grape: 'Semillon' },
   sources: [{ title: 'Estate', url: 'https://suduiraut.example/' }, { url: 'ftp://nope' }, 'junk'],
+  spec_sheets: [{ title: '2019 technical sheet', url: 'https://suduiraut.example/2019.pdf' }, { url: 'nope' }],
+  tasting_sources: [
+    { source: 'Château Suduiraut', url: 'https://suduiraut.example/2019.pdf', kind: 'Producer', notes: 'Apricot, honey and saffron.' },
+    { source: 'A critic', kind: 'sommelier', notes: 'Candied orange and honey.' },
+    { source: '', notes: 'no source' },
+  ],
+  consensus: 'All agree on apricot and honey; the critic finds more citrus.',
 };
 const info = sanitizeWineInfo(rawInfo, true)!;
 
@@ -42,6 +49,14 @@ describe('sanitizing model output', () => {
     expect(info.tastingNotes.finish).toBe('');
     expect(sanitizeWineInfo({ summary: '', descriptors: ['x'] }, true)).toBeNull();
     expect(sanitizeWineInfo(rawInfo, false)!.sources).toEqual([]);
+    expect(info.specSheets).toEqual([{ title: '2019 technical sheet', url: 'https://suduiraut.example/2019.pdf' }]);
+    expect(info.tastingSources).toEqual([
+      { source: 'Château Suduiraut', url: 'https://suduiraut.example/2019.pdf', kind: 'producer', notes: 'Apricot, honey and saffron.' },
+      { source: 'A critic', url: '', kind: 'other', notes: 'Candied orange and honey.' },
+    ]);
+    expect(info.consensus).toMatch(/agree/);
+    // Without a web search there are no sources to quote.
+    expect(sanitizeWineInfo(rawInfo, false)).toMatchObject({ specSheets: [], tastingSources: [], consensus: '' });
   });
 
   it('reads lineups as {"bottles": [...]} or a bare array, dropping unreadable entries', () => {
@@ -81,7 +96,7 @@ describe('wine info API', () => {
     const { app, researcher } = setup(researchWine);
     const wineId = await createWine(db, { producer: 'Chateau Suduiraut', name: '', region: 'Bordeaux (Graves)', source: 'crawl' });
 
-    expect((await request(app).get(`/api/wines/${wineId}/info`)).body).toEqual({ status: 'none', info: null });
+    expect((await request(app).get(`/api/wines/${wineId}/info`)).body).toEqual({ status: 'none', info: null, refreshing: false });
     expect((await request(app).get(`/api/wines/${wineId}/info`).set(user)).body.status).toBe('pending');
     finish();
     await researcher.drained();
@@ -93,6 +108,26 @@ describe('wine info API', () => {
     const { rows } = await db.query('SELECT colour, wine_type, region, sub_region, grape, country FROM wines WHERE wine_id = $1', [wineId]);
     // Blanks filled; the region already there is kept.
     expect(rows[0]).toEqual({ colour: 'white', wine_type: 'dessert', region: 'Bordeaux (Graves)', sub_region: '', grape: 'Semillon', country: 'France' });
+  });
+
+  it('redoes research from before spec sheets when the wine is opened, showing the old notes meanwhile', async () => {
+    let finish!: () => void;
+    const researched = new Promise<void>((r) => (finish = r));
+    const researchWine = vi.fn(async (): Promise<WineInfo> => (await researched, info));
+    const { app, researcher } = setup(researchWine);
+    const wineId = await createWine(db, { producer: 'Chateau Suduiraut', name: '', source: 'crawl' });
+    // Research in the first format: no version, no spec sheets.
+    await db.query(`INSERT INTO wine_info (wine_id, status, info) VALUES ($1, 'ready', $2)`, [wineId, JSON.stringify({ ...info, specSheets: undefined, tastingSources: undefined, version: undefined })]);
+    const during = (await request(app).get(`/api/wines/${wineId}/info`).set(user)).body;
+    expect(during).toMatchObject({ status: 'pending', refreshing: true, info: { summary: info.summary } });
+    finish();
+    await researcher.drained();
+    const after = (await request(app).get(`/api/wines/${wineId}/info`).set(user)).body;
+    expect(after).toMatchObject({ status: 'ready', refreshing: false, info: { version: 2, specSheets: [{ url: 'https://suduiraut.example/2019.pdf' }] } });
+    // Current research isn't redone.
+    await request(app).get(`/api/wines/${wineId}/info`).set(user);
+    await researcher.drained();
+    expect(researchWine).toHaveBeenCalledTimes(1);
   });
 
   it('starts research when a wine is added, and does not hammer a failing provider', async () => {
@@ -126,7 +161,7 @@ describe('wine info API', () => {
   it('says so when the server cannot research', async () => {
     const { app } = setup();
     const wineId = await createWine(db, { producer: 'Ridge', name: 'Monte Bello', source: 'lwin' });
-    expect((await request(app).get(`/api/wines/${wineId}/info`).set(user)).body).toEqual({ status: 'unavailable', info: null });
+    expect((await request(app).get(`/api/wines/${wineId}/info`).set(user)).body).toEqual({ status: 'unavailable', info: null, refreshing: false });
   });
 });
 

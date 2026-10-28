@@ -105,6 +105,21 @@ describe('removing a wine from the cellar', () => {
     expect((await as(request(a).post(`/api/tastings/${tasted}/remove-from-cellar`), 'someone-else')).status).toBe(404);
   });
 
+  it('fixes a cellar entry added by mistake: vintage, bottles, price, and the wine itself', async () => {
+    const a = app();
+    const as = (r: request.Test) => r.set('Authorization', 'Dev fixer');
+    const wrong = await createWine(db, { producer: 'Ridge', name: 'Geyserville', source: 'user' });
+    const right = await createWine(db, { producer: 'Ridge', name: 'Lytton Springs', source: 'user' });
+    const id = (await as(request(a).post('/api/tastings')).send({ wineId: wrong, vintage: '2019', kind: 'cellar', bottles: 2, pricePaid: 40 })).body.tastingId;
+    expect((await as(request(a).patch(`/api/tastings/${id}`)).send({ wineId: right, vintage: '2020', bottles: 3, pricePaid: 45 })).status).toBe(200);
+    const [t] = (await as(request(a).get('/api/tastings'))).body.tastings;
+    expect(t).toMatchObject({ tasting_id: id, wine_id: right, vintage_key: '2020', bottles: 3, price_paid_cents: 4500, kind: 'cellar' });
+    // The price paid moved with it: it counts for the right wine, not the wrong one.
+    const { rows } = await db.query(`SELECT wine_id FROM price_observations WHERE source_type = 'user'`);
+    expect(rows.map((r) => Number(r.wine_id))).toEqual([right]);
+    expect((await as(request(a).patch(`/api/tastings/${id}`)).send({ wineId: 999999 })).status).toBe(404);
+  });
+
   it('lets the date of any entry be changed', async () => {
     const a = app();
     const wineId = await createWine(db, { producer: 'Ridge', name: 'Monte Bello', source: 'lwin' });

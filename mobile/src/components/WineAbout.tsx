@@ -1,4 +1,8 @@
-/** "About this wine": researched tasting notes, producer history and specs (GET /api/wines/:id/info). */
+/**
+ * "About this wine": researched tasting notes, producer history and specs
+ * (GET /api/wines/:id/info). The tasting notes are corroborated against what
+ * the wine's spec sheet, critics and shops say, each shown with its source.
+ */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import type { InfoResponse, WineInfo } from '../lib/types';
@@ -76,11 +80,44 @@ function Facts({ rows }: { rows: [string, string][] }) {
   );
 }
 
+const KIND_LABEL = { producer: 'Producer', importer: 'Importer', critic: 'Critic', retailer: 'Shop', other: 'Source' } as const;
+
+/** "Agreed by 3 sources", where they differ, and - on request - what each one says. */
+function Corroboration({ sources, consensus }: { sources: NonNullable<WineInfo['tastingSources']>; consensus: string }) {
+  const { c } = useTheme();
+  const [open, setOpen] = useState(false);
+  if (!sources.length && !consensus) return null;
+  return (
+    <View style={{ gap: 8, marginTop: 4, padding: space[3], borderRadius: 10, backgroundColor: c.surfaceSunken }}>
+      {sources.length ? (
+        <Text style={[type.footnote, { fontWeight: '600', color: c.positive }]}>
+          {sources.length === 1 ? 'Checked against 1 source' : `Checked against ${sources.length} sources`}
+        </Text>
+      ) : null}
+      {consensus ? <Text style={[type.subhead, { color: c.ink }]}>{consensus}</Text> : null}
+      {sources.length ? (
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} hitSlop={6}>
+          <Text style={[type.footnote, { fontWeight: '600', color: c.accent }]}>{open ? 'Hide what each source says' : 'What each source says'}</Text>
+        </Pressable>
+      ) : null}
+      {open
+        ? sources.map((s, n) => (
+          <View key={`${s.source}-${n}`} style={{ gap: 2 }}>
+            <Text style={[type.footnote, { fontWeight: '600', color: c.ink2 }]}>{KIND_LABEL[s.kind]} · {s.source}</Text>
+            <Text style={[type.subhead, { color: c.ink }]}>“{s.notes}”</Text>
+            {s.url ? <Link url={s.url}>{s.url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</Link> : null}
+          </View>
+        ))
+        : null}
+    </View>
+  );
+}
+
 export function WineAbout({ res }: { res: InfoResponse | null }) {
   const [more, setMore] = useState(false);
   if (res && (res.status === 'unavailable' || res.status === 'none')) return null;
-  // Still asking, or the research is under way: the card's shape with placeholder lines.
-  if (!res || res.status === 'pending') {
+  // Still asking, or the research is under way (and nothing known yet): the card's shape with placeholder lines.
+  if (!res || (res.status === 'pending' && !res.info)) {
     return (
       <Card style={{ gap: 14 }}>
         <Heading>About this wine</Heading>
@@ -99,7 +136,7 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
       </Card>
     );
   }
-  if (res.status === 'failed' || !res.info) {
+  if (!res.info) {
     return (
       <Card>
         <Heading>About this wine</Heading>
@@ -115,6 +152,8 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
   ];
   const serving: [string, string][] = [['Serve at', i.serving.temperature], ['Decanting', i.serving.decant], ['Drinking window', i.serving.drinkingWindow]];
   const producer: [string, string][] = [['Founded', i.producer.founded], ['Where', i.producer.location]];
+  const sources = i.tastingSources ?? [];
+  const sheets = i.specSheets ?? [];
   const hasMore = [i.producer.history, i.vineyard, ...specs.map(([, v]) => v), ...serving.map(([, v]) => v), ...i.foodPairings].some(Boolean);
 
   return (
@@ -124,8 +163,15 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
       {notes.some(([, v]) => v) ? (
         <Section title="Tasting notes">
           <Facts rows={notes} />
+          <Corroboration sources={sources} consensus={i.consensus ?? ''} />
         </Section>
       ) : null}
+      {sheets.length ? (
+        <Section title={sheets.length === 1 ? 'Spec sheet' : 'Spec sheets'}>
+          {sheets.map((s) => <Link key={s.url} url={s.url}>{s.title} ↗</Link>)}
+        </Section>
+      ) : null}
+      {res.refreshing ? <Muted>Checking spec sheets and other sources…</Muted> : null}
       {i.descriptors.length ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {i.descriptors.map((d) => <Chip key={d} small>{d}</Chip>)}
@@ -148,7 +194,7 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
             </Section>
           ) : null}
           {specs.some(([, v]) => v) ? (
-            <Section title="Spec sheet">
+            <Section title="Specs">
               <Facts rows={specs} />
             </Section>
           ) : null}
@@ -166,7 +212,7 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
           ) : null}
         </>
       ) : null}
-      {hasMore ? <Button title={more ? 'Show less' : 'Producer, vineyards & spec sheet'} variant="secondary" size="sm" onPress={() => setMore(!more)} /> : null}
+      {hasMore ? <Button title={more ? 'Show less' : 'Producer, vineyards & specs'} variant="secondary" size="sm" onPress={() => setMore(!more)} /> : null}
       <Muted style={{ fontSize: 12 }}>
         {i.grounded ? 'Researched by AI from the web pages listed.' : "From the AI's general knowledge, not checked against the web: it can be wrong."}
       </Muted>

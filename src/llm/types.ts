@@ -67,8 +67,19 @@ export interface WineInfo {
   /** Catalog facts, used to fill blanks on catalog entries created from shop listings. */
   wine: { colour: string; wineType: string; country: string; region: string; subRegion: string; grape: string };
   sources: { title: string; url: string }[];
+  /** Technical / spec sheets found for the wine (producer or importer fact sheets, often PDFs). */
+  specSheets: { title: string; url: string }[];
+  /**
+   * What individual sources say it tastes like, to corroborate tastingNotes:
+   * the producer's or importer's sheet, critics, shops. Grounded research only.
+   */
+  tastingSources: { source: string; url: string; kind: 'producer' | 'importer' | 'critic' | 'retailer' | 'other'; notes: string }[];
+  /** Where those sources agree and where they differ, one or two sentences. */
+  consensus: string;
   /** True when the model searched the web; false when it answered from what it already knew. */
   grounded: boolean;
+  /** Research format (INFO_VERSION in src/catalog/info.ts); older research is redone when the wine is opened. */
+  version?: number;
 }
 
 export interface LlmProvider {
