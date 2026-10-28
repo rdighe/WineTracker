@@ -76,7 +76,7 @@ in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
   Glass choice. `expo-glass-effect` is native code: make a new development or TestFlight build after pulling this.
 - **Photos first:** a wine's page opens on its photo; rows lead with a thumbnail; For you is a grid of photo cards.
 - **Type:** the Apple system font everywhere, with tabular figures for prices. The opening animation writes
-  "WineTracker" in Snell Roundhand, which ships with iOS (`src/components/SplashIntro.tsx`).
+  "WineTracker" in Georgia, a serif that ships with iOS (`src/components/SplashIntro.tsx`).
 - **Motion** (Reanimated; all of it respects Reduce Motion): Log tasting, Add to cellar and Find wines open a sheet
   that grows out of the button (`ExpandingSheet.tsx`); the tab highlight and segmented controls slide; rows fade in,
   and slide gently (220 ms ease-out, no bounce) as a tasted row opens; buttons spring when pressed.

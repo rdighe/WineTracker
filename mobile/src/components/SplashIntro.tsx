@@ -1,6 +1,6 @@
 /**
- * The opening animation: "WineTracker" written out in Snell Roundhand, as if
- * by pen, then a short underline, then the app fades in underneath. The native
+ * The opening animation: "WineTracker" in Georgia, revealed left to right,
+ * then a short underline, then the app fades in underneath. The native
  * splash (same background) hands over to it, so there's no flash. Tap to skip;
  * with Reduce Motion the name simply fades in.
  */
@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { scriptFont, useTheme } from './theme';
+import { useTheme, wordmarkFont } from './theme';
 
 const WRITE_MS = 1500;
 const HOLD_MS = 450;
@@ -43,7 +43,7 @@ export function SplashIntro({ onDone }: { onDone: () => void }) {
   const reveal = useAnimatedStyle(() => (reduceMotion ? { width: textW, opacity: write.value } : { width: textW * write.value + 2 }));
   const underline = useAnimatedStyle(() => ({ width: textW * 0.42 * line.value, opacity: line.value }));
   const overlay = useAnimatedStyle(() => ({ opacity: fade.value }));
-  const name = <Text style={[scriptFont, { fontSize: 58, lineHeight: 92, color: c.accent, paddingHorizontal: 12 }]} numberOfLines={1}>WineTracker</Text>;
+  const name = <Text style={[wordmarkFont, { fontSize: 42, lineHeight: 56, letterSpacing: 0.5, color: c.accent, paddingHorizontal: 12 }]} numberOfLines={1}>WineTracker</Text>;
 
   return (
     <Animated.View style={[{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: c.bg, zIndex: 100 }, overlay]}>
@@ -52,10 +52,10 @@ export function SplashIntro({ onDone }: { onDone: () => void }) {
         <View style={{ position: 'absolute', opacity: 0 }} pointerEvents="none" onLayout={(e) => setTextW(e.nativeEvent.layout.width)}>
           {name}
         </View>
-        <Animated.View style={[{ overflow: 'hidden', height: 92 }, reveal]}>
+        <Animated.View style={[{ overflow: 'hidden', height: 56 }, reveal]}>
           <View style={{ width: textW }}>{name}</View>
         </Animated.View>
-        <Animated.View style={[{ height: 1.5, borderRadius: 1, backgroundColor: c.accent, marginTop: 2 }, underline]} />
+        <Animated.View style={[{ height: 1.5, borderRadius: 1, backgroundColor: c.accent, marginTop: 6 }, underline]} />
       </Pressable>
     </Animated.View>
   );
