@@ -131,3 +131,12 @@ export function PinIcon({ color, size, strokeWidth = 1.7 }: IconProps) {
     </Svg>
   );
 }
+
+export function ListIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x="5" y="3" width="14" height="18" rx="2" />
+      <Path d="M8.5 8h5M8.5 12h5M8.5 16h5M16 8h0M16 12h0M16 16h0" />
+    </Svg>
+  );
+}

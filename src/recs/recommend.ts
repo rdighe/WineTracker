@@ -171,6 +171,16 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
   };
 }
 
+/** Catalog wines with their profile features (researched notes included) and photo, by id. */
+export async function catalogWines(db: Db, wineIds: number[]): Promise<Map<number, { row: WineRow & { image_url: string | null }; features: Features; style: RecStyle | '' }>> {
+  if (!wineIds.length) return new Map();
+  const { rows } = await db.query(`SELECT ${WINE_COLS}, w.image_url, ${NOTES_COLS} FROM wines w ${NOTES_JOIN} WHERE w.wine_id = ANY($1)`, [wineIds]);
+  return new Map(rows.map((r) => {
+    const features = wineFeatures(r as WineRow, notesOf(r));
+    return [Number(r.wine_id), { row: r, features, style: recStyle(features) }];
+  }));
+}
+
 /**
  * A priced wine with everything about it that doesn't depend on the user,
  * worked out once: features, style, and normalized text for searches.

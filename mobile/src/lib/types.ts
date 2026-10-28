@@ -225,3 +225,50 @@ export interface SavedWine {
   n_merchants: number | null;
   created_at: string;
 }
+
+/** One wine on a wine list or a store shelf, as read (prices in cents, as printed). */
+export interface ListEntry {
+  producer: string;
+  name: string;
+  vintage: string;
+  region: string;
+  country: string;
+  grape: string;
+  colour: string;
+  style: string;
+  section: string;
+  glassCents: number | null;
+  bottleCents: number | null;
+  bottleMl: number | null;
+  text: string;
+}
+
+/** A wine on a list or shelf, ranked for the person (POST /api/picks). */
+export interface PickItem {
+  index: number;
+  entry: ListEntry;
+  /** matched: this wine; likely: probably this wine; guess: not in the catalog, judged by what's printed. */
+  match: 'matched' | 'likely' | 'guess';
+  wineId: number | null;
+  displayName: string;
+  region: string;
+  style: RecStyle | '';
+  imageUrl: string | null;
+  score: number | null;
+  reasons: string[];
+  myRating: number | null;
+  retailCents: number | null;
+  retailVintage: string | null;
+  /** List price over typical retail (a glass counts as a fifth of a bottle); matched wines only. */
+  markup: number | null;
+  glassMarkup: number | null;
+}
+
+export interface PickResult {
+  pickId: number;
+  kind: 'list' | 'shelf';
+  source: string;
+  mode: 'profile' | 'locked';
+  rated: number;
+  items: PickItem[];
+}

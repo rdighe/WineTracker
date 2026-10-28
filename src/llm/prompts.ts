@@ -112,3 +112,35 @@ Note:
 ${text.slice(0, MAX_NOTE_CHARS)}
 """`;
 }
+
+/** The longest wine list text sent to a model (a long list is about 15,000 characters). */
+export const MAX_LIST_CHARS = 30000;
+/** Most wines kept from one list. */
+export const MAX_LIST_ENTRIES = 400;
+
+/**
+ * Reading a restaurant wine list from its text (the phone reads the photo; a
+ * line is roughly one row of the page, columns joined by " | "). The same
+ * fields as the on-device reader (mobile/modules/wine-list).
+ */
+export function wineListPrompt(text: string): string {
+  return `This is the text of a restaurant wine list, read from a photo (each line is about one row of the page; " | " separates text far apart on the same row, which can be two columns of the list).
+List every wine on it. Return ONLY a JSON object: {"wines": [ ... ]}, one entry per wine, each with these keys:
+{"producer": "", "name": "", "vintage": "", "region": "", "country": "", "grape": "", "colour": "red|white|rose|orange|",
+ "style": "still|sparkling|sweet|fortified|", "section": "", "glass_price": null, "bottle_price": null, "bottle_ml": null, "text": ""}
+Rules:
+- producer: the winery/house/chateau as printed. name: the rest of the wine's name (cuvée, vineyard, appellation), without the producer.
+- vintage: the 4-digit year printed for that wine, "NV" if printed as non-vintage, "" if none. Never guess.
+- region / country / grape / colour / style: as printed, or certain from the appellation or the heading the wine is under. "" when unsure.
+- section: the heading the wine is listed under ("Sparkling", "Pinot Noir", "Rhône"), "" if none.
+- glass_price / bottle_price: the prices as numbers in the list's currency (18 for "18" or "$18.00"), null when not given. When a wine has one price, decide from the heading or column ("by the glass") whether it is a glass or a bottle price; a lone price under about 25 is usually a glass.
+- bottle_ml: only for half bottles (375), magnums (1500) and other non-750 sizes, else null.
+- Bin numbers, page numbers, descriptions and food are not wines. Skip cocktails, beer, spirits and sake.
+- text: the wine's line as printed.
+At most ${MAX_LIST_ENTRIES} wines, in the order listed.
+
+Wine list text:
+"""
+${text.slice(0, MAX_LIST_CHARS)}
+"""`;
+}

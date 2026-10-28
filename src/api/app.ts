@@ -14,6 +14,8 @@ import { matchWine } from '../match/matcher.js';
 import { per750 } from '../lib/listing.js';
 import { ProviderUnavailableError, type LlmProvider } from '../llm/types.js';
 import { createNoteProvider } from '../llm/index.js';
+import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
+import { inputSha, pickWines, readListEntries } from '../picks/picks.js';
 import { FLAVOR_KEYS } from '../recs/flavors.js';
 import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
 import { confirmScan, scanLabel, scanLineup, ScanError } from '../scan/scan.js';
@@ -150,7 +152,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   // Scans may carry a base64 photo in JSON (React Native's fetch can't always
   // send a file part), so that one route gets a larger body limit.
   const smallJson = express.json({ limit: '100kb' });
-  const bigBody = new Set(['/api/scans', '/api/scans/lineup', '/api/import/vivino']);
+  const bigBody = new Set(['/api/scans', '/api/scans/lineup', '/api/import/vivino', '/api/picks']);
   app.use((req, res, next) => (bigBody.has(req.path) ? next() : smallJson(req, res, next)));
   const scanJson = express.json({ limit: '12mb' });
   const importJson = express.json({ limit: '8mb' });
@@ -504,6 +506,42 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     const wineId = parse(idParam, req.params.wineId);
     await db.query('DELETE FROM saved_wines WHERE user_id = $1 AND wine_id = $2', [req.user!.userId, wineId]);
     res.status(204).end();
+  }));
+
+  // ── Picks: a wine list (or shelf) ranked for the person ──────────────────
+  const listReaders = [provider, createNoteProvider()];
+  const cents = z.number().int().min(1).max(10_000_000).nullable().default(null);
+  const listEntry = z.object({
+    producer: z.string().max(120).default(''),
+    name: z.string().max(160).default(''),
+    vintage: z.string().regex(/^(1[89]\d\d|20\d\d|NV)?$/).default(''),
+    region: z.string().max(80).default(''),
+    country: z.string().max(60).default(''),
+    grape: z.string().max(80).default(''),
+    colour: z.enum(['red', 'white', 'rose', 'orange', '']).default(''),
+    style: z.enum(['still', 'sparkling', 'sweet', 'fortified', '']).default(''),
+    section: z.string().max(60).default(''),
+    glassCents: cents,
+    bottleCents: cents,
+    bottleMl: z.number().int().min(50).max(30000).nullable().default(null),
+    text: z.string().max(300).default(''),
+  });
+
+  // A wine list: the entries the phone read (Apple Intelligence), and/or text it couldn't, for the server to read.
+  app.post('/api/picks', auth.requireUser, scanLimit, scanJson, wrap(async (req, res) => {
+    const b = parse(
+      z.object({
+        kind: z.literal('list'),
+        entries: z.array(listEntry).max(MAX_LIST_ENTRIES).optional(),
+        text: z.string().max(MAX_LIST_CHARS).optional(),
+      }).refine((x) => x.entries?.length || x.text?.trim(), 'entries or text required'),
+      req.body
+    );
+    const device = (b.entries ?? []).filter((e) => e.producer || e.name);
+    const server = b.text?.trim() ? await readListEntries(db, b.text, listReaders) : null;
+    const entries = [...device, ...(server?.entries ?? [])];
+    const source = [device.length ? 'apple' : '', server?.source ?? ''].filter(Boolean).join('+');
+    res.json(await pickWines(db, req.user!.userId, 'list', entries, source, inputSha(b.text?.trim() ? b.text : JSON.stringify(device))));
   }));
 
   // ── Recommendations ──────────────────────────────────────────────────────

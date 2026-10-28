@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, ListEntry, PickResult } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -118,7 +118,7 @@ export function createApi(authHeader: AuthHeader) {
     addTasting: async (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
-      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string;
+      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string; bottleMl?: number;
     }) => {
       const text = noteText(t.notes, t.tags);
       const onDevice = Boolean(text) && (await canReadNotesOnDevice());
@@ -126,6 +126,8 @@ export function createApi(authHeader: AuthHeader) {
       if (onDevice) void readNotesOnDevice(res.tastingId, text);
       return res;
     },
+    /** A wine list ranked for the palate: the wines the phone read, and/or text for the server to read. */
+    pickFromList: (entries: ListEntry[], text: string) => request<PickResult>('/api/picks', json('POST', { kind: 'list', entries, ...(text.trim() ? { text } : {}) })),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
     /** Notes and tags sent together are read on the phone when it can; notes alone are left to the server, which knows the tags. */

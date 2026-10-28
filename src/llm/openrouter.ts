@@ -10,9 +10,9 @@
  * price refreshes re-check known shop pages only.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt } from './prompts.js';
-import { sanitizeLabel, sanitizeLabels, sanitizeNoteFlavors, sanitizeWineInfo } from './sanitize.js';
-import { ProviderUnavailableError, type LabelRead, type LlmProvider, type NoteFlavors, type WineInfo, type WineInfoQuery } from './types.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt, wineListPrompt } from './prompts.js';
+import { sanitizeLabel, sanitizeLabels, sanitizeListEntries, sanitizeNoteFlavors, sanitizeWineInfo } from './sanitize.js';
+import { ProviderUnavailableError, type LabelRead, type ListEntry, type LlmProvider, type NoteFlavors, type WineInfo, type WineInfoQuery } from './types.js';
 
 type FetchFn = typeof fetch;
 
@@ -131,6 +131,14 @@ export class OpenRouterProvider implements LlmProvider {
     return this.firstGood(
       (m) => this.chat(m, [{ type: 'text', text: noteFlavorsPrompt(text) }]),
       (text) => sanitizeNoteFlavors(extractJson(text, 'object'))
+    );
+  }
+
+  /** A wine list's text (read on the phone). */
+  readWineList(text: string): Promise<ListEntry[]> {
+    return this.firstGood(
+      (m) => this.chat(m, [{ type: 'text', text: wineListPrompt(text) }]),
+      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'))
     );
   }
 

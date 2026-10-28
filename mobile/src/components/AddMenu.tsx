@@ -1,7 +1,8 @@
 /**
- * The floating + button's menu: the ways to add a wine. It grows out of the
- * button (bottom right) and each choice opens Add wine already started that
- * way: the camera, a lineup photo, the photo library, or search / by hand.
+ * The floating + button's menu: the ways to add a wine, and picks from a
+ * wine list. It grows out of the button (bottom right) and each choice opens
+ * Add wine already started that way (the camera, a lineup photo, the photo
+ * library, or search / by hand), or Picks with the camera.
  */
 import { router } from 'expo-router';
 import { useEffect, type ReactElement } from 'react';
@@ -9,16 +10,17 @@ import { Modal, Pressable, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { lift } from './Glass';
-import { BottleIcon, PhotosIcon, ScanIcon, SearchIcon } from './icons';
+import { BottleIcon, ListIcon, PhotosIcon, ScanIcon, SearchIcon } from './icons';
 import { radius, space, type, useTheme } from './theme';
 
-type Start = 'camera' | 'lineup' | 'library' | 'search';
+type Start = 'camera' | 'lineup' | 'library' | 'search' | 'list';
 
 const CHOICES: { key: Start; title: string; detail: string; Icon: (p: { color: string; size?: number }) => ReactElement }[] = [
   { key: 'camera', title: 'Scan a label', detail: 'Photograph the front label', Icon: ScanIcon },
   { key: 'lineup', title: 'Scan a lineup', detail: 'Several bottles in one photo', Icon: BottleIcon },
   { key: 'library', title: 'Choose a photo', detail: 'A label photo you already took', Icon: PhotosIcon },
   { key: 'search', title: 'Search or add by hand', detail: 'Type the producer or wine', Icon: SearchIcon },
+  { key: 'list', title: 'Pick from a wine list', detail: 'The best wines on it for you', Icon: ListIcon },
 ];
 
 export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right }: {
@@ -53,7 +55,7 @@ export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right
 
   function choose(k: Start) {
     onRequestClose();
-    router.push(`/add?start=${k}`);
+    router.push(k === 'list' ? '/picks?kind=list' : `/add?start=${k}`);
   }
 
   return (

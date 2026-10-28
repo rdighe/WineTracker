@@ -6,9 +6,9 @@
  * GEMINI_MODEL puts a specific model first.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, merchantPrompt, researchPrompt } from './prompts.js';
-import { sanitizeLabel, sanitizeLabels, sanitizeMerchantPlaces, sanitizePriceHits, sanitizeWineInfo } from './sanitize.js';
-import type { LabelRead, LlmProvider, MerchantPlaces, WebPriceHit, WineInfo, WineInfoQuery, WineQuery } from './types.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, merchantPrompt, researchPrompt, wineListPrompt } from './prompts.js';
+import { sanitizeLabel, sanitizeLabels, sanitizeListEntries, sanitizeMerchantPlaces, sanitizePriceHits, sanitizeWineInfo } from './sanitize.js';
+import type { LabelRead, ListEntry, LlmProvider, MerchantPlaces, WebPriceHit, WineInfo, WineInfoQuery, WineQuery } from './types.js';
 
 type FetchFn = typeof fetch;
 
@@ -128,6 +128,14 @@ export class GeminiProvider implements LlmProvider {
     return this.firstGood(
       (m) => this.generate(m, parts, { grounded: false, json: true }),
       (text) => sanitizeLabels(extractJson(text, 'object') ?? extractJson(text, 'array'))
+    );
+  }
+
+  /** A wine list's text (read on the phone): text in, so far cheaper than sending the photo. */
+  readWineList(text: string): Promise<ListEntry[]> {
+    return this.firstGood(
+      (m) => this.generate(m, [{ text: wineListPrompt(text) }], { grounded: false, json: true }),
+      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'))
     );
   }
 

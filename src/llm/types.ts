@@ -104,6 +104,29 @@ export interface LlmProvider {
   researchMerchant?(q: { name: string; domain: string }): Promise<MerchantPlaces>;
   /** Flavor families a drinker's own note and tags say a wine has. Providers that can't, leave it out. */
   readNoteFlavors?(text: string): Promise<NoteFlavors>;
+  /** The wines on a restaurant wine list, from its text (read off the photo on the phone). Providers that can't, leave it out. */
+  readWineList?(text: string): Promise<ListEntry[]>;
+}
+
+/**
+ * One wine on a wine list or a store shelf, as read (src/picks/). Prices are
+ * as printed, in cents: a list may give a glass and/or a bottle price; a
+ * shelf tag is a bottle price.
+ */
+export interface ListEntry {
+  producer: string;
+  name: string;              // cuvee / appellation as printed, without the producer
+  vintage: string;           // '2019', 'NV' or ''
+  region: string;            // appellation or region, if printed
+  country: string;
+  grape: string;
+  colour: string;            // red | white | rose | orange | ''
+  style: string;             // still | sparkling | sweet | fortified | ''
+  section: string;           // the heading it is listed under ("Pinot Noir", "Sparkling"), '' if none
+  glassCents: number | null;
+  bottleCents: number | null;
+  bottleMl: number | null;   // when not 750 (half bottles, magnums)
+  text: string;              // the line(s) as printed
 }
 
 /** Flavor family (src/recs/flavors.ts) -> intensity: 1 a hint, 2 clear, 3 dominant. */

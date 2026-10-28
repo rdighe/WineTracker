@@ -4,8 +4,8 @@
  */
 import { z } from 'zod';
 import { FLAVORS } from '../recs/flavors.js';
-import { MAX_LINEUP } from './prompts.js';
-import type { LabelRead, WebPriceHit, WineInfo, MerchantPlaces, NoteFlavors } from './types.js';
+import { MAX_LINEUP, MAX_LIST_ENTRIES } from './prompts.js';
+import type { LabelRead, ListEntry, WebPriceHit, WineInfo, MerchantPlaces, NoteFlavors } from './types.js';
 
 const str = (max: number) => z.preprocess((v) => (v == null ? '' : String(v)), z.string()).transform((s) => s.replace(/\s+/g, ' ').trim().slice(0, max));
 
@@ -228,6 +228,56 @@ export function sanitizeNoteFlavors(raw: unknown): NoteFlavors | null {
   for (const [k, v] of Object.entries(map)) {
     const n = Math.round(Number(v));
     if (Object.hasOwn(FLAVORS, k) && n >= 1) out[k] = Math.min(n, 3) as 1 | 2 | 3;
+  }
+  return out;
+}
+
+/** Dollars as printed (18, "18", "$18.00", "1,200") to cents; null when absent or out of range. */
+function cents(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) && n >= 1 && n <= 100000 ? Math.round(n * 100) : null;
+}
+
+const COLOURS = new Set(['red', 'white', 'rose', 'orange']);
+const STYLES = new Set(['still', 'sparkling', 'sweet', 'fortified']);
+
+/**
+ * Wines a model read from a list or a shelf (prices in dollars, as printed).
+ * Accepts {"wines": [...]}, {"bottles": [...]} or the array itself; drops
+ * entries with no name at all. Null when the reply isn't a list.
+ */
+export function sanitizeListEntries(raw: unknown): ListEntry[] | null {
+  const arr = Array.isArray(raw) ? raw
+    : raw && typeof raw === 'object' ? ((raw as { wines?: unknown }).wines ?? (raw as { bottles?: unknown }).bottles) : null;
+  if (!Array.isArray(arr)) return null;
+  const s = (v: unknown, max: number) => (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim().slice(0, max);
+  const out: ListEntry[] = [];
+  for (const e of arr.slice(0, MAX_LIST_ENTRIES)) {
+    if (!e || typeof e !== 'object') continue;
+    const r = e as Record<string, unknown>;
+    const producer = s(r.producer, 120);
+    const name = s(r.name, 160);
+    if (!producer && !name) continue;
+    const colour = s(r.colour, 10).toLowerCase().replace('rosé', 'rose');
+    const style = s(r.style, 12).toLowerCase();
+    const vintage = s(r.vintage, 4).toUpperCase();
+    const ml = Number(r.bottle_ml);
+    out.push({
+      producer,
+      name,
+      vintage: /^(1[89]\d\d|20\d\d|NV)$/.test(vintage) ? vintage : '',
+      region: s(r.region, 80),
+      country: s(r.country, 60),
+      grape: s(r.grape, 80),
+      colour: COLOURS.has(colour) ? colour : '',
+      style: STYLES.has(style) ? style : '',
+      section: s(r.section, 60),
+      glassCents: cents(r.glass_price),
+      bottleCents: cents(r.bottle_price ?? r.price),
+      bottleMl: Number.isInteger(ml) && ml >= 50 && ml <= 30000 && ml !== 750 ? ml : null,
+      text: s(r.text ?? r.raw_text, 300),
+    });
   }
   return out;
 }
