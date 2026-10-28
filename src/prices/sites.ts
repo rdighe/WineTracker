@@ -14,8 +14,8 @@
  * winehousesf.com, wineexchange.com. No crawlable catalog (no feed, no product
  * sitemap): weimax.com, hitimewine.net, whwc.com, cwdc.com, baygrape.com,
  * arlequinwinemerchant.com, morrellwine.com, esquin.com. Feeds whose terms
- * prohibit scraping, not added without the owner's say-so: flatiron-wines.com,
- * vintagewinemerchants.com.
+ * prohibit scraping, skipped at the owner's choice (2026-10-28):
+ * flatiron-wines.com, vintagewinemerchants.com.
  */
 export type TosStatus = 'prohibits_scraping' | 'no_clause_found' | 'not_found';
 
