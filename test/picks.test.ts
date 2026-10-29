@@ -6,7 +6,7 @@ import { createWine } from '../src/catalog/wines.js';
 import { NullProvider } from '../src/llm/index.js';
 import { sanitizeListEntries } from '../src/llm/sanitize.js';
 import { parseListText } from '../src/picks/listText.js';
-import { firstAnswer } from '../src/picks/picks.js';
+import { firstAnswer, readListPages } from '../src/picks/picks.js';
 import { PoliteFetcher } from '../src/prices/fetcher.js';
 import { forgetRecommendationCandidates } from '../src/recs/recommend.js';
 import { closeDb, resetDb, testDb } from './helpers.js';
@@ -77,6 +77,13 @@ describe('asking readers', () => {
     const broken = reader('free', () => Promise.reject(new Error('429')));
     expect((await firstAnswer([broken, paid], (p) => (p as typeof broken).ask(), undefined, 10_000)).source).toBe('paid');
     await expect(firstAnswer([broken], (p) => (p as typeof broken).ask())).rejects.toThrow('429');
+  });
+
+  it('asks the same reader a second time when the first try is slow, and takes whichever answers first', async () => {
+    let n = 0;
+    const gemini = reader('gemini', () => (++n === 1 ? later(500, 'stuck')() : later(5, 'second try')()));
+    expect(await firstAnswer([gemini, gemini], (p) => (p as typeof gemini).ask(), undefined, 20)).toEqual({ value: 'second try', source: 'gemini' });
+    expect(gemini.ask).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -190,6 +197,27 @@ describe('picks API', () => {
     expect((await as(request(app).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('another').toString('base64') })).status).toBe(502);
     const none = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
     expect((await as(request(none).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('third').toString('base64') })).status).toBe(503);
+  });
+
+  it("hands on each part's wines as soon as that part is read, while a slow part is still being read", async () => {
+    const wine = (producer: string) => ({ producer, name: 'Cuvée', vintage: '', region: '', country: '', grape: '', colour: '', style: '', section: '', glassCents: null, bottleCents: 9000, bottleMl: null, text: producer });
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    const gemini = Object.assign(new NullProvider(), {
+      name: 'gemini',
+      readWineList: vi.fn(async (text: string) => {
+        if (text.includes('Slow')) await slow;
+        return [wine(text.split('\n')[0]!)];
+      }),
+    });
+    const page = [...Array(30)].map((_, i) => (i === 25 ? 'Slow line 90' : `Wine ${i} 90`)).join('\n');
+    const handed: string[][] = [];
+    const reading = readListPages(db, [page], [gemini], (entries) => handed.push(entries.map((e) => e.producer)));
+    await vi.waitFor(() => expect(handed).toEqual([['Wine 0 90']]));
+    release();
+    const read = await reading;
+    expect(handed).toEqual([['Wine 0 90'], ['Wine 20 90']]);
+    expect(read.entries.map((e) => e.producer)).toEqual(['Wine 0 90', 'Wine 20 90']);
   });
 
   it('reads long lists in parts at once, Gemini first, and only reads a new page when one is added', async () => {

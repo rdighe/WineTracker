@@ -27,15 +27,14 @@ export function createNoteProvider(): LlmProvider | null {
 }
 
 /**
- * What reads wine lists and shelf photos for picks, in order: the main
- * provider (Gemini: fast and cheap), then OpenRouter's free models (when its
- * key is set) as the backup, since they are slower and often time out.
+ * What reads wine lists and shelf photos for picks: the main provider
+ * (Gemini), asked a second time when the first hasn't answered within
+ * picks' hedge (src/picks/picks.ts); the first good answer wins. Most parts
+ * come back in 1-3 s, now and then one takes 30, and a second try usually
+ * beats it. (OpenRouter's free models timed out on every list.)
  */
 export function createPickReaders(main: LlmProvider): LlmProvider[] {
-  const free = config.openrouterApiKey
-    ? new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined, timeoutMs: 25_000, maxTries: 2 })
-    : null;
-  return [main, free].filter((p): p is LlmProvider => p !== null);
+  return [main, main];
 }
 
 export type JevFeature = 'match' | 'flavors' | 'predict';

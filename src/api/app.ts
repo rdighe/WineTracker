@@ -17,7 +17,7 @@ import { createJev, createNoteProvider, createPickReaders } from '../llm/index.j
 import { jevNoteReader } from '../llm/jev.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
 import {
-  deletePick, inputSha, listSavedPicks, type PickJev, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos,
+  deletePick, inputSha, listSavedPicks, newMatchTimes, type PickJev, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos, startMatching,
 } from '../picks/picks.js';
 import { FLAVOR_KEYS } from '../recs/flavors.js';
 import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
@@ -607,10 +607,12 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     }
     const pages = [...(b.pages ?? []), ...(b.text?.trim() ? [b.text] : [])].filter((p) => p.trim());
     const device = (b.entries ?? []).filter((e) => e.producer || e.name);
-    const read = pages.length ? await readListPages(db, pages, pickReaders) : null;
+    // Each part of the list is matched as soon as it is read, while the rest is still being read.
+    const times = newMatchTimes();
+    const read = pages.length ? await readListPages(db, pages, pickReaders, (part) => startMatching(db, part, pickJev, times)) : null;
     const entries = [...device, ...(read?.entries ?? [])];
     const source = [device.length ? 'apple' : '', read?.source ?? ''].filter(Boolean).join('+');
-    return pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device)), pickJev);
+    return pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device)), pickJev, times);
   }
 
   // Saved lists and shelves: name one to keep it; its photos are sent separately.

@@ -2,10 +2,11 @@
  * Picks: the wines on a restaurant list or a store shelf, ranked for the
  * person's palate.
  *
- *   1. Read: a list's text (the phone reads it off the photos) by a model,
- *      free ones first (readListPages); a shelf photo by a vision model
- *      (readShelfPhoto). Rules read a list when no model answers.
- *   2. Identify: each entry goes through the label matcher. A match brings the
+ *   1. Read: a list's text (the phone reads it off the photos) by a model
+ *      (readListPages); a shelf photo by a vision model (readShelfPhoto).
+ *      Rules read a list when no model answers.
+ *   2. Identify: each entry goes through the label matcher, a list's part as
+ *      soon as it is read. A match brings the
  *      wine's researched notes, the person's own rating if they've had it,
  *      and today's retail price. No match is fine: the entry's own grape,
  *      appellation, colour and heading still describe it (a best guess).
@@ -36,8 +37,12 @@ import { parseListText } from './listText.js';
 const LIKELY = 0.7;
 /** Glasses in a bottle, for comparing a glass price with a bottle's. */
 const GLASSES_PER_BOTTLE = 5;
-/** Matching runs this many entries at a time: the database is small, and more at once only queue there. */
-const CONCURRENCY = 3;
+/**
+ * Entries matched at once, across everything under way: each mostly waits on
+ * round trips (catalog lookups, Jev), so more at once go faster, up to what
+ * the database can take.
+ */
+const MATCH_CONCURRENCY = 8;
 /** Recent matches, by what was read: a list sent again with a page added only matches the new wines. */
 const MATCH_CACHE_MS = 30 * 60_000;
 const MATCH_CACHE_SIZE = 3000;
@@ -74,15 +79,27 @@ const describeWine = (w: { display_name: string; sub_region: string; region: str
  * The matcher wasn't sure: Jev chooses which of its best candidates the
  * entry is, or none of them. Null when Jev can't say (the matcher's call stands).
  */
-async function settleWithJev(db: Db, jev: JevClient, e: ListEntry, candidates: { wine: CandidateWine; score: number }[]): Promise<Identified | null> {
+async function settleWithJev(
+  db: Db, jev: JevClient, e: ListEntry, candidates: { wine: CandidateWine; score: number }[], times?: MatchTimes
+): Promise<Identified | null> {
   const options = candidates.filter((c) => c.score >= JEV_MIN_SCORE).slice(0, JEV_CANDIDATES);
   if (!options.length) return null;
+  const since = (t: number) => Date.now() - t;
   // Asked before about this entry and these candidates (a saved list reopened): the same answer.
   const key = jevKey('match', e.producer, e.name, e.vintage, e.region, e.grape, e.colour, e.section, e.text, options.map((c) => c.wine.wine_id));
+  let t = Date.now();
   const kept = (await jevCached<{ result: Identified | null }>(db, [key])).get(key);
+  if (times) times.jevCacheMs += since(t);
   if (kept) return kept.result;
+  t = Date.now();
   const result = await askJevMatch(jev, e, options);
+  if (times) {
+    times.jevMs += since(t);
+    times.jevCalls++;
+  }
+  t = Date.now();
   if (result !== undefined) await jevKeep(db, [[key, { result }]]);
+  if (times) times.jevCacheMs += since(t);
   return result ?? null;
 }
 
@@ -111,20 +128,61 @@ async function askJevMatch(jev: JevClient, e: ListEntry, options: { wine: Candid
   }
 }
 
+/**
+ * Where matching's time goes, summed over the entries matched (several run
+ * at once, so the sum exceeds the time taken): logged with each list.
+ */
+export interface MatchTimes {
+  entries: number;
+  /** Waiting for a turn (MATCH_CONCURRENCY). */
+  queuedMs: number;
+  /** The catalog lookup (matchLabel). */
+  lookupMs: number;
+  /** Looking for, and keeping, an earlier Jev decision. */
+  jevCacheMs: number;
+  /** Asking Jev. */
+  jevMs: number;
+  jevCalls: number;
+}
+export const newMatchTimes = (): MatchTimes => ({ entries: 0, queuedMs: 0, lookupMs: 0, jevCacheMs: 0, jevMs: 0, jevCalls: 0 });
+
+/** A turn to match, MATCH_CONCURRENCY at a time. */
+let matchesRunning = 0;
+const matchQueue: (() => void)[] = [];
+async function matchTurn<T>(run: () => Promise<T>): Promise<T> {
+  if (matchesRunning >= MATCH_CONCURRENCY) await new Promise<void>((go) => matchQueue.push(go));
+  else matchesRunning++;
+  try {
+    return await run();
+  } finally {
+    const next = matchQueue.shift();
+    if (next) next();
+    else matchesRunning--;
+  }
+}
+
 /** One entry matched to the catalog; the same entry (again, or at the same moment) is looked up once. */
-function identifyEntry(db: Db, e: ListEntry, jev?: JevClient | null): Promise<Identified> {
+function identifyEntry(db: Db, e: ListEntry, jev?: JevClient | null, times?: MatchTimes): Promise<Identified> {
   const key = JSON.stringify([jev ? 'jev' : '', ...[e.producer, e.name, e.vintage, e.region, e.country, e.grape, e.colour, e.text].map((s) => normalize(s ?? ''))]);
   const hit = matchCache.get(key);
   if (hit && Date.now() - hit.at < MATCH_CACHE_MS) return hit.found;
-  const found = matchLabel(db, {
-    producer: e.producer, name: e.name, vintage: e.vintage, region: e.region, country: e.country, grape: e.grape,
-    colour: e.colour, bottleMl: e.bottleMl, rawText: e.text, confidence: 0.8,
-  }, { noFuzzy: true }).then(async (m): Promise<Identified> => {
+  const asked = Date.now();
+  const found = matchTurn(async (): Promise<Identified> => {
+    const t = Date.now();
+    if (times) {
+      times.entries++;
+      times.queuedMs += t - asked;
+    }
+    const m = await matchLabel(db, {
+      producer: e.producer, name: e.name, vintage: e.vintage, region: e.region, country: e.country, grape: e.grape,
+      colour: e.colour, bottleMl: e.bottleMl, rawText: e.text, confidence: 0.8,
+    }, { noFuzzy: true });
+    if (times) times.lookupMs += Date.now() - t;
     const top = m.candidates[0];
     const match: MatchKind = top && m.outcome === 'auto' ? 'matched' : top && top.score >= LIKELY ? 'likely' : 'guess';
     const mine: Identified = { match, wineId: match === 'guess' ? null : top!.wine.wine_id };
     if (match === 'matched' || !jev) return mine;
-    return (await settleWithJev(db, jev, e, m.candidates)) ?? mine;
+    return (await settleWithJev(db, jev, e, m.candidates, times)) ?? mine;
   });
   // A failed lookup isn't kept.
   found.catch(() => matchCache.delete(key));
@@ -182,10 +240,9 @@ const PART_LINES = 20;
 const PART_CONCURRENCY = 10;
 /**
  * A reader gets this long to answer before the next is asked too; the first good answer wins.
- * Gemini goes first (a 20-line part takes it 5-10 s); the free models, slower and often timing
- * out, are the backup.
+ * A part usually takes Gemini 1-3 s; now and then one takes 30, and asking again beats it.
  */
-const HEDGE_MS = 15000;
+const HEDGE_MS = 6000;
 const isHeading = (row: string) => /^[^\d$]{3,40}$/.test(row.trim()) && row.trim().split(/\s+/).length <= 5;
 
 /** A page's rows in parts, each starting with the heading in force where it begins. */
@@ -270,7 +327,7 @@ export async function firstAnswer<T>(
 /** Reads under way, by input: a list re-sent with a page added shares the parts already being read. */
 const inFlight = new Map<string, Promise<{ entries: ListEntry[]; source: string }>>();
 
-/** One part of a list: the first reader that answers (Gemini, then free models), else rules. */
+/** One part of a list: the first reader that answers, else rules. */
 function readPart(db: Db, text: string, readers: LlmProvider[]): Promise<{ entries: ListEntry[]; source: string }> {
   const sha = inputSha(`list:${text}`);
   const running = inFlight.get(sha);
@@ -295,9 +352,12 @@ function readPart(db: Db, text: string, readers: LlmProvider[]): Promise<{ entri
  * The wines on a list's pages (each page's text as the phone read it off the
  * photo, a line per row). Pages are cut into parts read at the same time; a
  * part read before is reused, so adding a page only reads the new one.
+ * onPart gets each part's wines as soon as they are read.
  * source: what read it (openrouter, gemini, rules), several joined with '+'.
  */
-export async function readListPages(db: Db, pages: string[], readers: LlmProvider[]): Promise<{ entries: ListEntry[]; source: string }> {
+export async function readListPages(
+  db: Db, pages: string[], readers: LlmProvider[], onPart?: (entries: ListEntry[]) => void
+): Promise<{ entries: ListEntry[]; source: string }> {
   let budget = MAX_LIST_CHARS;
   const parts: string[] = [];
   for (const page of pages) {
@@ -308,7 +368,15 @@ export async function readListPages(db: Db, pages: string[], readers: LlmProvide
     }
   }
   const t0 = Date.now();
-  const reads = await inBatches(parts, PART_CONCURRENCY, (part) => readPart(db, part, readers));
+  // Each part's wines handed on as soon as it is read (to start matching them), up to the list's limit.
+  let handed = 0;
+  const reads = await inBatches(parts, PART_CONCURRENCY, async (part) => {
+    const read = await readPart(db, part, readers);
+    const take = read.entries.slice(0, Math.max(0, MAX_LIST_ENTRIES - handed));
+    handed += take.length;
+    if (onPart && take.length) onPart(take);
+    return read;
+  });
   console.log(`picks: read ${pages.length} page(s), ${parts.length} part(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s (${[...new Set(reads.map((r) => r.source))].join('+')})`);
   return {
     entries: reads.flatMap((r) => r.entries).slice(0, MAX_LIST_ENTRIES),
@@ -317,8 +385,8 @@ export async function readListPages(db: Db, pages: string[], readers: LlmProvide
 }
 
 /**
- * A store shelf photo read by a vision model (free models first, then
- * Gemini), with the text the phone read off it as a hint. The same photo is
+ * A store shelf photo read by a vision model (Gemini, asked again if slow),
+ * with the text the phone read off it as a hint. The same photo is
  * read once.
  */
 export async function readShelfPhoto(
@@ -375,12 +443,26 @@ async function inBatches<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>):
   return out;
 }
 
+/**
+ * Start matching entries now (while the rest of a list is still being read):
+ * scorePicks then finds them matched, or under way.
+ */
+export function startMatching(db: Db, entries: ListEntry[], jev: PickJev = {}, times?: MatchTimes): void {
+  for (const e of entries) identifyEntry(db, e, jev.match, times).catch(() => {});
+}
+
 /** The entries identified and scored for the person, best first. */
-export async function scorePicks(db: Db, userId: number | null, entries: ListEntry[], jev: PickJev = {}): Promise<Pick<PickResult, 'mode' | 'rated' | 'items'>> {
-  // 1. Identify (the same wine twice on a list is looked up once).
+export async function scorePicks(
+  db: Db, userId: number | null, entries: ListEntry[], jev: PickJev = {}, times: MatchTimes = newMatchTimes()
+): Promise<Pick<PickResult, 'mode' | 'rated' | 'items'>> {
+  // 1. Identify (the same wine twice on a list is looked up once; taking turns, MATCH_CONCURRENCY at once).
   const t0 = Date.now();
-  const matches = await inBatches(entries, CONCURRENCY, (e) => identifyEntry(db, e, jev.match));
+  const matches = await Promise.all(entries.map((e) => identifyEntry(db, e, jev.match, times)));
   const tMatch = Date.now() - t0;
+  if (times.entries) {
+    const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+    console.log(`picks: matching ${times.entries} wine(s), summed: queued ${s(times.queuedMs)}, lookup ${s(times.lookupMs)}, jev ${s(times.jevMs)} over ${times.jevCalls} call(s), jev cache ${s(times.jevCacheMs)}`);
+  }
   const ids = [...new Set(matches.map((m) => m.wineId).filter((id): id is number => id !== null))];
   const wines = await catalogWines(db, ids);
   const { rows: prices } = ids.length
@@ -458,13 +540,15 @@ export async function scorePicks(db: Db, userId: number | null, entries: ListEnt
   const value = (x: PickItem) => x.markup ?? x.glassMarkup ?? Infinity;
   items.sort((a, b) => (profile ? b.score! - a.score! : value(a) - value(b)) || a.index - b.index);
 
-  console.log(`picks: ${entries.length} wine(s) matched in ${(tMatch / 1000).toFixed(1)} s, scored in ${((Date.now() - t0 - tMatch) / 1000).toFixed(1)} s`);
+  console.log(`picks: ${entries.length} wine(s), waited ${(tMatch / 1000).toFixed(1)} s for matches, scored in ${((Date.now() - t0 - tMatch) / 1000).toFixed(1)} s`);
   return { mode: profile ? 'profile' : 'locked', rated: prof?.profile.n ?? 0, items };
 }
 
 /** Score the entries and keep the scan (unsaved until the person saves it). */
-export async function pickWines(db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string, jev: PickJev = {}): Promise<PickResult> {
-  const scored = await scorePicks(db, userId, entries, jev);
+export async function pickWines(
+  db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string, jev: PickJev = {}, times?: MatchTimes
+): Promise<PickResult> {
+  const scored = await scorePicks(db, userId, entries, jev, times);
   const { rows: [row] } = await db.query(
     'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries) VALUES ($1, $2, $3, $4, $5) RETURNING pick_id',
     [userId, kind, source, sha, JSON.stringify(entries)]

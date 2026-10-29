@@ -6,8 +6,9 @@ pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 
 export type Db = pg.Pool | pg.PoolClient;
 
+// Enough for a list's matches (8 at once, src/picks/picks.ts) with room for everyone else.
 export function createPool(url = config.databaseUrl): pg.Pool {
-  return new pg.Pool({ connectionString: url, max: 10 });
+  return new pg.Pool({ connectionString: url, max: 15 });
 }
 
 export async function withTransaction<T>(pool: pg.Pool, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
