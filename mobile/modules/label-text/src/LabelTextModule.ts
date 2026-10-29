@@ -5,7 +5,11 @@ declare class LabelTextModule extends NativeModule<{}> {
   recognizeTextAsync(uri: string): Promise<string[]>;
   /** Every piece of text with its box (0-1, origin top-left), in no particular order. */
   recognizeTextLayoutAsync(uri: string): Promise<TextBox[]>;
+  /** A PDF's first `maxPages` pages as JPEG files, the longer side `maxSide` pixels; and how many pages it has. */
+  renderPdfPagesAsync(uri: string, maxPages: number, maxSide: number): Promise<{ pages: PdfPage[]; pageCount: number }>;
 }
+
+export interface PdfPage { uri: string; width: number; height: number }
 
 export interface TextBox { text: string; x: number; y: number; w: number; h: number }
 

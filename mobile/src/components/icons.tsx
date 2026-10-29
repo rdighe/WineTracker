@@ -48,6 +48,15 @@ export function PhotosIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
   );
 }
 
+export function DocumentIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
+      <Path d="M14 3v5h5M9 13h6M9 17h4" />
+    </Svg>
+  );
+}
+
 export function BackIcon({ color, size = 18, strokeWidth = 1.8 }: IconProps) {
   return (
     <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">

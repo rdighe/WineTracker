@@ -4,7 +4,7 @@
  * its price, far apart on the page, end up on one line. The server reads the
  * rows into wines (src/picks/ on the server).
  */
-import LabelText, { type TextBox } from '../../modules/label-text';
+import LabelText, { type PdfPage, type TextBox } from '../../modules/label-text';
 
 /** Gaps wider than this (share of the page width) separate columns: " | ". */
 const COLUMN_GAP = 0.06;
@@ -40,4 +40,30 @@ export async function readListPhoto(uri: string): Promise<string[] | null> {
   } catch {
     return null;
   }
+}
+
+/** PDF pages turned into images this size (longer side, pixels): sharp enough to read small print. */
+const PDF_PAGE_SIDE = 2400;
+/** Pages of a PDF looked at; a long menu's food pages are among them. */
+const PDF_PAGES_LOOKED_AT = 24;
+const VINTAGE = /\b(19[5-9]\d|20[0-4]\d)\b/g;
+
+/**
+ * A PDF menu's wine pages, each as an image and its rows: every page with
+ * text when they fit in `maxPages`, else the pages with the most vintages
+ * (the wine list, not the food), in their order. null where the phone can't
+ * read PDFs; `skipped` counts pages with text left out, and any past those looked at.
+ */
+export async function readListPdf(uri: string, maxPages: number): Promise<{ pages: (PdfPage & { text: string })[]; skipped: number } | null> {
+  if (!LabelText) return null;
+  const { pages, pageCount } = await LabelText.renderPdfPagesAsync(uri, PDF_PAGES_LOOKED_AT, PDF_PAGE_SIDE);
+  const read: (PdfPage & { text: string; vintages: number; at: number })[] = [];
+  for (const [at, page] of pages.entries()) {
+    const rows = layoutRows(await LabelText.recognizeTextLayoutAsync(page.uri));
+    if (!rows.length) continue;
+    const text = rows.join('\n');
+    read.push({ ...page, text, vintages: text.match(VINTAGE)?.length ?? 0, at });
+  }
+  const kept = read.length <= maxPages ? read : [...read].sort((a, b) => b.vintages - a.vintages).slice(0, maxPages).sort((a, b) => a.at - b.at);
+  return { pages: kept.map(({ uri, width, height, text }) => ({ uri, width, height, text })), skipped: read.length - kept.length + Math.max(0, pageCount - pages.length) };
 }

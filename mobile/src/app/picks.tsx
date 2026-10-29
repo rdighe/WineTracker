@@ -1,15 +1,16 @@
 /**
  * Picks: photograph a restaurant wine list (?kind=list, a page per photo) or
- * a store shelf (?kind=shelf) and see its wines ranked for your palate, or
+ * a store shelf (?kind=shelf), or upload a list as a PDF, and see its wines ranked for your palate, or
  * open a saved one (?id=). The phone reads a list's text (lib/wineList.ts);
  * the server reads it into wines, matches and scores them (src/picks/). A
  * list or shelf can be saved, with its photos, to the Lists tab.
  */
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Platform, ScrollView, Text, View } from 'react-native';
-import { PhotosIcon, ScanIcon } from '../components/icons';
+import { DocumentIcon, PhotosIcon, ScanIcon } from '../components/icons';
 import { PhotoThumb, PhotoViewer } from '../components/PhotoViewer';
 import { PickPhoto } from '../components/PickPhoto';
 import { PickResults, type Kind } from '../components/PickResults';
@@ -20,12 +21,14 @@ import type { PickResult } from '../lib/types';
 import { ApiError } from '../lib/api';
 import { newScanRef, scanAnswer, Superseded } from '../lib/pendingScan';
 import { useApi } from '../lib/useApi';
-import { readListPhoto } from '../lib/wineList';
+import { readListPdf, readListPhoto } from '../lib/wineList';
 
 /** A photo taken for this list or shelf, and the text read off it. */
 interface Page { uri: string; width: number; height: number; text: string }
 type Opened = PickResult & { name?: string; saved?: boolean; photos?: number };
 
+/** Pages a list can have (the server's limit). */
+const MAX_PAGES = 8;
 /** Saved photos: shrunk, enough to read the list again later. */
 const SAVED_PHOTO_SIDE = 1600;
 
@@ -83,7 +86,7 @@ export default function PicksScreen() {
       Alert.alert('Permission needed', fromCamera ? 'Allow camera access to take the photo.' : 'Allow photo access to choose a photo.');
       return;
     }
-    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, allowsEditing: false, allowsMultipleSelection: !fromCamera && kind === 'list', selectionLimit: 6 };
+    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, allowsEditing: false, allowsMultipleSelection: !fromCamera && kind === 'list', selectionLimit: Math.max(1, MAX_PAGES - pagesNow.current.length) };
     const res = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (res.canceled || !res.assets.length) return;
     try {
@@ -108,6 +111,32 @@ export default function PicksScreen() {
         setPages(pagesNow.current);
       }
       setStatus(null);
+      const texts = pagesNow.current.map((p) => p.text);
+      void evaluate((ref) => api.pickFromList(texts, ref));
+    } catch (e) {
+      setError(e);
+      setStatus(null);
+    }
+  }
+
+  /** A wine list as a PDF: its wine pages are read like photos of them. */
+  async function addPdf() {
+    setError(null);
+    const room = MAX_PAGES - pagesNow.current.length;
+    if (room <= 0) return void setError(new Error(`A list can have up to ${MAX_PAGES} pages.`));
+    const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+    if (res.canceled || !res.assets.length) return;
+    try {
+      setStatus('Reading the PDF…');
+      const pdf = await readListPdf(res.assets[0]!.uri, room).catch(() => {
+        throw new Error("Couldn't open that PDF. Try another, or photos of the list.");
+      });
+      if (!pdf) throw new Error('Wine lists can be read in the iPhone app.');
+      if (!pdf.pages.length) throw new Error('No text found in that PDF. Try photos of the list instead.');
+      pagesNow.current = [...pagesNow.current, ...pdf.pages];
+      setPages(pagesNow.current);
+      setStatus(null);
+      if (pdf.skipped) Alert.alert('Long PDF', `Read the ${pdf.pages.length} page${pdf.pages.length === 1 ? '' : 's'} that look most like the wine list; ${pdf.skipped} left out.`);
       const texts = pagesNow.current.map((p) => p.text);
       void evaluate((ref) => api.pickFromList(texts, ref));
     } catch (e) {
@@ -157,19 +186,6 @@ export default function PicksScreen() {
       }
     }
   }
-
-  // A new scan: straight to the camera, once the screen has slid in.
-  const started = useRef(false);
-  const addRef = useRef(addPhoto);
-  useEffect(() => {
-    addRef.current = addPhoto;
-  });
-  useEffect(() => {
-    if (started.current || savedId) return;
-    started.current = true;
-    const t = setTimeout(() => void addRef.current(true), 350);
-    return () => clearTimeout(t);
-  }, [savedId]);
 
   async function save(name: string) {
     if (!result) return;
@@ -253,6 +269,7 @@ export default function PicksScreen() {
             <View style={{ gap: space[2] }}>
               <Button title="Add another page" variant="secondary" disabled={Boolean(status)} icon={(color) => <ScanIcon color={color} size={20} />} onPress={() => addPhoto(true)} />
               <Button title="Choose photos" variant="plain" disabled={Boolean(status)} icon={(color) => <PhotosIcon color={color} size={20} />} onPress={() => addPhoto(false)} />
+              <Button title="Upload a PDF" variant="plain" disabled={Boolean(status)} icon={(color) => <DocumentIcon color={color} size={20} />} onPress={() => void addPdf()} />
             </View>
           ) : null}
         </Card>
@@ -268,17 +285,20 @@ export default function PicksScreen() {
         <CloseButton />
       </View>
       <Card>
-        <Heading>{status ?? (kind === 'shelf' ? 'Photograph the shelf' : 'Photograph the wine list')}</Heading>
+        <Heading>{status ?? (kind === 'shelf' ? 'Photograph the shelf' : 'Add the wine list')}</Heading>
         {!status ? (
           <>
             <Muted>
               {kind === 'shelf'
                 ? 'Get the bottles and the price tags below them in one photo, straight on.'
-                : 'One page per photo, flat and well lit, prices included. You can add more pages after.'}
+                : 'Photograph it a page at a time, flat and well lit with prices included, or upload the menu as a PDF. You can add more pages after.'}
             </Muted>
             <View style={{ gap: space[2] }}>
               <Button title="Take a photo" icon={(color) => <ScanIcon color={color} size={20} />} onPress={() => addPhoto(true)} />
               <Button title={kind === 'shelf' ? 'Choose a photo' : 'Choose photos'} variant="secondary" icon={(color) => <PhotosIcon color={color} size={20} />} onPress={() => addPhoto(false)} />
+              {kind === 'list' ? (
+                <Button title="Upload a PDF" variant="secondary" icon={(color) => <DocumentIcon color={color} size={20} />} onPress={() => void addPdf()} />
+              ) : null}
             </View>
           </>
         ) : null}
