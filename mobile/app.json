@@ -2,6 +2,7 @@
   "expo": {
     "name": "WineTracker",
     "slug": "winetracker",
+    "owner": "rdighe",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,6 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.rohanatstanford.winetracker",
+      "buildNumber": "17",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -70,7 +72,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "1af27cfa-3aa3-41bf-ba27-2f368f18fa57"
+        "projectId": "1868fee0-5a5b-4559-b786-0bf26ea7a02b"
       }
     }
   }
