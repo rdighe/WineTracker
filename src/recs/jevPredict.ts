@@ -5,7 +5,8 @@
  * the taste-profile score for wine lists and shelves, and measured against
  * it by scripts/eval-recs.ts --jev before it is relied on.
  */
-import type { JevClient } from '../llm/jev.js';
+import type { Db } from '../db/pool.js';
+import { jevCached, jevKeep, jevKey, type JevClient } from '../llm/jev.js';
 import type { RatedTasting } from './recommend.js';
 
 export const ENJOY_LEVELS = ['Would dislike it', 'Not their kind of wine', 'Might enjoy it', 'Would enjoy it', 'Would love it'];
@@ -32,11 +33,22 @@ export function palateState(rated: RatedTasting[]): string {
  * How much the person will enjoy each wine (0 dislike .. 4 love, fractional),
  * by key. A wine Jev didn't answer for is left out.
  */
-export async function predictEnjoyment(jev: JevClient, rated: RatedTasting[], wines: { key: string; label: string }[]): Promise<Map<string, { score: number; confidence: number }>> {
+export async function predictEnjoyment(
+  jev: JevClient, rated: RatedTasting[], wines: { key: string; label: string }[], db?: Db
+): Promise<Map<string, { score: number; confidence: number }>> {
   const state = palateState(rated);
   const out = new Map<string, { score: number; confidence: number }>();
+  // Predicted before for these same ratings (a list reopened, a page added): kept, not asked again.
+  const cacheKey = (label: string) => jevKey('predict', state, label);
+  const kept = db ? await jevCached<{ score: number; confidence: number }>(db, wines.map((w) => cacheKey(w.label))) : new Map();
+  const fresh: [string, { score: number; confidence: number }][] = [];
+  for (const w of wines) {
+    const k = kept.get(cacheKey(w.label));
+    if (k) out.set(w.key, k);
+  }
+  const todo = wines.filter((w) => !out.has(w.key));
   const batches: { key: string; label: string }[][] = [];
-  for (let i = 0; i < wines.length; i += PER_CALL) batches.push(wines.slice(i, i + PER_CALL));
+  for (let i = 0; i < todo.length; i += PER_CALL) batches.push(todo.slice(i, i + PER_CALL));
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(CALLS_AT_ONCE, batches.length) }, async () => {
     while (next < batches.length) {
@@ -46,12 +58,16 @@ export async function predictEnjoyment(jev: JevClient, rated: RatedTasting[], wi
         instructions: `How much will this person enjoy this wine: ${w.label}?`,
         criteria: ENJOY_LEVELS,
       }]));
-      const answers = await jev.ask(state, questions);
+      const answers = await jev.ask(state, questions, 'predict');
       batch.forEach((w, i) => {
         const a = answers[`w${i}`];
-        if (a?.type === 'score') out.set(w.key, { score: a.score, confidence: a.confidence });
+        if (a?.type !== 'score') return;
+        const p = { score: a.score, confidence: a.confidence };
+        out.set(w.key, p);
+        fresh.push([cacheKey(w.label), p]);
       });
     }
   }));
+  if (db) await jevKeep(db, fresh);
   return out;
 }

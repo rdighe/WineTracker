@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import { ProviderUnavailableError, type ListEntry, type LlmProvider } from '../llm/types.js';
 import { matchLabel } from '../scan/scan.js';
-import type { JevClient } from '../llm/jev.js';
+import { jevCached, jevKeep, jevKey, type JevClient } from '../llm/jev.js';
 import type { CandidateWine } from '../match/score.js';
 import { wineFeatures, recStyle, type RecStyle, type WineRow } from '../recs/features.js';
 import { explain, scoreWine } from '../recs/profile.js';
@@ -43,6 +43,11 @@ const MATCH_CACHE_MS = 30 * 60_000;
 const MATCH_CACHE_SIZE = 3000;
 type Identified = { match: MatchKind; wineId: number | null };
 const matchCache = new Map<string, { at: number; found: Promise<Identified> }>();
+
+/** Forget the recent matches kept in memory (tests). */
+export function forgetPickMatches(): void {
+  matchCache.clear();
+}
 
 /** Jev's uses in picks (src/llm/jev.ts); each null when off. */
 export interface PickJev {
@@ -69,9 +74,20 @@ const describeWine = (w: { display_name: string; sub_region: string; region: str
  * The matcher wasn't sure: Jev chooses which of its best candidates the
  * entry is, or none of them. Null when Jev can't say (the matcher's call stands).
  */
-async function settleWithJev(jev: JevClient, e: ListEntry, candidates: { wine: CandidateWine; score: number }[]): Promise<Identified | null> {
+async function settleWithJev(db: Db, jev: JevClient, e: ListEntry, candidates: { wine: CandidateWine; score: number }[]): Promise<Identified | null> {
   const options = candidates.filter((c) => c.score >= JEV_MIN_SCORE).slice(0, JEV_CANDIDATES);
   if (!options.length) return null;
+  // Asked before about this entry and these candidates (a saved list reopened): the same answer.
+  const key = jevKey('match', e.producer, e.name, e.vintage, e.region, e.grape, e.colour, e.section, e.text, options.map((c) => c.wine.wine_id));
+  const kept = (await jevCached<{ result: Identified | null }>(db, [key])).get(key);
+  if (kept) return kept.result;
+  const result = await askJevMatch(jev, e, options);
+  if (result !== undefined) await jevKeep(db, [[key, { result }]]);
+  return result ?? null;
+}
+
+/** Jev's choice among the options; undefined when the call failed (so nothing is kept). */
+async function askJevMatch(jev: JevClient, e: ListEntry, options: { wine: CandidateWine; score: number }[]): Promise<Identified | null | undefined> {
   const state = [
     `Wine on a wine list or store shelf: ${[e.producer, e.name, e.vintage].filter(Boolean).join(' ')}`,
     e.text ? `As printed: ${e.text}` : '',
@@ -82,7 +98,7 @@ async function settleWithJev(jev: JevClient, e: ListEntry, candidates: { wine: C
   try {
     const { which } = await jev.ask(state, {
       which: { type: 'choice', instructions: 'Which catalog wine is this? The same producer and the same wine (cuvée, vineyard or appellation); the vintage does not matter.', criteria },
-    });
+    }, 'match');
     if (which?.type !== 'choice') return null;
     const p = which.probabilities[which.choice] ?? which.confidence;
     if (which.choice === 'none') return p >= JEV_LIKELY ? { match: 'guess', wineId: null } : null;
@@ -91,7 +107,7 @@ async function settleWithJev(jev: JevClient, e: ListEntry, candidates: { wine: C
     return p >= JEV_MATCHED ? { match: 'matched', wineId: pick.wine.wine_id } : p >= JEV_LIKELY ? { match: 'likely', wineId: pick.wine.wine_id } : null;
   } catch (err) {
     console.log(`picks: jev match failed: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
+    return undefined;
   }
 }
 
@@ -108,7 +124,7 @@ function identifyEntry(db: Db, e: ListEntry, jev?: JevClient | null): Promise<Id
     const match: MatchKind = top && m.outcome === 'auto' ? 'matched' : top && top.score >= LIKELY ? 'likely' : 'guess';
     const mine: Identified = { match, wineId: match === 'guess' ? null : top!.wine.wine_id };
     if (match === 'matched' || !jev) return mine;
-    return (await settleWithJev(jev, e, m.candidates)) ?? mine;
+    return (await settleWithJev(db, jev, e, m.candidates)) ?? mine;
   });
   // A failed lookup isn't kept.
   found.catch(() => matchCache.delete(key));
@@ -422,7 +438,7 @@ export async function scorePicks(db: Db, userId: number | null, entries: ListEnt
         return { key: String(x.index), label: wine ? wineLabel(wine.row, wine.features) : wineLabel(entryRow(x.entry), wineFeatures(entryRow(x.entry))) };
       });
       const t1 = Date.now();
-      const predicted = await predictEnjoyment(jev.predict, rated, labels.slice(0, MAX_JEV_PREDICT));
+      const predicted = await predictEnjoyment(jev.predict, rated, labels.slice(0, MAX_JEV_PREDICT), db);
       console.log(`picks: jev predicted ${predicted.size} wine(s) in ${((Date.now() - t1) / 1000).toFixed(1)} s`);
       for (const x of items) {
         const p = predicted.get(String(x.index));

@@ -11,6 +11,8 @@
  * predict; src/config.ts). API: POST https://openrouter.ai/api/v1/systemone
  * with the OpenRouter key; see docs.typesafe.ai/api.
  */
+import { createHash } from 'node:crypto';
+import type { Db } from '../db/pool.js';
 import { FLAVORS } from '../recs/flavors.js';
 import { MAX_NOTE_CHARS } from './prompts.js';
 import { ProviderUnavailableError, type LlmProvider, type NoteFlavors } from './types.js';
@@ -56,8 +58,13 @@ export class JevClient {
     this.fetchImpl = opts.fetch ?? fetch;
   }
 
-  /** Ask the questions about `state`; answers by question name (a question with no usable answer is left out). */
-  async ask(state: string, questions: Record<string, JevQuestion>): Promise<Record<string, JevAnswer>> {
+  /**
+   * Ask the questions about `state`; answers by question name (a question
+   * with no usable answer is left out). `purpose` labels the call in the log,
+   * which records its tokens and cost (from OpenRouter's usage).
+   */
+  async ask(state: string, questions: Record<string, JevQuestion>, purpose = 'ask'): Promise<Record<string, JevAnswer>> {
+    const started = Date.now();
     const resp = await this.fetchImpl(`${this.opts.baseUrl ?? 'https://openrouter.ai/api'}/v1/systemone`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.opts.apiKey}`, 'X-Title': 'WineTracker' },
@@ -69,7 +76,9 @@ export class JevClient {
       const msg = typeof err?.error === 'string' ? err.error : err?.error?.message ?? '';
       throw new JevError(resp.status, String(msg).slice(0, 200));
     }
-    const data = (await resp.json()) as { answers?: Record<string, Record<string, unknown>> };
+    const data = (await resp.json()) as { answers?: Record<string, Record<string, unknown>>; usage?: { input_tokens?: number; output_tokens?: number; cost?: number } };
+    const u = data.usage ?? {};
+    console.log(`jev ${purpose}: ${Object.keys(questions).length} question(s), ${u.input_tokens ?? '?'} in / ${u.output_tokens ?? '?'} out tokens, $${typeof u.cost === 'number' ? u.cost.toFixed(6) : '?'}, ${((Date.now() - started) / 1000).toFixed(1)} s`);
     const out: Record<string, JevAnswer> = {};
     for (const [name, q] of Object.entries(questions)) {
       const a = data.answers?.[name];
@@ -102,7 +111,7 @@ export function jevNoteReader(jev: JevClient): LlmProvider {
         instructions: `How strongly does the drinker say the wine shows ${f.label} (${f.words.slice(0, 5).join(', ')})? Only what the note says; something the note says is absent counts as not there.`,
         criteria: ['Not there, or not mentioned', 'A hint', 'Clearly there', 'Dominant'],
       }]));
-      const answers = await jev.ask(`A wine drinker's own tasting note:\n${text.slice(0, MAX_NOTE_CHARS)}`, questions);
+      const answers = await jev.ask(`A wine drinker's own tasting note:\n${text.slice(0, MAX_NOTE_CHARS)}`, questions, 'flavors');
       const out: NoteFlavors = {};
       for (const [key, a] of Object.entries(answers)) {
         if (a.type !== 'score') continue;
@@ -112,4 +121,27 @@ export function jevNoteReader(jev: JevClient): LlmProvider {
       return out;
     },
   };
+}
+
+/** Kept Jev decisions are dropped after this long (inputs rarely repeat beyond it). */
+const CACHE_DAYS = 120;
+
+/** A hash of the inputs, for a cache key. */
+export const jevKey = (kind: string, ...parts: unknown[]) => `${kind}:${createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`;
+
+/** Kept decisions for these keys. */
+export async function jevCached<T>(db: Db, keys: string[]): Promise<Map<string, T>> {
+  if (!keys.length) return new Map();
+  const { rows } = await db.query('SELECT key, value FROM jev_cache WHERE key = ANY($1)', [keys]);
+  return new Map(rows.map((r) => [r.key as string, r.value as T]));
+}
+
+/** Keep decisions; now and then drop old ones. */
+export async function jevKeep(db: Db, entries: [string, unknown][]): Promise<void> {
+  if (!entries.length) return;
+  await db.query(
+    `INSERT INTO jev_cache (key, value) SELECT k, v FROM unnest($1::text[], $2::jsonb[]) AS t(k, v) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, created_at = NOW()`,
+    [entries.map(([k]) => k), entries.map(([, v]) => JSON.stringify(v))]
+  );
+  if (Math.random() < 0.02) await db.query(`DELETE FROM jev_cache WHERE created_at < NOW() - make_interval(days => $1)`, [CACHE_DAYS]);
 }

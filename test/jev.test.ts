@@ -9,6 +9,7 @@ import { PoliteFetcher } from '../src/prices/fetcher.js';
 import { evaluateJev } from '../src/recs/evaluate.js';
 import { wineFeatures } from '../src/recs/features.js';
 import { forgetRecommendationCandidates, type RatedTasting } from '../src/recs/recommend.js';
+import { forgetPickMatches } from '../src/picks/picks.js';
 import { closeDb, resetDb, testDb } from './helpers.js';
 
 /** A stand-in for Jev: answers each question with `answer(question, state)`. */
@@ -102,6 +103,11 @@ describe('Jev in picks', () => {
     expect(barolo).toMatchObject({ match: 'matched', wineId: rocche, markup: 2 });
     expect(barbaresco).toMatchObject({ match: 'guess', wineId: null });
     expect(match.ask).toHaveBeenCalledTimes(2);
+    // Later (the memory of recent matches gone, as after a restart): Jev's decisions are kept, not asked again.
+    forgetPickMatches();
+    const again = await as(request(app).post('/api/picks')).send({ kind: 'list', entries: [{ producer: 'Vietti', name: 'Barolo', bottleCents: 30000 }] });
+    expect(again.body.items[0]).toMatchObject({ match: 'matched', wineId: rocche });
+    expect(match.ask).toHaveBeenCalledTimes(2);
   });
 
   it('blends predictions into the ranking, and shows them', async () => {
@@ -124,6 +130,15 @@ describe('Jev in picks', () => {
     expect(before.body.items[0].entry.producer).toBe('Cascina Fontana');
     const after = await as(request(app).post('/api/picks')).send(list);
     expect(after.body.items.map((i: { entry: { producer: string }; jevScore: number }) => [i.entry.producer, i.jevScore])).toEqual([['Domaine Vacheron', 4], ['Cascina Fontana', 0]]);
+    expect(predict.ask).toHaveBeenCalledTimes(1);
+    // Scored again with the same ratings (saved, reopened): kept predictions, no new call.
+    const again = await as(request(app).post('/api/picks')).send(list);
+    expect(again.body.items[0].jevScore).toBe(4);
+    expect(predict.ask).toHaveBeenCalledTimes(1);
+    // A new rating changes the palate: asked afresh.
+    await as(request(app0).post('/api/tastings')).send({ wineId: ids.sb, rating: 3 });
+    await as(request(app).post('/api/picks')).send(list);
+    expect(predict.ask).toHaveBeenCalledTimes(2);
   });
 });
 
