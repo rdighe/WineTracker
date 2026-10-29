@@ -21,9 +21,10 @@ export interface MatchOptions {
   /** No typo tolerance (comparing catalog wines with each other). */
   exact?: boolean;
   /**
-   * Skip the whole-text trigram search (the slow path, for typos and OCR
-   * errors) when the word lookup finds little: for text a model has already
-   * read cleanly, such as a wine list, where it rarely finds anything more.
+   * For text a model has already read cleanly, such as a wine list: skip the
+   * whole-text trigram search (the slow path, for typos and OCR errors), and
+   * search learned aliases (also by trigram, and most of a lookup's time)
+   * only when the word lookup finds little.
    */
   noFuzzy?: boolean;
 }
@@ -35,7 +36,8 @@ export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions =
   const params = [text, tokens, CANDIDATE_LIMIT, opts.sources ?? null, opts.excludeWineId ?? 0];
   // Indexed ways in, each capped, then unioned:
   //   * shared identity words (GIN on wines.tokens), most shared first
-  //   * learned aliases (GIN trigram on alias_norm)
+  //   * learned aliases (GIN trigram on alias_norm) - for noFuzzy text only
+  //     when the word lookup finds little
   //   * whole-text trigram similarity (GIN on search_norm) - only when the
   //     word lookup finds little, i.e. typos/OCR errors; it is the slow path.
   const select = (ids: string) => `
@@ -44,24 +46,24 @@ export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions =
             COALESCE((SELECT array_agg(a.alias_norm) FROM wine_aliases a WHERE a.wine_id = w.wine_id), '{}') AS aliases
        FROM (${ids}) ids JOIN wines w USING (wine_id)`;
   const filter = (t = 'wines') => `($4::text[] IS NULL OR ${t}.source = ANY($4)) AND ${t}.wine_id <> $5`;
-  const { rows } = await db.query(
-    select(`
-      (SELECT wine_id FROM wines
-        WHERE tokens && $2::text[] AND ${filter()}
-        ORDER BY cardinality(ARRAY(SELECT unnest(tokens) INTERSECT SELECT unnest($2::text[]))) DESC LIMIT $3)
-      UNION
-      (SELECT a.wine_id FROM wine_aliases a JOIN wines w2 ON w2.wine_id = a.wine_id
-        WHERE a.alias_norm % $1 AND ${filter('w2')}
-        ORDER BY similarity(a.alias_norm, $1) DESC LIMIT 20)`),
-    params
-  );
-  if (rows.length < 5 && !opts.noFuzzy) {
+  // (Each types all of $1-$3, so either can run on its own.)
+  const byWords = `(SELECT wine_id FROM wines
+        WHERE tokens && $2::text[] AND $1::text IS NOT NULL AND ${filter()}
+        ORDER BY cardinality(ARRAY(SELECT unnest(tokens) INTERSECT SELECT unnest($2::text[]))) DESC LIMIT $3)`;
+  const byAlias = `(SELECT a.wine_id FROM wine_aliases a JOIN wines w2 ON w2.wine_id = a.wine_id
+        WHERE a.alias_norm % $1 AND $2::text[] IS NOT NULL AND $3::int > 0 AND ${filter('w2')}
+        ORDER BY similarity(a.alias_norm, $1) DESC LIMIT 20)`;
+  const { rows } = await db.query(select(opts.noFuzzy ? byWords : `${byWords} UNION ${byAlias}`), params);
+  const add = (more: CandidateWine[]) => {
     const seen = new Set(rows.map((r) => r.wine_id));
-    const more = await db.query(
+    for (const r of more) if (!seen.has(r.wine_id)) rows.push(r);
+  };
+  if (rows.length < 5 && opts.noFuzzy) add((await db.query(select(byAlias), params)).rows);
+  if (rows.length < 5 && !opts.noFuzzy) {
+    add((await db.query(
       select(`SELECT wine_id FROM wines WHERE search_norm % $1 AND $2::text[] IS NOT NULL AND ${filter()} ORDER BY similarity(search_norm, $1) DESC LIMIT $3`),
       params
-    );
-    for (const r of more.rows) if (!seen.has(r.wine_id)) rows.push(r);
+    )).rows);
   }
   return rows as CandidateWine[];
 }
