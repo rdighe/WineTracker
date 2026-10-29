@@ -6,7 +6,7 @@
  * GEMINI_MODEL puts a specific model first.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, merchantPrompt, researchPrompt, shelfPrompt, wineListPrompt } from './prompts.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, merchantPrompt, researchPrompt, SHELF_FIELDS, shelfPrompt, wineListPrompt } from './prompts.js';
 import { sanitizeLabel, sanitizeLabels, sanitizeListEntries, sanitizeMerchantPlaces, sanitizePriceHits, sanitizeWineInfo } from './sanitize.js';
 import type { LabelRead, ListEntry, LlmProvider, MerchantPlaces, WebPriceHit, WineInfo, WineInfoQuery, WineQuery } from './types.js';
 
@@ -144,7 +144,7 @@ export class GeminiProvider implements LlmProvider {
     const parts = [{ inline_data: { mime_type: mimeType, data: image.toString('base64') } }, { text: shelfPrompt(phoneText) }];
     return this.firstGood(
       (m) => this.generate(m, parts, { grounded: false, json: true }),
-      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'))
+      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'), SHELF_FIELDS)
     );
   }
 

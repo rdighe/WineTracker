@@ -36,13 +36,18 @@ export async function pendingScan(): Promise<PendingScan | null> {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * The answer to a scan sent with `ref`, once the server has it. Throws what
- * the scan request itself would have (an ApiError with its status), or a
- * plain error when the photo never reached the server.
+ * The answer to a scan (or a wine list, a shelf) sent with `ref`, once the
+ * server has it. Throws what the request itself would have (an ApiError with
+ * its status), or a plain error when it never reached the server. `wanted`:
+ * checked before each look; once false, it stops (Superseded).
  */
-export async function scanAnswer<T>(api: Api, ref: string): Promise<T> {
+export async function scanAnswer<T>(
+  api: Api, ref: string, opts: { tooLong?: string; wanted?: () => boolean } = {}
+): Promise<T> {
   let missing = 0;
   for (let i = 0; i < 150; i++) {
+    // Replaced by a newer request: stop asking.
+    if (opts.wanted && !opts.wanted()) throw new Superseded();
     try {
       const job = await api.scanJob(ref);
       if (job.status === 'done') return job.result as T;
@@ -59,5 +64,12 @@ export async function scanAnswer<T>(api: Api, ref: string): Promise<T> {
     }
     await wait(1500);
   }
-  throw new Error('Reading the label is taking too long. Try the scan again.');
+  throw new Error(opts.tooLong ?? 'Reading the label is taking too long. Try the scan again.');
+}
+
+/** scanAnswer stopped because a newer request replaced this one. */
+export class Superseded extends Error {
+  constructor() {
+    super('superseded');
+  }
 }

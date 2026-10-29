@@ -283,3 +283,9 @@ export interface SavedPick {
   photos: number;
   topPick: string;
 }
+
+/** A wine list or shelf being ranked on the server (POST /api/picks with a ref). */
+export interface PickJob {
+  ref: string;
+  status: 'pending' | 'done' | 'failed';
+}

@@ -10,7 +10,7 @@
  * price refreshes re-check known shop pages only.
  */
 import { extractJson } from './json.js';
-import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt, shelfPrompt, wineListPrompt } from './prompts.js';
+import { LABEL_PROMPT, LINEUP_PROMPT, noteFlavorsPrompt, researchPrompt, SHELF_FIELDS, shelfPrompt, wineListPrompt } from './prompts.js';
 import { sanitizeLabel, sanitizeLabels, sanitizeListEntries, sanitizeNoteFlavors, sanitizeWineInfo } from './sanitize.js';
 import { ProviderUnavailableError, type LabelRead, type ListEntry, type LlmProvider, type NoteFlavors, type WineInfo, type WineInfoQuery } from './types.js';
 
@@ -152,7 +152,7 @@ export class OpenRouterProvider implements LlmProvider {
     ];
     return this.firstGood(
       (m) => this.chat(m, content),
-      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'))
+      (text) => sanitizeListEntries(extractJson(text, 'object') ?? extractJson(text, 'array'), SHELF_FIELDS)
     );
   }
 

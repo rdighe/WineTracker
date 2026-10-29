@@ -222,6 +222,33 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
     }
   }
 
+  /**
+   * Start `run` as a job the app collects later (GET /api/scans/jobs/:ref)
+   * and answer at once, so nothing is lost when the app goes to the
+   * background or the connection drops while a wine list is read. The same
+   * ref sent again doesn't start it twice. Returns the job as it stands.
+   */
+  async function startJob(ref: string, userId: number, kind: 'picks', run: () => Promise<unknown>) {
+    await db.query(`DELETE FROM scan_jobs WHERE created_at < NOW() - INTERVAL '7 days'`);
+    const { rows: [claimed] } = await db.query(
+      `INSERT INTO scan_jobs (ref, user_id, kind) VALUES ($1, $2, $3) ON CONFLICT (ref) DO NOTHING RETURNING ref`,
+      [ref, userId, kind]
+    );
+    if (claimed) {
+      void run().then(
+        (result) => db.query(`UPDATE scan_jobs SET status = 'done', result = $2, updated_at = NOW() WHERE ref = $1`, [ref, JSON.stringify(result)]),
+        (e) => {
+          const status = e instanceof HttpError ? e.status : e instanceof ProviderUnavailableError ? 503 : 500;
+          if (status === 500) console.error(`job ${ref}:`, e);
+          return db.query(`UPDATE scan_jobs SET status = 'failed', error = $2, http_status = $3, updated_at = NOW() WHERE ref = $1`, [ref, status === 500 ? 'internal error' : (e as Error).message, status]);
+        }
+      ).catch((e) => console.error(`job ${ref}: could not record the outcome:`, e));
+    }
+    const { rows: [job] } = await db.query('SELECT user_id, status, result, error, http_status FROM scan_jobs WHERE ref = $1', [ref]);
+    if (Number(job.user_id) !== userId) throw new HttpError(409, 'ref in use');
+    return { ref, status: job.status as string, result: job.result ?? undefined, error: job.error ?? undefined, httpStatus: job.http_status ?? undefined };
+  }
+
   // Optional "ocrText": label text read on the phone. Optional "ref": see scanJob.
   app.post('/api/scans', auth.optionalUser, scanLimit, scanJson, upload.single('image'), wrap(async (req, res) => {
     const file = photo(req);
@@ -543,10 +570,21 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         text: z.string().max(MAX_LIST_CHARS).optional(),
         imageBase64: z.string().max(12_000_000).optional(),
         mimeType: z.string().max(40).optional(),
+        ref: z.string().regex(/^[A-Za-z0-9-]{16,64}$/).optional(),
       }).refine((x) => x.pages?.some((p) => p.trim()) || x.entries?.length || x.text?.trim() || x.imageBase64, 'pages, entries, text or imageBase64 required'),
       req.body
     );
     const userId = req.user!.userId;
+    // With a ref: a job, answered at once (202) and collected from GET /api/scans/jobs/:ref. Without: answered when done.
+    const run = () => pickFromRequest(b, userId);
+    if (b.ref) return res.status(202).json(await startJob(b.ref, userId, 'picks', run));
+    res.json(await run());
+  }));
+
+  async function pickFromRequest(
+    b: { kind: 'list' | 'shelf'; pages?: string[]; entries?: z.infer<typeof listEntry>[]; text?: string; imageBase64?: string; mimeType?: string },
+    userId: number
+  ) {
     if (b.kind === 'shelf' && b.imageBase64) {
       const mimeType = b.mimeType ?? 'image/jpeg';
       if (!IMAGE_TYPES.has(mimeType)) throw new HttpError(400, 'unsupported image type');
@@ -556,15 +594,15 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         console.error('shelf read failed:', err);
         throw new HttpError(502, "Couldn't read the shelf photo. Try again, a little closer.");
       });
-      return res.json(await pickWines(db, userId, 'shelf', read.entries, read.source, read.sha));
+      return pickWines(db, userId, 'shelf', read.entries, read.source, read.sha);
     }
     const pages = [...(b.pages ?? []), ...(b.text?.trim() ? [b.text] : [])].filter((p) => p.trim());
     const device = (b.entries ?? []).filter((e) => e.producer || e.name);
     const read = pages.length ? await readListPages(db, pages, pickReaders) : null;
     const entries = [...device, ...(read?.entries ?? [])];
     const source = [device.length ? 'apple' : '', read?.source ?? ''].filter(Boolean).join('+');
-    res.json(await pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device))));
-  }));
+    return pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device)));
+  }
 
   // Saved lists and shelves: name one to keep it; its photos are sent separately.
   app.get('/api/picks', auth.requireUser, wrap(async (req, res) => {

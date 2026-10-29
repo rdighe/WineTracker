@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickResult, SavedPick } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -126,11 +126,14 @@ export function createApi(authHeader: AuthHeader) {
       if (onDevice) void readNotesOnDevice(res.tastingId, text);
       return res;
     },
-    /** A wine list ranked for the palate: each page's text, as read off its photo. */
-    pickFromList: (pages: string[]) => request<PickResult>('/api/picks', json('POST', { kind: 'list', pages })),
-    /** A store shelf ranked for the palate: the photo, with the text read off it to help. */
-    pickFromShelf: (photo: { base64: string; mimeType: string }, text?: string) =>
-      request<PickResult>('/api/picks', json('POST', { kind: 'shelf', imageBase64: photo.base64, mimeType: photo.mimeType, ...(text?.trim() ? { text: text.slice(0, 6000) } : {}) })),
+    /**
+     * Start ranking a wine list for the palate (each page's text, as read off
+     * its photo). It runs on the server as a job: collect it with scanAnswer(ref).
+     */
+    pickFromList: (pages: string[], ref: string) => request<PickJob>('/api/picks', json('POST', { kind: 'list', pages, ref })),
+    /** Start ranking a store shelf: the photo, with the text read off it to help. Collect it with scanAnswer(ref). */
+    pickFromShelf: (photo: { base64: string; mimeType: string }, text: string, ref: string) =>
+      request<PickJob>('/api/picks', json('POST', { kind: 'shelf', imageBase64: photo.base64, mimeType: photo.mimeType, ref, ...(text.trim() ? { text: text.slice(0, 6000) } : {}) })),
     /** Saved lists and shelves, newest first. */
     savedPicks: () => request<{ saved: SavedPick[] }>('/api/picks'),
     /** A saved list, ranked for the palate as it is now. */

@@ -75,9 +75,11 @@ export interface PickResult {
 export const inputSha = (input: string | Buffer) => createHash('sha256').update(input).digest('hex');
 
 /** One part of a list for a model: about this many lines (a long list is read in parts, at the same time). */
-const PART_LINES = 60;
+const PART_LINES = 40;
 /** Parts read at once. */
-const PART_CONCURRENCY = 4;
+const PART_CONCURRENCY = 6;
+/** A free model gets this long to answer before Gemini is asked too; the first good answer wins. */
+const HEDGE_MS = 6000;
 const isHeading = (row: string) => /^[^\d$]{3,40}$/.test(row.trim()) && row.trim().split(/\s+/).length <= 5;
 
 /** A page's rows in parts, each starting with the heading in force where it begins. */
@@ -106,24 +108,76 @@ async function keepRead(db: Db, sha: string, kind: PickKind, source: string, ent
   );
 }
 
-/** One part of a list: the first reader that answers (free models, then Gemini), else rules. */
-async function readPart(db: Db, text: string, readers: LlmProvider[]): Promise<{ entries: ListEntry[]; source: string }> {
-  const sha = inputSha(`list:${text}`);
-  const cached = await cachedRead(db, sha);
-  if (cached) return cached;
-  for (const p of readers) {
-    if (!p.readWineList) continue;
-    try {
-      const entries = await p.readWineList(text);
-      if (entries.length) {
-        await keepRead(db, sha, 'list', p.name, entries);
-        return { entries, source: p.name };
+/**
+ * Ask the readers, free first. Each next reader starts when the one before
+ * fails or has had HEDGE_MS without answering; the first usable answer wins
+ * (a slower one still finishing is ignored). Throws the last error when none answers.
+ */
+export async function firstAnswer<T>(
+  readers: LlmProvider[], ask: (p: LlmProvider) => Promise<T> | undefined, usable: (x: T) => boolean = () => true, hedgeMs = HEDGE_MS
+): Promise<{ value: T; source: string }> {
+  return new Promise((resolve, reject) => {
+    let next = 0;
+    let pending = 0;
+    let done = false;
+    let lastErr: unknown = new ProviderUnavailableError();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      clearTimeout(timer);
+      if (done) return;
+      if (next >= readers.length) {
+        if (!pending) reject(lastErr);
+        return;
       }
+      const p = readers[next++]!;
+      const call = ask(p);
+      // This reader can't: straight to the next.
+      if (!call) return start();
+      pending++;
+      timer = setTimeout(start, hedgeMs);
+      call.then(
+        (value) => {
+          pending--;
+          if (done) return;
+          if (usable(value)) {
+            done = true;
+            clearTimeout(timer);
+            resolve({ value, source: p.name });
+          } else start();
+        },
+        (err) => {
+          pending--;
+          lastErr = err;
+          if (!done) start();
+        }
+      );
+    };
+    start();
+  });
+}
+
+/** Reads under way, by input: a list re-sent with a page added shares the parts already being read. */
+const inFlight = new Map<string, Promise<{ entries: ListEntry[]; source: string }>>();
+
+/** One part of a list: the first reader that answers (free models, then Gemini), else rules. */
+function readPart(db: Db, text: string, readers: LlmProvider[]): Promise<{ entries: ListEntry[]; source: string }> {
+  const sha = inputSha(`list:${text}`);
+  const running = inFlight.get(sha);
+  if (running) return running;
+  const read = (async () => {
+    const cached = await cachedRead(db, sha);
+    if (cached) return cached;
+    try {
+      const { value: entries, source } = await firstAnswer(readers, (p) => p.readWineList?.(text), (e) => e.length > 0);
+      await keepRead(db, sha, 'list', source, entries);
+      return { entries, source };
     } catch {
-      // Busy, rate limited, slow or no key: the next one, then rules.
+      // Busy, rate limited, slow or no key everywhere: rules.
+      return { entries: parseListText(text), source: 'rules' };
     }
-  }
-  return { entries: parseListText(text), source: 'rules' };
+  })().finally(() => inFlight.delete(sha));
+  inFlight.set(sha, read);
+  return read;
 }
 
 /**
@@ -142,7 +196,9 @@ export async function readListPages(db: Db, pages: string[], readers: LlmProvide
       budget -= part.length;
     }
   }
+  const t0 = Date.now();
   const reads = await inBatches(parts, PART_CONCURRENCY, (part) => readPart(db, part, readers));
+  console.log(`picks: read ${pages.length} page(s), ${parts.length} part(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s (${[...new Set(reads.map((r) => r.source))].join('+')})`);
   return {
     entries: reads.flatMap((r) => r.entries).slice(0, MAX_LIST_ENTRIES),
     source: [...new Set(reads.map((r) => r.source))].join('+'),
@@ -160,18 +216,12 @@ export async function readShelfPhoto(
   const sha = inputSha(image);
   const cached = await cachedRead(db, sha);
   if (cached) return { ...cached, sha };
-  let lastErr: unknown = new ProviderUnavailableError("Shelf reading isn't available right now. Try again later.");
-  for (const p of readers) {
-    if (!p.readShelf) continue;
-    try {
-      const entries = await p.readShelf(image, mimeType, phoneText);
-      await keepRead(db, sha, 'shelf', p.name, entries);
-      return { entries, source: p.name, sha };
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr;
+  if (!readers.some((p) => p.readShelf)) throw new ProviderUnavailableError("Shelf reading isn't available right now. Try again later.");
+  const t0 = Date.now();
+  const { value: entries, source } = await firstAnswer(readers, (p) => p.readShelf?.(image, mimeType, phoneText));
+  console.log(`picks: read a shelf photo in ${((Date.now() - t0) / 1000).toFixed(1)} s (${source})`);
+  await keepRead(db, sha, 'shelf', source, entries);
+  return { entries, source, sha };
 }
 
 /** Colour and style from the heading a wine is listed under. */
@@ -287,7 +337,9 @@ export async function scorePicks(db: Db, userId: number | null, entries: ListEnt
 
 /** Score the entries and keep the scan (unsaved until the person saves it). */
 export async function pickWines(db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string): Promise<PickResult> {
+  const t0 = Date.now();
   const scored = await scorePicks(db, userId, entries);
+  console.log(`picks: matched and scored ${entries.length} wine(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const { rows: [row] } = await db.query(
     'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries) VALUES ($1, $2, $3, $4, $5) RETURNING pick_id',
     [userId, kind, source, sha, JSON.stringify(entries)]

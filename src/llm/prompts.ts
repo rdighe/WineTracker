@@ -126,25 +126,30 @@ export const MAX_LIST_ENTRIES = 400;
  */
 export function wineListPrompt(text: string): string {
   return `This is the text of a restaurant wine list, read from a photo (each line is about one row of the page; " | " separates text far apart on the same row, which can be two columns of the list).
-List every wine on it. Return ONLY a JSON object: {"wines": [ ... ]}, one entry per wine, each with these keys:
-{"producer": "", "name": "", "vintage": "", "region": "", "country": "", "grape": "", "colour": "red|white|rose|orange|",
- "style": "still|sparkling|sweet|fortified|", "section": "", "glass_price": null, "bottle_price": null, "bottle_ml": null, "text": ""}
-Rules:
+List every wine on it, in order, at most ${MAX_LIST_ENTRIES}: one array per wine, values in this order:
+[${LIST_FIELDS.join(', ')}]
 - producer: the winery/house/chateau as printed. name: the rest of the wine's name (cuvée, vineyard, appellation), without the producer.
 - vintage: the 4-digit year printed for that wine, "NV" if printed as non-vintage, "" if none. Never guess.
-- region / country / grape / colour / style: as printed, or certain from the appellation or the heading the wine is under. "" when unsure.
-- section: the heading the wine is listed under ("Sparkling", "Pinot Noir", "Rhône"), "" if none.
-- glass_price / bottle_price: the prices as numbers in the list's currency (18 for "18" or "$18.00"), null when not given. When a wine has one price, decide from the heading or column ("by the glass") whether it is a glass or a bottle price; a lone price under about 25 is usually a glass.
+- region / grape: as printed, or certain from the appellation or heading, else "". colour: red|white|rose|orange|"". style: still|sparkling|sweet|fortified|"".
+- section: the heading the wine is listed under ("Sparkling", "Pinot Noir"), "" if none.
+- glass_price / bottle_price: numbers (18 for "$18.00"), null when not given. A wine with one price: decide from the heading or column ("by the glass") whether it's a glass or a bottle; a lone price under about 25 is usually a glass.
 - bottle_ml: only for half bottles (375), magnums (1500) and other non-750 sizes, else null.
 - Bin numbers, page numbers, descriptions and food are not wines. Skip cocktails, beer, spirits and sake.
-- text: the wine's line as printed.
-At most ${MAX_LIST_ENTRIES} wines, in the order listed.
+Reply with compact JSON only, no spaces or line breaks: {"wines":[[...],[...]]}
 
 Wine list text:
 """
 ${text.slice(0, MAX_LIST_CHARS)}
 """`;
 }
+
+/**
+ * The values of one wine in a list or shelf reply, in order: one short array
+ * per wine instead of an object repeating every key, so a reply is about a
+ * quarter as long (and comes back that much sooner).
+ */
+export const LIST_FIELDS = ['producer', 'name', 'vintage', 'region', 'grape', 'colour', 'style', 'section', 'glass_price', 'bottle_price', 'bottle_ml'] as const;
+export const SHELF_FIELDS = ['producer', 'name', 'vintage', 'region', 'grape', 'colour', 'style', 'bottle_price', 'bottle_ml', 'text'] as const;
 
 /** Most wines read from one shelf photo. */
 export const MAX_SHELF = 30;
@@ -155,18 +160,16 @@ export const MAX_SHELF = 30;
  */
 export function shelfPrompt(phoneText?: string): string {
   return `This is a photo of wine on a store shelf.
-List every different wine you can identify, from its bottle labels and its shelf tag (the price label on the shelf edge, usually just below the bottles).
-Return ONLY a JSON object: {"wines": [ ... ]}, one entry per different wine, at most ${MAX_SHELF}, each with these keys:
-{"producer": "", "name": "", "vintage": "", "region": "", "country": "", "grape": "", "colour": "red|white|rose|orange|",
- "style": "still|sparkling|sweet|fortified|", "bottle_price": null, "bottle_ml": null, "text": ""}
-Rules:
+List every different wine you can identify, from its bottle labels and its shelf tag (the price label on the shelf edge, usually just below the bottles), at most ${MAX_SHELF}: one array per wine, values in this order:
+[${SHELF_FIELDS.join(', ')}]
 - producer: the winery as printed. name: the rest of the wine's name (cuvée, grape, appellation), without the producer. Expand shelf-tag abbreviations ("CAB SAUV" is Cabernet Sauvignon).
 - vintage: the year printed on the label or tag, "NV" if non-vintage, "" if not visible. Never guess.
-- bottle_price: the regular per-bottle price on that wine's shelf tag, as a number (12.99); a sale price if that is the price now; null if you can't tell which tag is this wine's.
-- bottle_ml: only for sizes other than 750 ml (375, 1500, 3000 for boxes...), else null.
-- region / country / grape / colour / style: as printed, or certain from the appellation. "" when unsure.
-- text: what the shelf tag says.
-- Several bottles of the same wine are one entry. Skip spirits, beer and anything you can't read.${phoneText ? `
+- region / grape: as printed or certain from the appellation, else "". colour: red|white|rose|orange|"". style: still|sparkling|sweet|fortified|"".
+- bottle_price: the price now for one bottle on that wine's shelf tag (a sale price if there is one), as a number (12.99); null if you can't tell which tag is this wine's.
+- bottle_ml: only for sizes other than 750 ml (375, 1500, 3000 for boxes), else null.
+- text: what the shelf tag says, briefly.
+- Several bottles of the same wine are one entry. Skip spirits, beer and anything you can't read.
+Reply with compact JSON only, no spaces or line breaks: {"wines":[[...],[...]]}${phoneText ? `
 
 Text the phone read off this photo (may be partial or out of order):
 """

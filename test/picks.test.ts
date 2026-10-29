@@ -6,6 +6,7 @@ import { createWine } from '../src/catalog/wines.js';
 import { NullProvider } from '../src/llm/index.js';
 import { sanitizeListEntries } from '../src/llm/sanitize.js';
 import { parseListText } from '../src/picks/listText.js';
+import { firstAnswer } from '../src/picks/picks.js';
 import { PoliteFetcher } from '../src/prices/fetcher.js';
 import { forgetRecommendationCandidates } from '../src/recs/recommend.js';
 import { closeDb, resetDb, testDb } from './helpers.js';
@@ -57,6 +58,25 @@ Domaine Tempier Bandol Rosé 2023 half bottle 48`;
       expect.objectContaining({ name: 'Barolo', vintage: '', style: '', bottleCents: null, bottleMl: 1500 }),
     ]);
     expect(sanitizeListEntries('no')).toBeNull();
+  });
+});
+
+describe('asking readers', () => {
+  const reader = (name: string, answer: () => Promise<string>) => Object.assign(new NullProvider(), { name, ask: vi.fn(answer) });
+  const later = (ms: number, v: string) => () => new Promise<string>((r) => setTimeout(() => r(v), ms));
+
+  it('takes the free answer when it comes in time, and asks the next reader only when the free one is slow or fails', async () => {
+    const free = reader('free', later(5, 'free answer'));
+    const paid = reader('paid', later(5, 'paid answer'));
+    expect(await firstAnswer([free, paid], (p) => (p as typeof free).ask(), undefined, 50)).toEqual({ value: 'free answer', source: 'free' });
+    expect(paid.ask).not.toHaveBeenCalled();
+
+    const slow = reader('free', later(200, 'late'));
+    expect(await firstAnswer([slow, paid], (p) => (p as typeof slow).ask(), undefined, 20)).toEqual({ value: 'paid answer', source: 'paid' });
+
+    const broken = reader('free', () => Promise.reject(new Error('429')));
+    expect((await firstAnswer([broken, paid], (p) => (p as typeof broken).ask(), undefined, 10_000)).source).toBe('paid');
+    await expect(firstAnswer([broken], (p) => (p as typeof broken).ask())).rejects.toThrow('429');
   });
 });
 
@@ -187,16 +207,16 @@ describe('picks API', () => {
     const page1 = [...Array(130)].map((_, i) => (i === 0 ? 'REDS' : i === 70 ? 'Busy line 90' : `Wine ${i} 90`)).join('\n');
     const a = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1] });
     expect(a.status).toBe(200);
-    // 130 rows: three parts; the second (with Busy) fell back to the paid reader; later parts carry the heading.
-    expect(free.readWineList).toHaveBeenCalledTimes(3);
+    // 130 rows: four parts; the second (with Busy) fell back to the paid reader; later parts carry the heading.
+    expect(free.readWineList).toHaveBeenCalledTimes(4);
     expect(paid.readWineList).toHaveBeenCalledTimes(1);
-    expect(free.readWineList.mock.calls.map((c) => c[0].split('\n')[0]).sort()).toEqual(['REDS', 'REDS', 'REDS']);
+    expect(free.readWineList.mock.calls.map((c) => c[0].split('\n')[0]).sort()).toEqual(['REDS', 'REDS', 'REDS', 'REDS']);
     expect(a.body.source).toBe('openrouter+gemini');
-    expect(a.body.items).toHaveLength(3);
+    expect(a.body.items).toHaveLength(4);
 
     const b = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1, 'WHITES\nVacheron Sancerre 70'] });
-    expect(b.body.items).toHaveLength(4);
-    expect(free.readWineList).toHaveBeenCalledTimes(4);
+    expect(b.body.items).toHaveLength(5);
+    expect(free.readWineList).toHaveBeenCalledTimes(5);
   });
 
   it('saves a list with its photos, lists it, opens it scored afresh, and deletes it', async () => {
@@ -225,5 +245,35 @@ describe('picks API', () => {
     expect((await as(request(app).delete(`/api/picks/${id}`))).status).toBe(204);
     expect((await as(request(app).get('/api/picks'))).body.saved).toEqual([]);
     expect((await as(request(app).get(`/api/picks/${id}`))).status).toBe(404);
+  });
+
+  it('runs as a job with a ref: answers at once, keeps going, and is collected later; the same ref runs once', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const readWineList = vi.fn(async () => {
+      await gate;
+      return [{ producer: 'Clape', name: 'Cornas', vintage: '2019', region: '', country: '', grape: 'Syrah', colour: 'red', style: '', section: '', glassCents: 3400, bottleCents: null, bottleMl: null, text: '' }];
+    });
+    const provider = Object.assign(new NullProvider(), { name: 'gemini', readWineList });
+    const app = createApp({ db, provider, pickReaders: [provider], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const ref = 'list-job-0123456789abcdef';
+    const a = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: ['RED\nClape, Cornas 2019 34'], ref });
+    expect(a.status).toBe(202);
+    expect(a.body).toMatchObject({ ref, status: 'pending' });
+    // Sent again (the app retrying after a dropped connection): still the one job.
+    expect((await as(request(app).post('/api/picks')).send({ kind: 'list', pages: ['RED\nClape, Cornas 2019 34'], ref })).body.status).toBe('pending');
+    expect((await as(request(app).get(`/api/scans/jobs/${ref}`))).body.status).toBe('pending');
+
+    release();
+    let job = { status: 'pending' } as { status: string; result?: { items: { entry: { producer: string } }[] } };
+    for (let i = 0; i < 50 && job.status === 'pending'; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      job = (await as(request(app).get(`/api/scans/jobs/${ref}`))).body;
+    }
+    expect(job.status).toBe('done');
+    expect(job.result!.items[0]!.entry.producer).toBe('Clape');
+    expect(readWineList).toHaveBeenCalledTimes(1);
+    // Not someone else's to read.
+    expect((await request(app).get(`/api/scans/jobs/${ref}`).set('Authorization', 'Dev someone-else')).status).toBe(404);
   });
 });

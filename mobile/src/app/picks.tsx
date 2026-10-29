@@ -8,7 +8,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Image, Platform, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Platform, ScrollView, Text, View } from 'react-native';
 import { PhotosIcon, ScanIcon } from '../components/icons';
 import { PickPhoto } from '../components/PickPhoto';
 import { PickResults, type Kind } from '../components/PickResults';
@@ -16,6 +16,8 @@ import { Button, Card, ErrorText, Heading, IconButton, Muted, Screen, Title, rad
 import { shortDate } from '../lib/format';
 import { LINEUP_MAX_SIDE, prepareLabelPhoto } from '../lib/photo';
 import type { PickResult } from '../lib/types';
+import { ApiError } from '../lib/api';
+import { newScanRef, scanAnswer, Superseded } from '../lib/pendingScan';
 import { useApi } from '../lib/useApi';
 import { readListPhoto } from '../lib/wineList';
 
@@ -59,6 +61,20 @@ export default function PicksScreen() {
     };
   }, [api, savedId]);
 
+  // The photos so far, and the result shown, as of now (read by work that outlives a render).
+  const pagesNow = useRef<Page[]>([]);
+  const resultNow = useRef<Opened | null>(null);
+  useEffect(() => {
+    resultNow.current = result;
+  }, [result]);
+  // The evaluation running: only the latest one's answer is shown (adding a page starts a new one).
+  const [running, setRunning] = useState<string | null>(null);
+  const runningNow = useRef<string | null>(null);
+  // Leaving this screen: stop asking about the evaluation under way.
+  useEffect(() => () => {
+    runningNow.current = null;
+  }, []);
+
   async function addPhoto(fromCamera: boolean) {
     setError(null);
     const perm = fromCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -75,33 +91,69 @@ export default function PicksScreen() {
         setStatus('Reading the shelf…');
         const rows = (await readListPhoto(asset.uri)) ?? [];
         const photo = await prepareLabelPhoto(asset, LINEUP_MAX_SIDE);
-        setPages([{ ...asset, text: rows.join('\n') }]);
-        setResult(await api.pickFromShelf(photo, rows.join('\n')));
+        pagesNow.current = [{ ...asset, text: rows.join('\n') }];
+        setPages(pagesNow.current);
+        setResult(null);
+        setStatus(null);
+        void evaluate((ref) => api.pickFromShelf(photo, rows.join('\n'), ref));
         return;
       }
-      const added: Page[] = [];
       for (const asset of res.assets) {
-        setStatus(pages.length + added.length ? `Reading page ${pages.length + added.length + 1}…` : 'Reading the list…');
+        setStatus(`Reading page ${pagesNow.current.length + 1}…`);
         const rows = await readListPhoto(asset.uri);
         if (!rows) throw new Error('Wine lists can be read in the iPhone app.');
         if (!rows.length) throw new Error('No text found in that photo. Try again closer, with the page flat and well lit.');
-        added.push({ ...asset, text: rows.join('\n') });
+        pagesNow.current = [...pagesNow.current, { ...asset, text: rows.join('\n') }];
+        setPages(pagesNow.current);
       }
-      const all = [...pages, ...added];
-      setPages(all);
-      setStatus('Finding the best wines for you…');
-      const next: Opened = await api.pickFromList(all.map((p) => p.text));
-      // Already saved: the saved list gets the new page too.
-      if (result?.saved && result.name) {
-        await api.savePick(next.pickId, result.name, await savedPhotos(all));
-        await api.deletePick(result.pickId).catch(() => {});
-        Object.assign(next, { name: result.name, saved: true, photos: all.length });
-      }
-      setResult(next);
+      setStatus(null);
+      const texts = pagesNow.current.map((p) => p.text);
+      void evaluate((ref) => api.pickFromList(texts, ref));
     } catch (e) {
       setError(e);
-    } finally {
       setStatus(null);
+    }
+  }
+
+  /**
+   * Rank the list (or shelf) on the server, as a job: switching apps or a
+   * dropped connection loses nothing, the answer is collected when back.
+   * A newer evaluation (a page added meanwhile) replaces this one.
+   */
+  async function evaluate(start: (ref: string) => Promise<unknown>) {
+    const ref = newScanRef();
+    runningNow.current = ref;
+    setRunning(ref);
+    const wanted = () => runningNow.current === ref;
+    try {
+      // Sending is quick, but may meet a dropped connection: try again (the same ref runs once).
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await start(ref);
+          break;
+        } catch (e) {
+          if (e instanceof ApiError || attempt >= 5 || !wanted()) throw e;
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      const next: Opened = await scanAnswer<PickResult>(api, ref, { wanted, tooLong: 'Reading the list is taking too long. Try again.' });
+      // Already saved: the saved list gets the new page too.
+      const prev = resultNow.current;
+      if (prev?.saved && prev.name && prev.pickId !== next.pickId) {
+        await api.savePick(next.pickId, prev.name, await savedPhotos(pagesNow.current));
+        await api.deletePick(prev.pickId).catch(() => {});
+        Object.assign(next, { name: prev.name, saved: true, photos: pagesNow.current.length });
+      }
+      if (!wanted()) return;
+      setResult(next);
+    } catch (e) {
+      if (e instanceof Superseded || !wanted()) return;
+      setError(e);
+    } finally {
+      if (wanted()) {
+        runningNow.current = null;
+        setRunning(null);
+      }
     }
   }
 
@@ -154,7 +206,7 @@ export default function PicksScreen() {
     ]);
   }
 
-  if (result && !status) {
+  if (result && !status && !running) {
     const photoCount = savedId ? result.photos ?? 0 : 0;
     return (
       <PickResults
@@ -170,16 +222,42 @@ export default function PicksScreen() {
           <View style={{ gap: space[2] }}>
             <Button title={result.saved ? 'Rename' : 'Save'} variant={result.saved ? 'secondary' : 'primary'} busy={saving} onPress={askToSave} />
             {!savedId ? (
-              <Button title={kind === 'shelf' ? 'Scan another shelf' : 'Add another page'} variant="secondary" onPress={() => {
-                if (kind === 'shelf') setPages([]);
-                void addPhoto(true);
-              }} />
+              <Button title={kind === 'shelf' ? 'Scan another shelf' : 'Add another page'} variant="secondary" onPress={() => void addPhoto(true)} />
             ) : (
               <Button title="Delete" variant="plain" onPress={confirmDelete} />
             )}
           </View>
         }
       />
+    );
+  }
+
+  // Evaluating: the photos so far, and (for a list) more pages can be added meanwhile.
+  if (running || (status && pages.length)) {
+    return (
+      <Screen>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Title>{kind === 'shelf' ? 'Store shelf' : 'Wine list'}</Title>
+          <CloseButton />
+        </View>
+        {pages.length ? <NewPhotos pages={pages} /> : null}
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            <ActivityIndicator />
+            <Heading style={{ flex: 1 }}>
+              {status ?? (kind === 'list' && pages.length > 1 ? `Finding the best wines on ${pages.length} pages…` : 'Finding the best wines for you…')}
+            </Heading>
+          </View>
+          <Muted>{kind === 'list' ? 'Add more pages while you wait. You can switch apps; it keeps going.' : 'You can switch apps; it keeps going.'}</Muted>
+          {kind === 'list' ? (
+            <View style={{ gap: space[2] }}>
+              <Button title="Add another page" variant="secondary" disabled={Boolean(status)} icon={(color) => <ScanIcon color={color} size={20} />} onPress={() => addPhoto(true)} />
+              <Button title="Choose photos" variant="plain" disabled={Boolean(status)} icon={(color) => <PhotosIcon color={color} size={20} />} onPress={() => addPhoto(false)} />
+            </View>
+          ) : null}
+        </Card>
+        <ErrorText error={error} />
+      </Screen>
     );
   }
 

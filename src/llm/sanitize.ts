@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { FLAVORS } from '../recs/flavors.js';
-import { MAX_LINEUP, MAX_LIST_ENTRIES } from './prompts.js';
+import { LIST_FIELDS, MAX_LINEUP, MAX_LIST_ENTRIES } from './prompts.js';
 import type { LabelRead, ListEntry, WebPriceHit, WineInfo, MerchantPlaces, NoteFlavors } from './types.js';
 
 const str = (max: number) => z.preprocess((v) => (v == null ? '' : String(v)), z.string()).transform((s) => s.replace(/\s+/g, ' ').trim().slice(0, max));
@@ -244,10 +244,11 @@ const STYLES = new Set(['still', 'sparkling', 'sweet', 'fortified']);
 
 /**
  * Wines a model read from a list or a shelf (prices in dollars, as printed).
- * Accepts {"wines": [...]}, {"bottles": [...]} or the array itself; drops
- * entries with no name at all. Null when the reply isn't a list.
+ * Accepts {"wines": [...]}, {"bottles": [...]} or the array itself, each wine
+ * an array of values in `fields` order (LIST_FIELDS or SHELF_FIELDS) or an
+ * object; drops entries with no name at all. Null when the reply isn't a list.
  */
-export function sanitizeListEntries(raw: unknown): ListEntry[] | null {
+export function sanitizeListEntries(raw: unknown, fields: readonly string[] = LIST_FIELDS): ListEntry[] | null {
   const arr = Array.isArray(raw) ? raw
     : raw && typeof raw === 'object' ? ((raw as { wines?: unknown }).wines ?? (raw as { bottles?: unknown }).bottles) : null;
   if (!Array.isArray(arr)) return null;
@@ -255,7 +256,8 @@ export function sanitizeListEntries(raw: unknown): ListEntry[] | null {
   const out: ListEntry[] = [];
   for (const e of arr.slice(0, MAX_LIST_ENTRIES)) {
     if (!e || typeof e !== 'object') continue;
-    const r = e as Record<string, unknown>;
+    // One array per wine (the compact reply), values in `fields` order; or an object.
+    const r = (Array.isArray(e) ? Object.fromEntries(fields.map((k, i) => [k, e[i]])) : e) as Record<string, unknown>;
     const producer = s(r.producer, 120);
     const name = s(r.name, 160);
     if (!producer && !name) continue;
@@ -276,7 +278,8 @@ export function sanitizeListEntries(raw: unknown): ListEntry[] | null {
       glassCents: cents(r.glass_price),
       bottleCents: cents(r.bottle_price ?? r.price),
       bottleMl: Number.isInteger(ml) && ml >= 50 && ml <= 30000 && ml !== 750 ? ml : null,
-      text: s(r.text ?? r.raw_text, 300),
+      // The compact list reply has no line of its own: the name stands in for it (the matcher reads it).
+      text: s(r.text ?? r.raw_text, 300) || [producer, name, s(r.vintage, 4)].filter(Boolean).join(' '),
     });
   }
   return out;
