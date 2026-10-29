@@ -145,7 +145,7 @@ describe('evaluation', () => {
     const nebbiolo = (i: number) => f({ display_name: `Barolo ${i}`, producer: `Nebbiolo maker ${i}`, grape: 'Nebbiolo', region: 'Piedmont', sub_region: 'Barolo', country: 'Italy', colour: 'red' });
     const sb = (i: number) => f({ display_name: `Sauvignon Blanc ${i}`, producer: `SB maker ${i}`, grape: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white' });
     const t = (id: number, features: ReturnType<typeof f>, rating: number): RatedTasting => ({
-      tastingId: id, wineId: id, rating, priceCents: 4000, features, style: '', own: { keywords: {}, read: null, hasText: false },
+      tastingId: id, wineId: id, rating, priceCents: 4000, label: `Wine ${id}`, features, style: '', own: { keywords: {}, read: null, hasText: false },
     });
     const rated = [t(1, nebbiolo(1), 5), t(2, nebbiolo(2), 5), t(3, nebbiolo(3), 4.5), t(4, sb(1), 2), t(5, sb(2), 2), t(6, sb(3), 2)];
     const catalog = [...Array(10)].map((_, i) => ({ wineId: 100 + i, features: sb(10 + i), priceCents: 4000 }));

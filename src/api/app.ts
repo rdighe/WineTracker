@@ -13,10 +13,11 @@ import { createWine, getWine } from '../catalog/wines.js';
 import { matchWine } from '../match/matcher.js';
 import { per750 } from '../lib/listing.js';
 import { ProviderUnavailableError, type LlmProvider } from '../llm/types.js';
-import { createNoteProvider, createPickReaders } from '../llm/index.js';
+import { createJev, createNoteProvider, createPickReaders } from '../llm/index.js';
+import { jevNoteReader } from '../llm/jev.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
 import {
-  deletePick, inputSha, listSavedPicks, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos,
+  deletePick, inputSha, listSavedPicks, type PickJev, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos,
 } from '../picks/picks.js';
 import { FLAVOR_KEYS } from '../recs/flavors.js';
 import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
@@ -50,6 +51,8 @@ export interface AppDeps {
   places?: Places;
   /** Reads flavors from tasting notes the phone couldn't (default: OpenRouter's free models, when a key is set). */
   noteReader?: NoteFlavorReader;
+  /** Jev's uses in picks (default: as JEV_FEATURES says). */
+  pickJev?: PickJev;
   /** Whether the server is ready for traffic (health check); always, when absent. */
   isReady?: () => boolean;
   /** What reads wine lists and shelf photos, in order (default: OpenRouter's free models, then `provider`). */
@@ -109,9 +112,10 @@ const tastingBody = z.object({
   noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
-  const noteReader = noteReaderDep ?? createNoteFlavorReader(db, createNoteProvider());
+  const jevFlavors = createJev('flavors');
+  const noteReader = noteReaderDep ?? createNoteFlavorReader(db, [jevFlavors && jevNoteReader(jevFlavors), createNoteProvider()]);
   const places = placesDep ?? createPlaces(db, provider);
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -545,6 +549,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
 
   // ── Picks: a wine list (or shelf) ranked for the person ──────────────────
   const pickReaders = pickReadersDep ?? createPickReaders(provider);
+  const pickJev: PickJev = pickJevDep ?? { match: createJev('match'), predict: createJev('predict') };
   const cents = z.number().int().min(1).max(10_000_000).nullable().default(null);
   const listEntry = z.object({
     producer: z.string().max(120).default(''),
@@ -598,14 +603,14 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
         console.error('shelf read failed:', err);
         throw new HttpError(502, "Couldn't read the shelf photo. Try again, a little closer.");
       });
-      return pickWines(db, userId, 'shelf', read.entries, read.source, read.sha);
+      return pickWines(db, userId, 'shelf', read.entries, read.source, read.sha, pickJev);
     }
     const pages = [...(b.pages ?? []), ...(b.text?.trim() ? [b.text] : [])].filter((p) => p.trim());
     const device = (b.entries ?? []).filter((e) => e.producer || e.name);
     const read = pages.length ? await readListPages(db, pages, pickReaders) : null;
     const entries = [...device, ...(read?.entries ?? [])];
     const source = [device.length ? 'apple' : '', read?.source ?? ''].filter(Boolean).join('+');
-    return pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device)));
+    return pickWines(db, userId, b.kind, entries, source, inputSha(pages.length ? pages.join('\f') : JSON.stringify(device)), pickJev);
   }
 
   // Saved lists and shelves: name one to keep it; its photos are sent separately.
@@ -614,14 +619,14 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   }));
 
   app.get('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
-    const r = await openPick(db, req.user!.userId, parse(idParam, req.params.id));
+    const r = await openPick(db, req.user!.userId, parse(idParam, req.params.id), pickJev);
     if (!r) throw new HttpError(404, 'not found');
     res.json(r);
   }));
 
   app.patch('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
     const { name } = parse(z.object({ name: z.string().trim().min(1).max(80) }), req.body);
-    if (!(await savePick(db, req.user!.userId, parse(idParam, req.params.id), name))) throw new HttpError(404, 'not found');
+    if (!(await savePick(db, req.user!.userId, parse(idParam, req.params.id), name, pickJev))) throw new HttpError(404, 'not found');
     res.json({ ok: true });
   }));
 

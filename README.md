@@ -32,6 +32,7 @@ for Gemini, strict matching because a wrong answer is worse than none, normalize
 | `src/catalog/twins.ts` | Merges copies of one wine created from shop listings (`npm run dedupe -- twins`) |
 | `src/tastings/tastings.ts` | Tasting log: rating, notes, tags, price paid (stored as a 'user' price observation) |
 | `src/picks/` | Picks: a restaurant wine list or a store shelf ranked for your palate, with markup (or deal) against typical retail. The phone reads a list's text (Apple Vision); the server reads it into wines with OpenRouter's free models, then Gemini, then rules (`listText.ts`); a shelf photo by a vision model. Lists and shelves can be saved with their photos |
+| `src/llm/jev.ts`, `src/recs/jevPredict.ts` | Jev, a decision model through OpenRouter (a prototype, off unless `JEV_FEATURES` lists a use): `match` settles wine-list matches the matcher isn't sure of, `flavors` reads tasting-note flavors as scores, `predict` blends a predicted enjoyment into wine-list scores (`jevScore`). `npm run eval:recs -- --jev` measures `predict` against the profile score |
 | `src/tastings/noteFlavors.ts` | Flavors in your own notes and tags, read by a language model: on the phone with Apple Intelligence (`mobile/modules/note-flavors`), else by an OpenRouter free model on the server; keywords until either has |
 | `src/recs/` | Taste profile from ratings, led by flavor (tasting notes, your tags, else typical of the grape; `flavors.ts`), then grape, producer, place, style and price range; recommendations |
 | `src/api/app.ts` | REST API |

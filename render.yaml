@@ -48,6 +48,10 @@ services:
       # Also reads flavors from tasting notes the phone can't (free models), whatever LLM_PROVIDER says.
       - key: OPENROUTER_API_KEY
         sync: false
+      # Jev (decision model through OpenRouter, src/llm/jev.ts), a prototype: which uses are on, comma
+      # separated - match (settle uncertain wine-list matches), flavors (tasting notes), predict. Off when empty.
+      - key: JEV_FEATURES
+        value: ""
       # Google sign-in: an OAuth "Web application" client with the redirect URI
       # https://<this service>.onrender.com/api/auth/google/callback (docs/DEPLOY.md).
       - key: GOOGLE_CLIENT_ID

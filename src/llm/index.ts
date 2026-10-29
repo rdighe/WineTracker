@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { GeminiProvider } from './gemini.js';
+import { JevClient } from './jev.js';
 import { OpenRouterProvider } from './openrouter.js';
 import { ProviderUnavailableError, type LlmProvider } from './types.js';
 
@@ -35,6 +36,14 @@ export function createPickReaders(main: LlmProvider): LlmProvider[] {
     ? new OpenRouterProvider({ apiKey: config.openrouterApiKey, model: config.openrouterModel || undefined, timeoutMs: 25_000, maxTries: 2 })
     : null;
   return [free, main].filter((p): p is LlmProvider => p !== null);
+}
+
+export type JevFeature = 'match' | 'flavors' | 'predict';
+
+/** Jev, when JEV_FEATURES has this use on and an OpenRouter key is set; else null (the use falls back). */
+export function createJev(feature: JevFeature): JevClient | null {
+  if (!config.openrouterApiKey || !config.jevFeatures.has(feature)) return null;
+  return new JevClient({ apiKey: config.openrouterApiKey, model: config.jevModel || undefined });
 }
 
 export function createProvider(): LlmProvider {

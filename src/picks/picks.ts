@@ -22,9 +22,12 @@ import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import { ProviderUnavailableError, type ListEntry, type LlmProvider } from '../llm/types.js';
 import { matchLabel } from '../scan/scan.js';
+import type { JevClient } from '../llm/jev.js';
+import type { CandidateWine } from '../match/score.js';
 import { wineFeatures, recStyle, type RecStyle, type WineRow } from '../recs/features.js';
 import { explain, scoreWine } from '../recs/profile.js';
-import { catalogWines, loadProfile, MIN_RATED } from '../recs/recommend.js';
+import { catalogWines, loadProfile, loadRatedTastings, MIN_RATED, wineLabel } from '../recs/recommend.js';
+import { ENJOY_MID, predictEnjoyment } from '../recs/jevPredict.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
 import { normalize } from '../lib/normalize.js';
 import { parseListText } from './listText.js';
@@ -41,18 +44,71 @@ const MATCH_CACHE_SIZE = 3000;
 type Identified = { match: MatchKind; wineId: number | null };
 const matchCache = new Map<string, { at: number; found: Promise<Identified> }>();
 
+/** Jev's uses in picks (src/llm/jev.ts); each null when off. */
+export interface PickJev {
+  /** Settles matches the matcher isn't sure of. */
+  match?: JevClient | null;
+  /** Predicts how much the person will enjoy each wine (blended into the score). */
+  predict?: JevClient | null;
+}
+
+/** Candidates Jev chooses among: the matcher's best, down to this score. */
+const JEV_CANDIDATES = 6;
+const JEV_MIN_SCORE = 0.3;
+/** Jev's prediction counts this much per level above or below "might enjoy it"; wines asked about at most. */
+const JEV_WEIGHT = 1;
+const MAX_JEV_PREDICT = 200;
+/** Jev's probability for its choice that makes it a match, or a likely one. */
+const JEV_MATCHED = 0.8;
+const JEV_LIKELY = 0.55;
+
+const describeWine = (w: { display_name: string; sub_region: string; region: string; country: string; colour: string; grape: string }) =>
+  [w.display_name, [w.sub_region || w.region, w.country].filter(Boolean).join(', '), [w.colour, w.grape].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+
+/**
+ * The matcher wasn't sure: Jev chooses which of its best candidates the
+ * entry is, or none of them. Null when Jev can't say (the matcher's call stands).
+ */
+async function settleWithJev(jev: JevClient, e: ListEntry, candidates: { wine: CandidateWine; score: number }[]): Promise<Identified | null> {
+  const options = candidates.filter((c) => c.score >= JEV_MIN_SCORE).slice(0, JEV_CANDIDATES);
+  if (!options.length) return null;
+  const state = [
+    `Wine on a wine list or store shelf: ${[e.producer, e.name, e.vintage].filter(Boolean).join(' ')}`,
+    e.text ? `As printed: ${e.text}` : '',
+    [e.region && `Region: ${e.region}`, e.grape && `Grape: ${e.grape}`, e.colour && `Colour: ${e.colour}`, e.section && `Listed under: ${e.section}`].filter(Boolean).join('. '),
+  ].filter(Boolean).join('\n');
+  const criteria: Record<string, string> = Object.fromEntries(options.map((c, i) => [`wine${i + 1}`, describeWine(c.wine)]));
+  criteria.none = 'None of these: a different wine, or not enough to tell';
+  try {
+    const { which } = await jev.ask(state, {
+      which: { type: 'choice', instructions: 'Which catalog wine is this? The same producer and the same wine (cuvée, vineyard or appellation); the vintage does not matter.', criteria },
+    });
+    if (which?.type !== 'choice') return null;
+    const p = which.probabilities[which.choice] ?? which.confidence;
+    if (which.choice === 'none') return p >= JEV_LIKELY ? { match: 'guess', wineId: null } : null;
+    const pick = options[Number(which.choice.replace('wine', '')) - 1];
+    if (!pick) return null;
+    return p >= JEV_MATCHED ? { match: 'matched', wineId: pick.wine.wine_id } : p >= JEV_LIKELY ? { match: 'likely', wineId: pick.wine.wine_id } : null;
+  } catch (err) {
+    console.log(`picks: jev match failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 /** One entry matched to the catalog; the same entry (again, or at the same moment) is looked up once. */
-function identifyEntry(db: Db, e: ListEntry): Promise<Identified> {
-  const key = JSON.stringify([e.producer, e.name, e.vintage, e.region, e.country, e.grape, e.colour, e.text].map((s) => normalize(s ?? '')));
+function identifyEntry(db: Db, e: ListEntry, jev?: JevClient | null): Promise<Identified> {
+  const key = JSON.stringify([jev ? 'jev' : '', ...[e.producer, e.name, e.vintage, e.region, e.country, e.grape, e.colour, e.text].map((s) => normalize(s ?? ''))]);
   const hit = matchCache.get(key);
   if (hit && Date.now() - hit.at < MATCH_CACHE_MS) return hit.found;
   const found = matchLabel(db, {
     producer: e.producer, name: e.name, vintage: e.vintage, region: e.region, country: e.country, grape: e.grape,
     colour: e.colour, bottleMl: e.bottleMl, rawText: e.text, confidence: 0.8,
-  }, { noFuzzy: true }).then((m): Identified => {
+  }, { noFuzzy: true }).then(async (m): Promise<Identified> => {
     const top = m.candidates[0];
     const match: MatchKind = top && m.outcome === 'auto' ? 'matched' : top && top.score >= LIKELY ? 'likely' : 'guess';
-    return { match, wineId: match === 'guess' ? null : top!.wine.wine_id };
+    const mine: Identified = { match, wineId: match === 'guess' ? null : top!.wine.wine_id };
+    if (match === 'matched' || !jev) return mine;
+    return (await settleWithJev(jev, e, m.candidates)) ?? mine;
   });
   // A failed lookup isn't kept.
   found.catch(() => matchCache.delete(key));
@@ -87,6 +143,8 @@ export interface PickItem {
   /** List (or shelf) price over retail, per bottle and per glass; matched wines only. */
   markup: number | null;
   glassMarkup: number | null;
+  /** Jev's prediction, 0 (would dislike) to 4 (would love), when that prototype is on; already blended into score. */
+  jevScore?: number | null;
 }
 
 export interface PickResult {
@@ -298,10 +356,10 @@ async function inBatches<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>):
 }
 
 /** The entries identified and scored for the person, best first. */
-export async function scorePicks(db: Db, userId: number | null, entries: ListEntry[]): Promise<Pick<PickResult, 'mode' | 'rated' | 'items'>> {
+export async function scorePicks(db: Db, userId: number | null, entries: ListEntry[], jev: PickJev = {}): Promise<Pick<PickResult, 'mode' | 'rated' | 'items'>> {
   // 1. Identify (the same wine twice on a list is looked up once).
   const t0 = Date.now();
-  const matches = await inBatches(entries, CONCURRENCY, (e) => identifyEntry(db, e));
+  const matches = await inBatches(entries, CONCURRENCY, (e) => identifyEntry(db, e, jev.match));
   const tMatch = Date.now() - t0;
   const ids = [...new Set(matches.map((m) => m.wineId).filter((id): id is number => id !== null))];
   const wines = await catalogWines(db, ids);
@@ -355,6 +413,27 @@ export async function scorePicks(db: Db, userId: number | null, entries: ListEnt
       glassMarkup: ratio(entry.glassCents === null ? null : entry.glassCents * GLASSES_PER_BOTTLE),
     };
   });
+  // Jev's prediction (a prototype), blended in: a level above or below "might enjoy it" moves the score by JEV_WEIGHT.
+  if (jev.predict && profile && userId) {
+    try {
+      const { rated } = await loadRatedTastings(db, userId);
+      const labels = items.map((x) => {
+        const wine = x.wineId ? wines.get(x.wineId) : undefined;
+        return { key: String(x.index), label: wine ? wineLabel(wine.row, wine.features) : wineLabel(entryRow(x.entry), wineFeatures(entryRow(x.entry))) };
+      });
+      const t1 = Date.now();
+      const predicted = await predictEnjoyment(jev.predict, rated, labels.slice(0, MAX_JEV_PREDICT));
+      console.log(`picks: jev predicted ${predicted.size} wine(s) in ${((Date.now() - t1) / 1000).toFixed(1)} s`);
+      for (const x of items) {
+        const p = predicted.get(String(x.index));
+        x.jevScore = p ? Math.round(p.score * 100) / 100 : null;
+        if (p && x.score !== null) x.score = Math.round((x.score + JEV_WEIGHT * (p.score - ENJOY_MID)) * 1000) / 1000;
+      }
+    } catch (err) {
+      console.log(`picks: jev predict failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Best fit first; without a profile, the best value (lowest markup) first, then as listed.
   const value = (x: PickItem) => x.markup ?? x.glassMarkup ?? Infinity;
   items.sort((a, b) => (profile ? b.score! - a.score! : value(a) - value(b)) || a.index - b.index);
@@ -364,8 +443,8 @@ export async function scorePicks(db: Db, userId: number | null, entries: ListEnt
 }
 
 /** Score the entries and keep the scan (unsaved until the person saves it). */
-export async function pickWines(db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string): Promise<PickResult> {
-  const scored = await scorePicks(db, userId, entries);
+export async function pickWines(db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string, jev: PickJev = {}): Promise<PickResult> {
+  const scored = await scorePicks(db, userId, entries, jev);
   const { rows: [row] } = await db.query(
     'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries) VALUES ($1, $2, $3, $4, $5) RETURNING pick_id',
     [userId, kind, source, sha, JSON.stringify(entries)]
@@ -391,10 +470,10 @@ export interface SavedPick {
 }
 
 /** Save (or rename) one of the person's scans; its top pick is noted for the saved list. False when it isn't theirs. */
-export async function savePick(db: Db, userId: number, pickId: number, name: string): Promise<boolean> {
+export async function savePick(db: Db, userId: number, pickId: number, name: string, jev: PickJev = {}): Promise<boolean> {
   const { rows: [p] } = await db.query('SELECT entries FROM pick_scans WHERE pick_id = $1 AND user_id = $2', [pickId, userId]);
   if (!p) return false;
-  const { items } = await scorePicks(db, userId, p.entries);
+  const { items } = await scorePicks(db, userId, p.entries, jev);
   await db.query(
     `UPDATE pick_scans SET saved = TRUE, name = $3, top_pick = $4, saved_at = COALESCE(saved_at, NOW()) WHERE pick_id = $1 AND user_id = $2`,
     [pickId, userId, name, items[0]?.displayName ?? '']
@@ -427,14 +506,14 @@ export async function listSavedPicks(db: Db, userId: number): Promise<SavedPick[
 }
 
 /** A saved (or recent) scan, scored again for the person's palate as it is now. */
-export async function openPick(db: Db, userId: number, pickId: number): Promise<(PickResult & { name: string; saved: boolean; photos: number }) | null> {
+export async function openPick(db: Db, userId: number, pickId: number, jev: PickJev = {}): Promise<(PickResult & { name: string; saved: boolean; photos: number }) | null> {
   const { rows: [p] } = await db.query(
     `SELECT kind, source, entries, saved, name, (SELECT count(*)::int FROM pick_photos ph WHERE ph.pick_id = p.pick_id) AS photos
        FROM pick_scans p WHERE pick_id = $1 AND user_id = $2`,
     [pickId, userId]
   );
   if (!p) return null;
-  return { pickId, kind: p.kind, source: p.source, name: p.name, saved: p.saved, photos: p.photos, ...(await scorePicks(db, userId, p.entries)) };
+  return { pickId, kind: p.kind, source: p.source, name: p.name, saved: p.saved, photos: p.photos, ...(await scorePicks(db, userId, p.entries, jev)) };
 }
 
 export async function pickPhoto(db: Db, userId: number, pickId: number, n: number): Promise<{ contentType: string; bytes: Buffer } | null> {

@@ -8,12 +8,17 @@
  *   npm run eval:recs -- --min-rated 5      fewer ratings needed (default 8)
  *   npm run eval:recs -- --sample 3000      catalog wines to rank against (default 3000; 0 = skip)
  *   npm run eval:recs -- --read-notes       first read unread rated notes with OpenRouter (writes them to the database)
+ *   npm run eval:recs -- --jev              also test Jev's predictions (src/recs/jevPredict.ts) against the profile score:
+ *                                           one OpenRouter call per rated wine; needs OPENROUTER_API_KEY
  *
  * Uses DATABASE_URL. Only reads, unless --read-notes is given.
  */
 import { createPool } from '../src/db/pool.js';
-import { createNoteProvider } from '../src/llm/index.js';
-import { evaluateUser, type CatalogWine, type EvalResult } from '../src/recs/evaluate.js';
+import { config } from '../src/config.js';
+import { createJev, createNoteProvider } from '../src/llm/index.js';
+import { JevClient, jevNoteReader } from '../src/llm/jev.js';
+import { predictEnjoyment } from '../src/recs/jevPredict.js';
+import { evaluateJev, evaluateUser, type CatalogWine, type EvalResult } from '../src/recs/evaluate.js';
 import { candidates, loadRatedTastings, MIN_RATED, type OwnFlavors } from '../src/recs/recommend.js';
 import { createNoteFlavorReader } from '../src/tastings/noteFlavors.js';
 
@@ -25,6 +30,7 @@ const onlyUser = arg('user') ? Number(arg('user')) : null;
 const minRated = Math.max(MIN_RATED + 1, Number(arg('min-rated') ?? 8));
 const sampleSize = Number(arg('sample') ?? 3000);
 const readNotes = process.argv.includes('--read-notes');
+const withJev = process.argv.includes('--jev');
 
 const db = createPool();
 try {
@@ -38,7 +44,8 @@ try {
   }
 
   if (readNotes && users.length) {
-    const reader = createNoteFlavorReader(db, createNoteProvider(), (m) => console.log(`  ${m}`));
+    const jevFlavors = createJev('flavors');
+    const reader = createNoteFlavorReader(db, [jevFlavors && jevNoteReader(jevFlavors), createNoteProvider()], (m) => console.log(`  ${m}`));
     if (!reader.available) throw new Error('--read-notes needs OPENROUTER_API_KEY');
     for (const u of users) {
       const { rated } = await loadRatedTastings(db, u.user_id);
@@ -75,6 +82,15 @@ try {
       const r = evaluateUser(rated, mode, catalog);
       totals.get(mode)!.push(r);
       console.log(`  ${label.padEnd(21)}  ${pct(r.concordance)}     ${num(r.spearman)}  ${String(r.liked).padStart(5)}  ${pct(r.likedMedianPct).padStart(11)}  ${pct(r.likedTop5).padStart(6)}  ${pct(r.likedTop10).padStart(7)}`);
+    }
+    if (withJev) {
+      if (!config.openrouterApiKey) throw new Error('--jev needs OPENROUTER_API_KEY');
+      const jev = new JevClient({ apiKey: config.openrouterApiKey, model: config.jevModel || undefined });
+      const j = await evaluateJev(rated, async (others, wine) => (await predictEnjoyment(jev, others, [{ key: 'w', label: wine.label }])).get('w')?.score ?? null);
+      console.log(`  jev: answered ${j.answered} of ${j.wines} wines (measured on those)`);
+      for (const [label, m] of [['profile score', j.profile], ['jev alone', j.jev], ['profile + jev', j.blended]] as const) {
+        console.log(`  ${label.padEnd(21)}  ${pct(m.concordance)}     ${num(m.spearman)}`);
+      }
     }
     console.log('');
   }

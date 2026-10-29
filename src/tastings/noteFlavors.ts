@@ -17,7 +17,7 @@ import { sanitizeNoteFlavors } from '../llm/sanitize.js';
 import { normalize } from '../lib/normalize.js';
 import type { FlavorProfile } from '../recs/flavors.js';
 
-export type NoteFlavorSource = 'apple' | 'openrouter';
+export type NoteFlavorSource = 'apple' | 'openrouter' | 'jev';
 
 /** A failed read is tried again after this long. */
 const RETRY_FAILED_HOURS = 24;
@@ -50,24 +50,42 @@ export function currentNoteFlavors(t: { notes?: string | null; tags?: unknown; n
   return sanitizeNoteFlavors(t.note_flavors);
 }
 
-export function createNoteFlavorReader(db: Db, provider: LlmProvider | null, log: (msg: string) => void = console.error) {
+/**
+ * `providers`: tried in order until one reads the note (Jev, when switched
+ * on, then OpenRouter's free models); the one that did is recorded as the source.
+ */
+export function createNoteFlavorReader(db: Db, providers: LlmProvider | (LlmProvider | null)[] | null, log: (msg: string) => void = console.error) {
   const queue: number[] = [];
   let running = false;
   let claiming = 0;
   let idle: Array<() => void> = [];
-  const canRead = Boolean(provider?.readNoteFlavors);
+  const readers = (Array.isArray(providers) ? providers : [providers]).filter((p): p is LlmProvider => Boolean(p?.readNoteFlavors));
+  const canRead = readers.length > 0;
+
+  /** The first reader's answer, and which reader gave it. */
+  async function readText(text: string): Promise<{ flavors: NoteFlavors; source: string }> {
+    let lastErr: unknown = new Error('no reader');
+    for (const p of readers) {
+      try {
+        return { flavors: await p.readNoteFlavors!(text), source: p.name };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
+  }
 
   async function read(tastingId: number): Promise<void> {
     try {
       const { rows: [t] } = await db.query('SELECT notes, tags FROM tastings WHERE tasting_id = $1', [tastingId]);
       const text = t ? noteText(t.notes, t.tags) : '';
       if (!text) return;
-      const flavors = await provider!.readNoteFlavors!(text);
+      const { flavors, source } = await readText(text);
       // Only if the note wasn't edited (or read on the phone) in the meantime.
       await db.query(
-        `UPDATE tastings SET note_flavors = $2, note_flavors_source = 'openrouter', note_flavors_for = $3
+        `UPDATE tastings SET note_flavors = $2, note_flavors_source = $4, note_flavors_for = $3
           WHERE tasting_id = $1 AND note_flavors_for IS DISTINCT FROM $3`,
-        [tastingId, JSON.stringify(flavors), noteHash(t.notes, t.tags)]
+        [tastingId, JSON.stringify(flavors), noteHash(t.notes, t.tags), source]
       );
     } catch (err) {
       log(`note flavors ${tastingId}: ${err instanceof Error ? err.message : String(err)}`);

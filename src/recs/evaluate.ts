@@ -16,6 +16,7 @@
 import type { Features } from './features.js';
 import { buildProfile, scoreWine } from './profile.js';
 import { ratedWine, type OwnFlavors, type RatedTasting } from './recommend.js';
+import { ENJOY_MID } from './jevPredict.js';
 
 export const LIKED = 4;
 
@@ -120,5 +121,43 @@ export function evaluateUser(rated: RatedTasting[], own: OwnFlavors, catalog: Ca
     likedMedianPct: likedPct.length ? median(likedPct) : null,
     likedTop5: likedPct.length ? likedPct.filter((p) => p < 0.05).length / likedPct.length : null,
     likedTop10: likedPct.length ? likedPct.filter((p) => p < 0.1).length / likedPct.length : null,
+  };
+}
+
+/**
+ * Jev's predictions (src/recs/jevPredict.ts) held to the same test: each
+ * rated wine left out in turn, predicted from the rest. One call per wine.
+ * Returns the order measures for Jev alone and blended into the profile score
+ * as wine lists blend it, beside the profile score's own.
+ */
+export async function evaluateJev(
+  rated: RatedTasting[], predict: (others: RatedTasting[], wine: RatedTasting) => Promise<number | null>, own: OwnFlavors = 'read', weight = 1, concurrency = 4
+): Promise<{ wines: number; answered: number; profile: Pick<EvalResult, 'concordance' | 'spearman'>; jev: Pick<EvalResult, 'concordance' | 'spearman'>; blended: Pick<EvalResult, 'concordance' | 'spearman'> }> {
+  const wineIds = [...new Set(rated.map((t) => t.wineId))];
+  const rows: { profile: number; jev: number | null; ratings: number[] }[] = new Array(wineIds.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, wineIds.length) }, async () => {
+    while (next < wineIds.length) {
+      const i = next++;
+      const wineId = wineIds[i]!;
+      const held = rated.filter((t) => t.wineId === wineId);
+      const others = rated.filter((t) => t.wineId !== wineId);
+      const profile = scoreWine(buildProfile(others.map((t) => ratedWine(t, own))), held[0]!.features, held[0]!.priceCents).score;
+      rows[i] = { profile, jev: await predict(others, held[0]!).catch(() => null), ratings: held.map((t) => t.rating) };
+    }
+  }));
+  const answered = rows.filter((r) => r.jev !== null);
+  const measure = (pick: (r: (typeof rows)[number]) => number) => {
+    const scores = answered.flatMap((r) => r.ratings.map(() => pick(r)));
+    const ratings = answered.flatMap((r) => r.ratings);
+    return { concordance: concordance(scores, ratings).value, spearman: spearman(scores, ratings) };
+  };
+  return {
+    wines: wineIds.length,
+    answered: answered.length,
+    // On the same wines Jev answered, so the three are comparable.
+    profile: measure((r) => r.profile),
+    jev: measure((r) => r.jev!),
+    blended: measure((r) => r.profile + weight * (r.jev! - ENJOY_MID)),
   };
 }

@@ -100,11 +100,24 @@ export interface RatedTasting {
   rating: number;
   /** Market price per 750 ml, else what was paid. */
   priceCents: number | null;
+  /** The wine in words ("Vietti Barolo Castiglione · Barolo, Italy · red nebbiolo"), for a model reading the palate. */
+  label: string;
   /** The wine as anyone sees it: catalog fields and researched notes. */
   features: Features;
   style: RecStyle | '';
   /** Flavors in the person's own notes and tags by keyword, and as read by a model (null: not read yet, or nothing written). */
   own: { keywords: FlavorProfile; read: FlavorProfile | null; hasText: boolean };
+}
+
+/** A wine in words, for a model: name, place, colour or style and grape, and the flavors it shows. */
+export function wineLabel(w: WineRow, f: Features): string {
+  const flavors = Object.keys(f.flavors ?? {}).map(flavorLabel).slice(0, 6).join(', ');
+  return [
+    w.display_name,
+    [w.sub_region || w.region, w.country].filter(Boolean).join(', '),
+    [f.style && f.style !== 'still' ? f.style : f.colour, f.grape].filter(Boolean).join(' '),
+    flavors && `tastes of ${flavors}`,
+  ].filter(Boolean).join(' · ');
 }
 
 /** Which of the person's own flavors count: as read by a model (keywords until then), keywords only, or none. */
@@ -130,6 +143,7 @@ export async function loadRatedTastings(db: Db, userId: number): Promise<{ rated
       wineId: Number(r.wine_id),
       rating: r.rating,
       priceCents: r.price,
+      label: wineLabel(r as WineRow, features),
       features,
       style: recStyle(features),
       own: {

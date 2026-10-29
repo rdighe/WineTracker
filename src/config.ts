@@ -10,6 +10,10 @@ export const config = {
   geminiModel: process.env.GEMINI_MODEL ?? '',
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? '',
   openrouterModel: process.env.OPENROUTER_MODEL ?? '',
+  // Jev (decision model, through OpenRouter; src/llm/jev.ts), a prototype: which uses are on,
+  // comma separated: match (settle uncertain wine-list matches), flavors (tasting notes), predict.
+  jevFeatures: new Set((process.env.JEV_FEATURES ?? '').split(',').map((s) => s.trim()).filter(Boolean)),
+  jevModel: process.env.JEV_MODEL ?? '',
   // Price refreshes also ask the LLM to search the web (Gemini: needs a
   // billed key for search grounding). false = re-check known shop pages only.
   priceWebSearch: process.env.PRICE_WEB_SEARCH !== 'false',
