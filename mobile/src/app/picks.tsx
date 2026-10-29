@@ -249,7 +249,6 @@ export default function PicksScreen() {
               {status ?? (kind === 'list' && pages.length > 1 ? `Finding the best wines on ${pages.length} pages…` : 'Finding the best wines for you…')}
             </Heading>
           </View>
-          <Muted>{kind === 'list' ? 'Add more pages while you wait. You can switch apps; it keeps going.' : 'You can switch apps; it keeps going.'}</Muted>
           {kind === 'list' ? (
             <View style={{ gap: space[2] }}>
               <Button title="Add another page" variant="secondary" disabled={Boolean(status)} icon={(color) => <ScanIcon color={color} size={20} />} onPress={() => addPhoto(true)} />
