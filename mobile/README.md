@@ -39,17 +39,17 @@ step; it needs a real build (below). Android has no implementation yet and behav
 
 ## TestFlight
 
-The EAS project is `@rdighe/winetracker` (`owner` and `extra.eas.projectId` in `app.json`). One command per build:
+The EAS project is `@foodscape/winetracker` (`owner` and `extra.eas.projectId` in `app.json`). One command per build:
 
 ```bash
 cd mobile
-npx eas-cli@latest login                      # as rdighe, or EXPO_TOKEN set to a token of an rdighe robot user
+npx eas-cli@latest login                      # as a member of the foodscape account, or EXPO_TOKEN set to a foodscape robot token
 npx eas-cli@latest build -p ios --profile production --auto-submit
 ```
 
-Build numbers are kept by EAS (`appVersionSource: remote`) and go up by one each build. `ios.buildNumber` in
-`app.json` only seeded the count when the project moved to this account (builds up to 17 were made under the
-old `winetracker` account); App Store Connect refuses a number it has seen, so it must never go backwards.
+Build numbers are kept by EAS (`appVersionSource: remote`) and go up by one each build. Builds up to 17 were
+made under an earlier Expo account, so the count on this project started at 17; App Store Connect refuses a
+number it has seen, so it must never go backwards (`eas build:version:get -p ios` shows it).
 
 EAS builds in the cloud (no Mac needed), asks for your Apple ID once, and manages the signing certificates. With
 `--auto-submit` it uploads the build to App Store Connect; it appears in TestFlight 10-15 minutes later. Add

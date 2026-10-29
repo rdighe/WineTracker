@@ -2,7 +2,7 @@
   "expo": {
     "name": "WineTracker",
     "slug": "winetracker",
-    "owner": "rdighe",
+    "owner": "foodscape",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,7 +10,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.rohanatstanford.winetracker",
-      "buildNumber": "17",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
