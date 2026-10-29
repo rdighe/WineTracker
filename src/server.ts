@@ -17,7 +17,7 @@ let ready = false;
 const READY_ANYWAY_MS = 4 * 60_000;
 setTimeout(() => (ready = true), READY_ANYWAY_MS).unref();
 
-createApp({
+const server = createApp({
   db,
   isReady: () => ready,
   provider,
@@ -38,3 +38,7 @@ createApp({
     (e) => console.error('Recommendations warm-up failed:', e)
   ).finally(() => (ready = true));
 });
+// Keep idle connections open longer than Render's proxy does: with Node's 5 s default, the proxy
+// can send a request on a connection Node is just closing and answer it with a 502 itself.
+server.keepAliveTimeout = 120_000;
+server.headersTimeout = 125_000;

@@ -138,6 +138,8 @@ export async function jevCached<T>(db: Db, keys: string[]): Promise<Map<string, 
 
 /** Keep decisions; now and then drop old ones. */
 export async function jevKeep(db: Db, entries: [string, unknown][]): Promise<void> {
+  // One row per key (a list can name the same wine twice; Postgres refuses a key twice in one upsert).
+  entries = [...new Map(entries).entries()];
   if (!entries.length) return;
   await db.query(
     `INSERT INTO jev_cache (key, value) SELECT k, v FROM unnest($1::text[], $2::jsonb[]) AS t(k, v) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, created_at = NOW()`,

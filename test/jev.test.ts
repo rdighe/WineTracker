@@ -140,6 +140,21 @@ describe('Jev in picks', () => {
     await as(request(app).post('/api/picks')).send(list);
     expect(predict.ask).toHaveBeenCalledTimes(2);
   });
+
+  it('predicts for a list naming the same wine twice (by the glass and the bottle)', async () => {
+    const ids = [
+      await priced({ producer: 'Vietti', name: 'Barolo Castiglione', sub_region: 'Barolo', ...neb }, 6000),
+      await priced({ producer: 'Produttori del Barbaresco', name: 'Barbaresco', sub_region: 'Barbaresco', ...neb }, 5000),
+      await priced({ producer: 'Kim Crawford', name: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white', source: 'crawl' }, 1500),
+    ];
+    const app0 = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    for (const [i, wineId] of ids.entries()) await as(request(app0).post('/api/tastings')).send({ wineId, rating: 5 - i });
+    const predict = fakeJev((q) => (q.type === 'score' ? { type: 'score', score: 3, confidence: 0.8, probabilities: {} } : undefined));
+    const app = createApp({ db, provider: new NullProvider(), pickJev: { predict }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const sancerre = { producer: 'Domaine Vacheron', name: 'Sancerre', grape: 'Sauvignon Blanc', colour: 'white' };
+    const r = await as(request(app).post('/api/picks')).send({ kind: 'list', entries: [{ ...sancerre, glassCents: 2200 }, { ...sancerre, bottleCents: 9000 }] });
+    expect(r.body.items.map((i: { jevScore?: number }) => i.jevScore)).toEqual([3, 3]);
+  });
 });
 
 describe('Jev in the evaluation', () => {

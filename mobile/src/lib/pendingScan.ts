@@ -33,6 +33,9 @@ export async function pendingScan(): Promise<PendingScan | null> {
   return null;
 }
 
+/** Answers from between the app and the server, not from the job. */
+const GATEWAY = new Set([502, 503, 504]);
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -45,6 +48,7 @@ export async function scanAnswer<T>(
   api: Api, ref: string, opts: { tooLong?: string; wanted?: () => boolean } = {}
 ): Promise<T> {
   let missing = 0;
+  let gateway = 0;
   for (let i = 0; i < 150; i++) {
     // Replaced by a newer request: stop asking.
     if (opts.wanted && !opts.wanted()) throw new Superseded();
@@ -55,6 +59,9 @@ export async function scanAnswer<T>(
     } catch (e) {
       if (!(e instanceof ApiError)) {
         // Offline for a moment (just back from the background): keep trying.
+      } else if (GATEWAY.has(e.status)) {
+        // The way to the server failed for a moment (a restart, a dropped connection): the job is still there.
+        if (++gateway >= 20) throw e;
       } else if (e.status === 404) {
         // The upload may still be on its way; after ~45 s it isn't coming.
         if (++missing >= 30) throw new Error("The photo didn't reach the server. Try the scan again.");
