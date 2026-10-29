@@ -67,6 +67,42 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
 
+  # The website at foodscape.wine (web/): a static site, free on Render. It calls the API above from the
+  # browser, so the API's ALLOWED_ORIGINS must list https://foodscape.wine and https://www.foodscape.wine
+  # (docs/DEPLOY.md, "The website").
+  - type: web
+    name: foodscape-web
+    runtime: static
+    buildCommand: cd web && npm ci && npm run build
+    staticPublishPath: ./web/dist
+    buildFilter:
+      paths:
+        - web/**
+    domains:
+      - foodscape.wine
+      - www.foodscape.wine
+    envVars:
+      - key: VITE_API_URL
+        value: https://winetracker-api.onrender.com
+    routes:
+      # One page app: every address is index.html, which routes in the browser.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://winetracker-api.onrender.com; connect-src 'self' https://winetracker-api.onrender.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+
   # Price updates (src/worker.ts jobs), each run once and exit. Render never starts a
   # cron job while its previous run is still going.
   - type: cron

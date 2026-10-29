@@ -124,6 +124,31 @@ cron jobs connect over Render's private network and don't need it.
 - Your Mac's local database keeps working for development (`npm run dev`, Dev sign-in).
 - If search feels slow, upgrade the database plan in place (Render → winetracker-db → Change plan).
 
+## The website (foodscape.wine)
+
+`render.yaml` also defines `foodscape-web`, a static site (free) built from `web/`, with the custom domains
+`foodscape.wine` and `www.foodscape.wine`. It rebuilds only when something under `web/` changes.
+
+1. **Create it.** Pushing `render.yaml` to `main` makes Render's Blueprint offer the new service
+   (Blueprints → your blueprint → **Sync**, if it doesn't appear on its own). Or **New → Static Site** by hand with
+   build command `cd web && npm ci && npm run build`, publish directory `web/dist`, the environment variable
+   `VITE_API_URL=https://winetracker-api.onrender.com`, and a rewrite `/*` → `/index.html`.
+2. **Let the API accept it.** *winetracker-api → Environment*: set `ALLOWED_ORIGINS` to
+   `https://foodscape.wine,https://www.foodscape.wine` (keep `http://localhost:8081` and add `http://localhost:5173`
+   if you use them, comma separated) and save. Without this the site can show nothing signed in, and Google sign-in
+   refuses to return to it. Nothing changes in Google Cloud: sign-in still comes back through the API.
+3. **Point the domain at Render.** In Render, *foodscape-web → Settings → Custom Domains* lists both domains and
+   the DNS records to add. At your domain registrar:
+   - `foodscape.wine`: an `A` record to the address Render shows (or `ALIAS`/`ANAME` to `foodscape-web.onrender.com`
+     if your registrar offers it)
+   - `www.foodscape.wine`: a `CNAME` to `foodscape-web.onrender.com`
+
+   Then press **Verify**. Render issues the HTTPS certificates itself, usually within minutes of DNS updating.
+4. Open https://foodscape.wine, look up a wine, then sign in with Google.
+
+If the API's address ever changes, update `VITE_API_URL` and the two `winetracker-api.onrender.com` entries in the
+site's Content-Security-Policy header in `render.yaml`.
+
 ## Merging duplicate wines
 
 Shop listings sometimes create a second entry for a wine the catalog already has. Until 2026-10-27, once a wine

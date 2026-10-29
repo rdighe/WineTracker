@@ -5,6 +5,8 @@ Track the wines you taste, what they cost then and now, and get recommendations.
 - **Backend** (this directory): wine catalog with a fuzzy matcher, label scanning, US retail price tracking (bulk
   crawl + on-demand refresh), user tastings, and recommendations. TypeScript / Node / Express / Postgres.
 - **Mobile app** (`mobile/`): Expo / React Native. See [mobile/README.md](mobile/README.md).
+- **Website** (`web/`, foodscape.wine): the desk companion — price dossiers, wine lists from a PDF before dinner, a
+  cellar ledger, a palate report. Vite / React. See [web/README.md](web/README.md).
 
 Builds on lessons from the GSB Wine Circle app (rule-based fallbacks whenever an LLM call fails, a model fallback list
 for Gemini, strict matching because a wrong answer is worse than none, normalized tags).

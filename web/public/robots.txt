@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /cellar
+Disallow: /palate
+Disallow: /discover
+Disallow: /settings
