@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type pg from 'pg';
 import { addAlias, createWine } from '../src/catalog/wines.js';
-import { matchWine } from '../src/match/matcher.js';
+import { forgetCommonWords, matchWine } from '../src/match/matcher.js';
 import { matchLabel } from '../src/scan/scan.js';
 import { closeDb, resetDb, testDb } from './helpers.js';
 import { CATALOG } from './fixtures/catalog.js';
@@ -56,4 +56,21 @@ describe('matchWine', () => {
     };
     expect(await queries('Antinori Tignanello 2019 | 120')).toBe(await queries('Antinori Tignanello'));
   });
+});
+
+describe('matchWine, looking wines up by their uncommon words', () => {
+  // With statistics on this small catalog nearly every word counts as common, so most lookups
+  // go by the few uncommon ones and fall back to every word: the same wines must come out.
+  beforeAll(async () => {
+    await db.query('ANALYZE wines');
+    forgetCommonWords();
+  });
+  afterAll(() => forgetCommonWords());
+  for (const c of MATCH_CASES) {
+    it(`${c.q} -> ${c.expect ?? '(no auto match)'}`, async () => {
+      const r = await matchWine(db, { text: c.q, producer: c.producer, name: c.name });
+      if (c.expect === null) expect(r.outcome === 'auto' ? keyOf(r.candidates[0]?.wine.wine_id) : null).toBeNull();
+      else expect(keyOf(r.candidates[0]?.wine.wine_id)).toBe(c.expect);
+    });
+  }
 });
