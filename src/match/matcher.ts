@@ -20,6 +20,12 @@ export interface MatchOptions {
   excludeWineId?: number;
   /** No typo tolerance (comparing catalog wines with each other). */
   exact?: boolean;
+  /**
+   * Skip the whole-text trigram search (the slow path, for typos and OCR
+   * errors) when the word lookup finds little: for text a model has already
+   * read cleanly, such as a wine list, where it rarely finds anything more.
+   */
+  noFuzzy?: boolean;
 }
 
 export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions = {}): Promise<CandidateWine[]> {
@@ -49,7 +55,7 @@ export async function findCandidates(db: Db, q: MatchQuery, opts: MatchOptions =
         ORDER BY similarity(a.alias_norm, $1) DESC LIMIT 20)`),
     params
   );
-  if (rows.length < 5) {
+  if (rows.length < 5 && !opts.noFuzzy) {
     const seen = new Set(rows.map((r) => r.wine_id));
     const more = await db.query(
       select(`SELECT wine_id FROM wines WHERE search_norm % $1 AND $2::text[] IS NOT NULL AND ${filter()} ORDER BY similarity(search_norm, $1) DESC LIMIT $3`),

@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import { addAlias, createWine, getWine, type NewWine } from '../catalog/wines.js';
-import { matchWine, type MatchResult } from '../match/matcher.js';
+import { matchWine, type MatchOptions, type MatchResult } from '../match/matcher.js';
 import { ProviderUnavailableError, type LabelRead, type LlmProvider } from '../llm/types.js';
 import { identityTokens, normalize } from '../lib/normalize.js';
 import { THRESHOLDS } from '../match/score.js';
@@ -52,11 +52,14 @@ function preferProducerOnLabel(result: MatchResult, rawText: string): MatchResul
 }
 
 /** Match on the structured fields first; fall back to including all label text. */
-export async function matchLabel(db: Db, read: LabelRead): Promise<MatchResult> {
+export async function matchLabel(db: Db, read: LabelRead, opts: Pick<MatchOptions, 'noFuzzy'> = {}): Promise<MatchResult> {
   const fields = [read.producer, read.name, read.region, read.grape].filter(Boolean).join(' ');
-  const primary = await matchWine(db, { text: fields, producer: read.producer || undefined, name: read.name || undefined, colour: read.colour || undefined });
+  const primary = await matchWine(db, { text: fields, producer: read.producer || undefined, name: read.name || undefined, colour: read.colour || undefined }, opts);
   if (primary.outcome === 'auto' || !read.rawText) return primary;
-  const withRaw = await matchWine(db, { text: `${fields} ${read.rawText}`, producer: read.producer || undefined, colour: read.colour || undefined });
+  // The raw text only helps when it has words the fields don't (a wine list's line is mostly the same words).
+  const known = new Set(identityTokens(fields));
+  if (identityTokens(read.rawText).every((t) => known.has(t))) return preferProducerOnLabel(primary, read.rawText);
+  const withRaw = await matchWine(db, { text: `${fields} ${read.rawText}`, producer: read.producer || undefined, colour: read.colour || undefined }, opts);
   const best = (withRaw.candidates[0]?.score ?? 0) > (primary.candidates[0]?.score ?? 0) ? withRaw : primary;
   return preferProducerOnLabel(best, read.rawText);
 }

@@ -29,13 +29,39 @@ export async function checkServer(url: string): Promise<ServerInfo> {
   return { provider: String(body.provider ?? ''), signIn: Array.isArray(body.signIn) ? body.signIn.map(String) : ['dev'] };
 }
 
+/** Longest wait for an answer; long work (scans, wine lists) runs as jobs the app collects instead. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createApi(authHeader: AuthHeader) {
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
     const auth = await authHeader();
     if (auth) headers.Authorization = auth;
     if (init.body && !(init.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-    const res = await fetch(`${getApiUrl()}${path}`, { ...init, headers });
+    // Reading (GET) is tried once more when the connection drops or the server is slow to answer
+    // (just back from the background, a server restarting); writing isn't, so nothing happens twice.
+    const reading = !init.method || init.method === 'GET';
+    let res: Response;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        res = await fetchWithTimeout(`${getApiUrl()}${path}`, { ...init, headers }, REQUEST_TIMEOUT_MS);
+        break;
+      } catch (e) {
+        // Not an ApiError: callers that keep trying through dropped connections (scanAnswer) keep trying through this too.
+        if (!reading || attempt >= 2) throw e instanceof Error && e.name === 'AbortError' ? new Error('The server took too long to answer. Pull to try again.') : e;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
     if (res.status === 204) return undefined as T;
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new ApiError(res.status, body.error ?? `HTTP ${res.status}`);

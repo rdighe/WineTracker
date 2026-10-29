@@ -50,6 +50,8 @@ export interface AppDeps {
   places?: Places;
   /** Reads flavors from tasting notes the phone couldn't (default: OpenRouter's free models, when a key is set). */
   noteReader?: NoteFlavorReader;
+  /** Whether the server is ready for traffic (health check); always, when absent. */
+  isReady?: () => boolean;
   /** What reads wine lists and shelf photos, in order (default: OpenRouter's free models, then `provider`). */
   pickReaders?: LlmProvider[];
   /** Fetches shop images for /api/photo (tests pass a fake). */
@@ -107,7 +109,7 @@ const tastingBody = z.object({
   noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
   const noteReader = noteReaderDep ?? createNoteFlavorReader(db, createNoteProvider());
   const places = placesDep ?? createPlaces(db, provider);
@@ -164,7 +166,9 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
 
   // Sign-in methods this server offers, so the app shows the right sign-in screen.
   const signIn = [...(google && authOptions.sessionSecret ? ['google'] : []), ...(authOptions.allowDev ? ['dev'] : [])];
+  // Not ready (503) until the server says so: Render keeps sending traffic to the old instance meanwhile.
   app.get('/api/health', (_req, res) => {
+    if (isReady && !isReady()) return res.status(503).json({ ok: false, starting: true });
     res.json({ ok: true, provider: provider.name, signIn });
   });
 

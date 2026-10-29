@@ -202,6 +202,7 @@ export interface Candidate {
 /** Rebuilt when prices or researched notes change, and at least this often. */
 const CANDIDATES_TTL_MS = 10 * 60_000;
 const candidateCache = new WeakMap<Db, { key: string; at: number; list: Candidate[]; rebuilding: boolean }>();
+const firstBuild = new WeakMap<Db, Promise<Candidate[]>>();
 
 const CANDIDATES_KEY = `SELECT (SELECT count(*) || ':' || coalesce(max(computed_at)::text, '') FROM wine_prices)
      || '|' || (SELECT count(*) || ':' || coalesce(max(updated_at)::text, '') FROM wine_info)
@@ -248,9 +249,16 @@ export async function candidates(db: Db): Promise<Candidate[]> {
   const { rows: [k] } = await db.query(CANDIDATES_KEY);
   const hit = candidateCache.get(db);
   if (!hit) {
-    const list = await buildCandidates(db);
-    candidateCache.set(db, { key: k.key, at: Date.now(), list, rebuilding: false });
-    return list;
+    // The first build (server start): everyone waits for the same one.
+    let first = firstBuild.get(db);
+    if (!first) {
+      first = buildCandidates(db).then((list) => {
+        candidateCache.set(db, { key: k.key, at: Date.now(), list, rebuilding: false });
+        return list;
+      }).finally(() => firstBuild.delete(db));
+      firstBuild.set(db, first);
+    }
+    return first;
   }
   if ((hit.key !== k.key || Date.now() - hit.at > CANDIDATES_TTL_MS) && !hit.rebuilding) {
     hit.rebuilding = true;

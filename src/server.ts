@@ -11,8 +11,15 @@ const provider = createProvider();
 // than the bulk crawler - still serialized per host and robots-aware.
 const fetcher = new PoliteFetcher({ userAgent: config.crawlerUserAgent, minDelayMs: 1000, timeoutMs: 12000 });
 
+// Ready once For you's candidate list is built (a few tens of seconds on the small database), so a deploy
+// switches over without anyone waiting for it; ready anyway after a few minutes, so a slow build can't fail a deploy.
+let ready = false;
+const READY_ANYWAY_MS = 4 * 60_000;
+setTimeout(() => (ready = true), READY_ANYWAY_MS).unref();
+
 createApp({
   db,
+  isReady: () => ready,
   provider,
   fetcher,
   auth: { sessionSecret: config.authSessionSecret, allowDev: config.allowDevAuth },
@@ -29,5 +36,5 @@ createApp({
   warmRecommendations(db).then(
     () => console.log(`Recommendations ready in ${Date.now() - t0} ms`),
     (e) => console.error('Recommendations warm-up failed:', e)
-  );
+  ).finally(() => (ready = true));
 });

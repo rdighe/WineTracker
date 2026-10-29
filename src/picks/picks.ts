@@ -26,14 +26,42 @@ import { wineFeatures, recStyle, type RecStyle, type WineRow } from '../recs/fea
 import { explain, scoreWine } from '../recs/profile.js';
 import { catalogWines, loadProfile, MIN_RATED } from '../recs/recommend.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
+import { normalize } from '../lib/normalize.js';
 import { parseListText } from './listText.js';
 
 /** A match this good, short of automatic, is shown as "likely" and scored as that wine. */
 const LIKELY = 0.7;
 /** Glasses in a bottle, for comparing a glass price with a bottle's. */
 const GLASSES_PER_BOTTLE = 5;
-/** Matching runs this many entries at a time. */
-const CONCURRENCY = 6;
+/** Matching runs this many entries at a time: the database is small, and more at once only queue there. */
+const CONCURRENCY = 3;
+/** Recent matches, by what was read: a list sent again with a page added only matches the new wines. */
+const MATCH_CACHE_MS = 30 * 60_000;
+const MATCH_CACHE_SIZE = 3000;
+type Identified = { match: MatchKind; wineId: number | null };
+const matchCache = new Map<string, { at: number; found: Promise<Identified> }>();
+
+/** One entry matched to the catalog; the same entry (again, or at the same moment) is looked up once. */
+function identifyEntry(db: Db, e: ListEntry): Promise<Identified> {
+  const key = JSON.stringify([e.producer, e.name, e.vintage, e.region, e.country, e.grape, e.colour, e.text].map((s) => normalize(s ?? '')));
+  const hit = matchCache.get(key);
+  if (hit && Date.now() - hit.at < MATCH_CACHE_MS) return hit.found;
+  const found = matchLabel(db, {
+    producer: e.producer, name: e.name, vintage: e.vintage, region: e.region, country: e.country, grape: e.grape,
+    colour: e.colour, bottleMl: e.bottleMl, rawText: e.text, confidence: 0.8,
+  }, { noFuzzy: true }).then((m): Identified => {
+    const top = m.candidates[0];
+    const match: MatchKind = top && m.outcome === 'auto' ? 'matched' : top && top.score >= LIKELY ? 'likely' : 'guess';
+    return { match, wineId: match === 'guess' ? null : top!.wine.wine_id };
+  });
+  // A failed lookup isn't kept.
+  found.catch(() => matchCache.delete(key));
+  matchCache.delete(key);
+  matchCache.set(key, { at: Date.now(), found });
+  // Oldest first: drop from the front.
+  while (matchCache.size > MATCH_CACHE_SIZE) matchCache.delete(matchCache.keys().next().value!);
+  return found;
+}
 
 export type PickKind = 'list' | 'shelf';
 export type MatchKind = 'matched' | 'likely' | 'guess';
@@ -130,7 +158,11 @@ export async function firstAnswer<T>(
         return;
       }
       const p = readers[next++]!;
-      const call = ask(p);
+      const asked = Date.now();
+      const call = ask(p)?.then((v) => {
+        console.log(`picks: ${p.name} answered in ${((Date.now() - asked) / 1000).toFixed(1)} s`);
+        return v;
+      });
       // This reader can't: straight to the next.
       if (!call) return start();
       pending++;
@@ -148,6 +180,7 @@ export async function firstAnswer<T>(
         (err) => {
           pending--;
           lastErr = err;
+          console.log(`picks: ${p.name} gave no answer: ${err instanceof Error ? err.message : String(err)}`);
           if (!done) start();
         }
       );
@@ -266,16 +299,10 @@ async function inBatches<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>):
 
 /** The entries identified and scored for the person, best first. */
 export async function scorePicks(db: Db, userId: number | null, entries: ListEntry[]): Promise<Pick<PickResult, 'mode' | 'rated' | 'items'>> {
-  // 1. Identify.
-  const matches = await inBatches(entries, CONCURRENCY, async (e) => {
-    const m = await matchLabel(db, {
-      producer: e.producer, name: e.name, vintage: e.vintage, region: e.region, country: e.country, grape: e.grape,
-      colour: e.colour, bottleMl: e.bottleMl, rawText: e.text, confidence: 0.8,
-    });
-    const top = m.candidates[0];
-    const match: MatchKind = top && m.outcome === 'auto' ? 'matched' : top && top.score >= LIKELY ? 'likely' : 'guess';
-    return { match, wineId: match === 'guess' ? null : top!.wine.wine_id };
-  });
+  // 1. Identify (the same wine twice on a list is looked up once).
+  const t0 = Date.now();
+  const matches = await inBatches(entries, CONCURRENCY, (e) => identifyEntry(db, e));
+  const tMatch = Date.now() - t0;
   const ids = [...new Set(matches.map((m) => m.wineId).filter((id): id is number => id !== null))];
   const wines = await catalogWines(db, ids);
   const { rows: prices } = ids.length
@@ -332,14 +359,13 @@ export async function scorePicks(db: Db, userId: number | null, entries: ListEnt
   const value = (x: PickItem) => x.markup ?? x.glassMarkup ?? Infinity;
   items.sort((a, b) => (profile ? b.score! - a.score! : value(a) - value(b)) || a.index - b.index);
 
+  console.log(`picks: ${entries.length} wine(s) matched in ${(tMatch / 1000).toFixed(1)} s, scored in ${((Date.now() - t0 - tMatch) / 1000).toFixed(1)} s`);
   return { mode: profile ? 'profile' : 'locked', rated: prof?.profile.n ?? 0, items };
 }
 
 /** Score the entries and keep the scan (unsaved until the person saves it). */
 export async function pickWines(db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string): Promise<PickResult> {
-  const t0 = Date.now();
   const scored = await scorePicks(db, userId, entries);
-  console.log(`picks: matched and scored ${entries.length} wine(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const { rows: [row] } = await db.query(
     'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries) VALUES ($1, $2, $3, $4, $5) RETURNING pick_id',
     [userId, kind, source, sha, JSON.stringify(entries)]
