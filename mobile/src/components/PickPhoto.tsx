@@ -4,7 +4,7 @@ import { Image, Platform, View, type ImageStyle, type StyleProp } from 'react-na
 import { useApi } from '../lib/useApi';
 import { useTheme } from './ui';
 
-export function PickPhoto({ pickId, n, style }: { pickId: number; n: number; style: StyleProp<ImageStyle> }) {
+export function PickPhoto({ pickId, n, style, fit = 'cover' }: { pickId: number; n: number; style: StyleProp<ImageStyle>; fit?: 'cover' | 'contain' }) {
   const api = useApi();
   const { c } = useTheme();
   const [source, setSource] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
@@ -25,5 +25,5 @@ export function PickPhoto({ pickId, n, style }: { pickId: number; n: number; sty
     };
   }, [api, pickId, n]);
   if (!source) return <View style={[{ backgroundColor: c.surfaceSunken }, style]} />;
-  return <Image source={source} style={[{ backgroundColor: c.surfaceSunken }, style]} resizeMode="cover" accessibilityIgnoresInvertColors />;
+  return <Image source={source} style={[{ backgroundColor: c.surfaceSunken }, style]} resizeMode={fit} accessibilityIgnoresInvertColors />;
 }

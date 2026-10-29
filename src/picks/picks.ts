@@ -177,11 +177,15 @@ export interface PickResult {
 export const inputSha = (input: string | Buffer) => createHash('sha256').update(input).digest('hex');
 
 /** One part of a list for a model: about this many lines (a long list is read in parts, at the same time). */
-const PART_LINES = 40;
+const PART_LINES = 20;
 /** Parts read at once. */
-const PART_CONCURRENCY = 6;
-/** A free model gets this long to answer before Gemini is asked too; the first good answer wins. */
-const HEDGE_MS = 6000;
+const PART_CONCURRENCY = 10;
+/**
+ * A reader gets this long to answer before the next is asked too; the first good answer wins.
+ * Gemini goes first (a 20-line part takes it 5-10 s); the free models, slower and often timing
+ * out, are the backup.
+ */
+const HEDGE_MS = 15000;
 const isHeading = (row: string) => /^[^\d$]{3,40}$/.test(row.trim()) && row.trim().split(/\s+/).length <= 5;
 
 /** A page's rows in parts, each starting with the heading in force where it begins. */
@@ -211,7 +215,7 @@ async function keepRead(db: Db, sha: string, kind: PickKind, source: string, ent
 }
 
 /**
- * Ask the readers, free first. Each next reader starts when the one before
+ * Ask the readers in order. Each next reader starts when the one before
  * fails or has had HEDGE_MS without answering; the first usable answer wins
  * (a slower one still finishing is ignored). Throws the last error when none answers.
  */
@@ -266,7 +270,7 @@ export async function firstAnswer<T>(
 /** Reads under way, by input: a list re-sent with a page added shares the parts already being read. */
 const inFlight = new Map<string, Promise<{ entries: ListEntry[]; source: string }>>();
 
-/** One part of a list: the first reader that answers (free models, then Gemini), else rules. */
+/** One part of a list: the first reader that answers (Gemini, then free models), else rules. */
 function readPart(db: Db, text: string, readers: LlmProvider[]): Promise<{ entries: ListEntry[]; source: string }> {
   const sha = inputSha(`list:${text}`);
   const running = inFlight.get(sha);

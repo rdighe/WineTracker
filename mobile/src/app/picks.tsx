@@ -10,6 +10,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Platform, ScrollView, Text, View } from 'react-native';
 import { PhotosIcon, ScanIcon } from '../components/icons';
+import { PhotoThumb, PhotoViewer } from '../components/PhotoViewer';
 import { PickPhoto } from '../components/PickPhoto';
 import { PickResults, type Kind } from '../components/PickResults';
 import { Button, Card, ErrorText, Heading, IconButton, Muted, Screen, Title, radius, space, type, useTheme } from '../components/ui';
@@ -299,21 +300,35 @@ async function savedPhotos(pages: Page[]): Promise<{ base64: string; mimeType: s
 
 /** The photos just taken, in a row. */
 function NewPhotos({ pages }: { pages: Page[] }) {
+  const [open, setOpen] = useState<number | null>(null);
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
-      {pages.map((p, i) => (
-        <Image key={`${p.uri}-${i}`} source={{ uri: p.uri }} accessibilityLabel={`Photo ${i + 1}`} style={{ width: 120, height: 160, borderRadius: radius.sm }} resizeMode="cover" />
-      ))}
-    </ScrollView>
+    <>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
+        {pages.map((p, i) => (
+          <PhotoThumb key={`${p.uri}-${i}`} label={`Photo ${i + 1}`} onPress={() => setOpen(i)}>
+            <Image source={{ uri: p.uri }} style={{ width: 120, height: 160, borderRadius: radius.sm }} resizeMode="cover" />
+          </PhotoThumb>
+        ))}
+      </ScrollView>
+      <PhotoViewer photos={pages.map((p) => ({ uri: p.uri }))} index={open} onClose={() => setOpen(null)} />
+    </>
   );
 }
 
 /** A saved list's photos, in a row. */
 function SavedPhotos({ pickId, count }: { pickId: number; count: number }) {
+  const [open, setOpen] = useState<number | null>(null);
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
-      {Array.from({ length: count }, (_, n) => <PickPhoto key={n} pickId={pickId} n={n} style={{ width: 120, height: 160, borderRadius: radius.sm }} />)}
-    </ScrollView>
+    <>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space[2] }}>
+        {Array.from({ length: count }, (_, n) => (
+          <PhotoThumb key={n} label={`Photo ${n + 1}`} onPress={() => setOpen(n)}>
+            <PickPhoto pickId={pickId} n={n} style={{ width: 120, height: 160, borderRadius: radius.sm }} />
+          </PhotoThumb>
+        ))}
+      </ScrollView>
+      <PhotoViewer photos={Array.from({ length: count }, (_, n) => ({ pickId, n }))} index={open} onClose={() => setOpen(null)} />
+    </>
   );
 }
 

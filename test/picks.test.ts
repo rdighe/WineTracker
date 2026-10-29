@@ -192,31 +192,31 @@ describe('picks API', () => {
     expect((await as(request(none).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('third').toString('base64') })).status).toBe(503);
   });
 
-  it('reads long lists in parts at once, free models first, and only reads a new page when one is added', async () => {
+  it('reads long lists in parts at once, Gemini first, and only reads a new page when one is added', async () => {
     const wine = (producer: string) => ({ producer, name: 'Cuvée', vintage: '', region: '', country: '', grape: '', colour: '', style: '', section: '', glassCents: null, bottleCents: 9000, bottleMl: null, text: producer });
-    const free = Object.assign(new NullProvider(), {
-      name: 'openrouter',
+    const main = Object.assign(new NullProvider(), {
+      name: 'gemini',
       // Busy on the part that mentions Busy; otherwise one wine per part, named after its first line.
       readWineList: vi.fn(async (text: string) => {
         if (text.includes('Busy')) throw new Error('429');
         return [wine(text.split('\n')[0]!)];
       }),
     });
-    const paid = Object.assign(new NullProvider(), { name: 'gemini', readWineList: vi.fn(async (text: string) => [wine(`paid ${text.split('\n')[0]}`)]) });
-    const app = createApp({ db, provider: paid, pickReaders: [free, paid], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const backup = Object.assign(new NullProvider(), { name: 'openrouter', readWineList: vi.fn(async (text: string) => [wine(`free ${text.split('\n')[0]}`)]) });
+    const app = createApp({ db, provider: main, pickReaders: [main, backup], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
     const page1 = [...Array(130)].map((_, i) => (i === 0 ? 'REDS' : i === 70 ? 'Busy line 90' : `Wine ${i} 90`)).join('\n');
     const a = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1] });
     expect(a.status).toBe(200);
-    // 130 rows: four parts; the second (with Busy) fell back to the paid reader; later parts carry the heading.
-    expect(free.readWineList).toHaveBeenCalledTimes(4);
-    expect(paid.readWineList).toHaveBeenCalledTimes(1);
-    expect(free.readWineList.mock.calls.map((c) => c[0].split('\n')[0]).sort()).toEqual(['REDS', 'REDS', 'REDS', 'REDS']);
-    expect(a.body.source).toBe('openrouter+gemini');
-    expect(a.body.items).toHaveLength(4);
+    // 130 rows: seven parts; the fourth (with Busy) fell back to the free reader; later parts carry the heading.
+    expect(main.readWineList).toHaveBeenCalledTimes(7);
+    expect(backup.readWineList).toHaveBeenCalledTimes(1);
+    expect(main.readWineList.mock.calls.map((c) => c[0].split('\n')[0])).toEqual(Array(7).fill('REDS'));
+    expect(a.body.source).toBe('gemini+openrouter');
+    expect(a.body.items).toHaveLength(7);
 
     const b = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1, 'WHITES\nVacheron Sancerre 70'] });
-    expect(b.body.items).toHaveLength(5);
-    expect(free.readWineList).toHaveBeenCalledTimes(5);
+    expect(b.body.items).toHaveLength(8);
+    expect(main.readWineList).toHaveBeenCalledTimes(8);
   });
 
   it('saves a list with its photos, lists it, opens it scored afresh, and deletes it', async () => {
