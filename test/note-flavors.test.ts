@@ -70,7 +70,7 @@ describe('note flavors in tastings and the profile', () => {
 
   it('keeps flavors read on the phone, and reads the rest with OpenRouter in the background', async () => {
     const readNoteFlavors = vi.fn().mockResolvedValue({ oak: 1 });
-    const reader = createNoteFlavorReader(db, Object.assign(new NullProvider(), { readNoteFlavors }), () => {});
+    const reader = createNoteFlavorReader(db, Object.assign(new NullProvider(), { name: 'openrouter', readNoteFlavors }), () => {});
     const app = createApp({ db, provider: new NullProvider(), fetcher: fetcher(), auth: { allowDev: true }, noteReader: reader });
     const wineId = await createWine(db, { producer: 'Clape', name: 'Cornas', grape: 'Syrah', colour: 'red', source: 'lwin' });
 
