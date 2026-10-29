@@ -158,12 +158,6 @@ function MarkupBadge({ kind, item, serving }: { kind: Kind; item: PickItem; serv
   );
 }
 
-function MatchNote({ item }: { item: PickItem }) {
-  const { c } = useTheme();
-  if (item.match === 'matched') return null;
-  return <Text style={[type.caption, { color: c.ink3 }]}>{item.match === 'likely' ? 'PROBABLY THIS WINE' : "BEST GUESS FROM WHAT'S PRINTED"}</Text>;
-}
-
 const title = (i: PickItem) => [wineTitle(i.displayName, i.match === 'guess' ? null : i.region), i.entry.vintage].filter(Boolean).join(' ');
 
 function TopCard({ kind, item, rank, serving, onPress }: { kind: Kind; item: PickItem; rank: number; serving: Serving; onPress: () => void }) {
@@ -178,7 +172,6 @@ function TopCard({ kind, item, rank, serving, onPress }: { kind: Kind; item: Pic
               <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={[type.caption, { color: c.onAccent }]}>{rank}</Text>
               </View>
-              <MatchNote item={item} />
             </View>
             <Text style={[type.wineTitle, { color: c.ink }]}>{title(item)}</Text>
             {item.region ? <Muted style={type.subhead}>{item.region}</Muted> : null}
@@ -210,7 +203,6 @@ function Row({ kind, item, serving, onPress }: { kind: Kind; item: PickItem; ser
       style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
     >
       <View style={{ flex: 1, gap: 2 }}>
-        <MatchNote item={item} />
         <Text style={[type.body, { color: c.ink }]} numberOfLines={2}>{title(item)}</Text>
         {item.myRating !== null ? <Muted style={type.footnote}>{`You rated it ${item.myRating}`}</Muted> : null}
         <MarkupBadge kind={kind} item={item} serving={serving} />

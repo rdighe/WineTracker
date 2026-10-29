@@ -1,9 +1,11 @@
 /**
  * Picks: photograph a restaurant wine list (?kind=list, a page per photo) or
- * a store shelf (?kind=shelf), or upload a list as a PDF, and see its wines ranked for your palate, or
- * open a saved one (?id=). The phone reads a list's text (lib/wineList.ts);
- * the server reads it into wines, matches and scores them (src/picks/). A
- * list or shelf can be saved, with its photos, to the Lists tab.
+ * a store shelf (?kind=shelf), or upload a list as a PDF, and see its wines
+ * ranked for your palate; open a saved one (?id=); or read photos or a PDF
+ * shared from another app (?shared=1, src/app/shared.tsx). The phone reads a
+ * list's text (lib/wineList.ts); the server reads it into wines, matches and
+ * scores them (src/picks/). A list or shelf can be saved, with its photos,
+ * to the Lists tab.
  */
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -21,6 +23,7 @@ import type { PickResult } from '../lib/types';
 import { ApiError } from '../lib/api';
 import { newScanRef, scanAnswer, Superseded } from '../lib/pendingScan';
 import { useApi } from '../lib/useApi';
+import { isImage, isPdf, takeSharedFiles, withSize } from '../lib/sharedFiles';
 import { readListPdf, readListPhoto } from '../lib/wineList';
 
 /** A photo taken for this list or shelf, and the text read off it. */
@@ -34,7 +37,7 @@ const SAVED_PHOTO_SIDE = 1600;
 
 export default function PicksScreen() {
   const api = useApi();
-  const params = useLocalSearchParams<{ kind?: string; id?: string }>();
+  const params = useLocalSearchParams<{ kind?: string; id?: string; shared?: string }>();
   const savedId = params.id ? Number(params.id) : null;
   const [kind, setKind] = useState<Kind>(params.kind === 'shelf' ? 'shelf' : 'list');
   const [pages, setPages] = useState<Page[]>([]);
@@ -89,9 +92,28 @@ export default function PicksScreen() {
     const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, allowsEditing: false, allowsMultipleSelection: !fromCamera && kind === 'list', selectionLimit: Math.max(1, MAX_PAGES - pagesNow.current.length) };
     const res = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (res.canceled || !res.assets.length) return;
+    await read(res.assets);
+  }
+
+  /** A wine list as a PDF: its wine pages are read like photos of them. */
+  async function addPdf() {
+    setError(null);
+    if (MAX_PAGES - pagesNow.current.length <= 0) return void setError(new Error(`A list can have up to ${MAX_PAGES} pages.`));
+    const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+    if (res.canceled || !res.assets.length) return;
+    await read([], [res.assets[0]!.uri]);
+  }
+
+  /**
+   * Read photos (and a list's PDFs) on the phone, then rank them: a shelf
+   * from its photo, a list from every page so far.
+   */
+  async function read(photos: { uri: string; width: number; height: number }[], pdfs: string[] = []) {
+    setError(null);
     try {
       if (kind === 'shelf') {
-        const asset = res.assets[0]!;
+        const asset = photos[0];
+        if (!asset) return;
         setStatus('Reading the shelf…');
         const rows = (await readListPhoto(asset.uri)) ?? [];
         const photo = await prepareLabelPhoto(asset, LINEUP_MAX_SIDE);
@@ -102,7 +124,8 @@ export default function PicksScreen() {
         void evaluate((ref) => api.pickFromShelf(photo, rows.join('\n'), ref));
         return;
       }
-      for (const asset of res.assets) {
+      for (const asset of photos) {
+        if (pagesNow.current.length >= MAX_PAGES) break;
         setStatus(`Reading page ${pagesNow.current.length + 1}…`);
         const rows = await readListPhoto(asset.uri);
         if (!rows) throw new Error('Wine lists can be read in the iPhone app.');
@@ -110,7 +133,23 @@ export default function PicksScreen() {
         pagesNow.current = [...pagesNow.current, { ...asset, text: rows.join('\n') }];
         setPages(pagesNow.current);
       }
+      let skipped = 0;
+      for (const uri of pdfs) {
+        const room = MAX_PAGES - pagesNow.current.length;
+        if (room <= 0) break;
+        setStatus('Reading the PDF…');
+        const pdf = await readListPdf(uri, room).catch(() => {
+          throw new Error("Couldn't open that PDF. Try another, or photos of the list.");
+        });
+        if (!pdf) throw new Error('Wine lists can be read in the iPhone app.');
+        if (!pdf.pages.length) throw new Error('No text found in that PDF. Try photos of the list instead.');
+        pagesNow.current = [...pagesNow.current, ...pdf.pages];
+        setPages(pagesNow.current);
+        skipped += pdf.skipped;
+      }
       setStatus(null);
+      if (skipped) Alert.alert('Long PDF', `Read the ${pagesNow.current.length} page${pagesNow.current.length === 1 ? '' : 's'} that look most like the wine list; ${skipped} left out.`);
+      if (!pagesNow.current.length) return;
       const texts = pagesNow.current.map((p) => p.text);
       void evaluate((ref) => api.pickFromList(texts, ref));
     } catch (e) {
@@ -119,31 +158,21 @@ export default function PicksScreen() {
     }
   }
 
-  /** A wine list as a PDF: its wine pages are read like photos of them. */
-  async function addPdf() {
-    setError(null);
-    const room = MAX_PAGES - pagesNow.current.length;
-    if (room <= 0) return void setError(new Error(`A list can have up to ${MAX_PAGES} pages.`));
-    const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
-    if (res.canceled || !res.assets.length) return;
-    try {
-      setStatus('Reading the PDF…');
-      const pdf = await readListPdf(res.assets[0]!.uri, room).catch(() => {
-        throw new Error("Couldn't open that PDF. Try another, or photos of the list.");
-      });
-      if (!pdf) throw new Error('Wine lists can be read in the iPhone app.');
-      if (!pdf.pages.length) throw new Error('No text found in that PDF. Try photos of the list instead.');
-      pagesNow.current = [...pagesNow.current, ...pdf.pages];
-      setPages(pagesNow.current);
-      setStatus(null);
-      if (pdf.skipped) Alert.alert('Long PDF', `Read the ${pdf.pages.length} page${pdf.pages.length === 1 ? '' : 's'} that look most like the wine list; ${pdf.skipped} left out.`);
-      const texts = pagesNow.current.map((p) => p.text);
-      void evaluate((ref) => api.pickFromList(texts, ref));
-    } catch (e) {
-      setError(e);
-      setStatus(null);
-    }
-  }
+  // Shared from another app's share sheet (src/app/shared.tsx): read once, on arrival.
+  const sharedTaken = useRef(false);
+  const readRef = useRef(read);
+  useEffect(() => {
+    readRef.current = read;
+  });
+  useEffect(() => {
+    if (!params.shared || sharedTaken.current) return;
+    sharedTaken.current = true;
+    const files = takeSharedFiles();
+    void Promise.all(files.filter(isImage).map(withSize)).then(
+      (photos) => readRef.current(photos, files.filter(isPdf).map((f) => f.uri)),
+      setError
+    );
+  }, [params.shared]);
 
   /**
    * Rank the list (or shelf) on the server, as a job: switching apps or a

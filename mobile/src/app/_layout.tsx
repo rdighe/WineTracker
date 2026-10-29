@@ -1,8 +1,9 @@
 import { Stack } from 'expo-router';
+import { ShareIntentModule, ShareIntentProvider } from 'expo-share-intent';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AuthProvider } from '../lib/auth';
 import { LocationProvider } from '../lib/location';
@@ -12,17 +13,23 @@ import { ThemeProvider, useTheme } from '../components/theme';
 // The native splash stays up until the opening animation has drawn its first frame.
 SplashScreen.preventAutoHideAsync();
 
+// Photos and PDFs shared from other apps (src/app/shared.tsx); kept until read, through sign-in.
+// Off where the native module isn't built in (web, Expo Go).
+const SHARE_OPTIONS = { resetOnBackground: false, disabled: Platform.OS === 'web' || !ShareIntentModule };
+
 export default function RootLayout() {
   return (
-    <KeyboardProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <LocationProvider>
-            <Navigator />
-          </LocationProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </KeyboardProvider>
+    <ShareIntentProvider options={SHARE_OPTIONS}>
+      <KeyboardProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <LocationProvider>
+              <Navigator />
+            </LocationProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </KeyboardProvider>
+    </ShareIntentProvider>
   );
 }
 
@@ -39,6 +46,7 @@ function Navigator() {
         <Stack.Screen name="wine/[id]" />
         <Stack.Screen name="add" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="picks" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="shared" options={{ animation: 'slide_from_bottom' }} />
       </Stack>
       {intro ? <SplashIntro onDone={introDone} /> : null}
     </View>
