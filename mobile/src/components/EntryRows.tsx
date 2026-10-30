@@ -187,8 +187,11 @@ export function TastingRow({ t, onChanged }: { t: Tasting; onChanged: () => Prom
       {t.kind === 'cellar' ? (
         <Muted>Rated when added to your cellar.</Muted>
       ) : (
-        <View style={{ flexDirection: 'row', gap: space[4] }}>
+        <View style={{ flexDirection: 'row', gap: space[4], flexWrap: 'wrap' }}>
         <Button title="Edit" variant="plain" size="sm" style={{ paddingHorizontal: 0 }} onPress={() => setEditing(true)} />
+        <Button title={t.note_id ? 'Shared · edit' : 'Share'} variant="plain" size="sm" style={{ paddingHorizontal: 0 }}
+          accessibilityLabel={t.note_id ? 'Shared with the community. Edit your note' : 'Share with the community'}
+          onPress={() => router.push(`/share-note?tasting=${t.tasting_id}`)} />
         <Button
           title="Delete tasting"
           variant="plain"

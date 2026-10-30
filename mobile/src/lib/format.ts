@@ -40,3 +40,13 @@ export function partOfDay(d = new Date()): 'today' | 'tonight' {
   const h = d.getHours();
   return h >= 17 || h < 4 ? 'tonight' : 'today';
 }
+
+/** "9m", "3h", "2d", then the date: how long ago something was posted. */
+export function ago(iso: string, now = Date.now()): string {
+  const s = Math.max(0, (now - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)}d`;
+  return shortDate(iso);
+}

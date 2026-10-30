@@ -39,6 +39,9 @@ import { cellarPicks, recommend } from '../recs/recommend.js';
 import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs } from '../recs/archetypes.js';
 import { jevReport } from '../recs/jevLog.js';
 import {
+  blockAuthor, CommunityError, deleteNote, unblockAll, deleteReply, listNotes, listReplies, MATURITIES, PUBLIC_NAME, REACTIONS, reply, report, setLike, shareNote, updateNote,
+} from '../community/community.js';
+import {
   acceptInvite, CellarError, createCellar, createInvite, createRack, deleteCellar, deleteRack, listCellars, listRacks, previewInvite, removeMember,
   renameCellar, setMemberRole, setPlaces, updateRack,
 } from '../cellars/cellars.js';
@@ -487,13 +490,106 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   // ── Me ───────────────────────────────────────────────────────────────────
   app.get('/api/me', auth.requireUser, wrap(async (req, res) => {
     const { rows } = await db.query(
-      `SELECT u.user_id, u.email, u.display_name, u.created_at,
+      `SELECT u.user_id, u.email, u.display_name, u.public_name, ${PUBLIC_NAME} AS shown_as, u.created_at,
               (SELECT COUNT(*)::int FROM tastings t WHERE t.user_id = u.user_id) AS tastings,
               (SELECT COUNT(*)::int FROM saved_wines s WHERE s.user_id = u.user_id) AS saved
          FROM users u WHERE u.user_id = $1`,
       [req.user!.userId]
     );
     res.json(rows[0]);
+  }));
+
+  // The name shown with community notes and on a shared taste card (never the email).
+  app.patch('/api/me', auth.requireUser, wrap(async (req, res) => {
+    const { publicName } = parse(z.object({ publicName: z.string().trim().max(40) }), req.body);
+    await db.query('UPDATE users SET public_name = $2 WHERE user_id = $1', [req.user!.userId, publicName]);
+    res.json({ ok: true });
+  }));
+
+  // ── Community notes: shared views on wines, no scores ───────────────────
+  const noteBody = z.object({
+    reaction: z.enum(REACTIONS),
+    maturity: z.enum(MATURITIES).nullable().optional(),
+    body: z.string().max(1500).optional(),
+  });
+  app.get('/api/community', auth.requireUser, wrap(async (req, res) => {
+    const q = parse(z.object({
+      wineId: z.coerce.number().int().positive().optional(),
+      mine: z.enum(['true', 'false']).optional(),
+      before: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().min(1).max(50).optional(),
+    }), req.query);
+    res.json({ notes: await listNotes(db, req.user!.userId, { wineId: q.wineId, mine: q.mine === 'true', before: q.before, limit: q.limit }) });
+  }));
+
+  app.get('/api/community/:id', auth.requireUser, wrap(async (req, res) => {
+    const noteId = parse(idParam, req.params.id);
+    const [note] = await listNotes(db, req.user!.userId, { noteId, limit: 1 });
+    if (!note) throw new HttpError(404, 'note not found');
+    res.json({ note, replies: await listReplies(db, req.user!.userId, noteId) });
+  }));
+
+  app.post('/api/community', auth.requireUser, wrap(async (req, res) => {
+    const b = parse(noteBody.extend({ wineId: z.number().int().positive().optional(), vintage: vintageSchema, tastingId: z.number().int().positive().optional() })
+      .refine((x) => x.wineId || x.tastingId, 'wineId or tastingId required'), req.body);
+    res.status(201).json({ noteId: await shareNote(db, req.user!.userId, { ...b, wineId: b.wineId ?? 0 }) });
+  }));
+
+  app.patch('/api/community/:id', auth.requireUser, wrap(async (req, res) => {
+    await updateNote(db, req.user!.userId, parse(idParam, req.params.id), parse(noteBody.partial(), req.body));
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/community/:id', auth.requireUser, wrap(async (req, res) => {
+    await deleteNote(db, req.user!.userId, parse(idParam, req.params.id));
+    res.status(204).end();
+  }));
+
+  app.put('/api/community/:id/like', auth.requireUser, wrap(async (req, res) => {
+    await setLike(db, req.user!.userId, parse(idParam, req.params.id), true);
+    res.status(204).end();
+  }));
+
+  app.delete('/api/community/:id/like', auth.requireUser, wrap(async (req, res) => {
+    await setLike(db, req.user!.userId, parse(idParam, req.params.id), false);
+    res.status(204).end();
+  }));
+
+  app.post('/api/community/:id/replies', auth.requireUser, wrap(async (req, res) => {
+    const { body } = parse(z.object({ body: z.string().max(600) }), req.body);
+    res.status(201).json({ replyId: await reply(db, req.user!.userId, parse(idParam, req.params.id), body) });
+  }));
+
+  app.delete('/api/community/replies/:id', auth.requireUser, wrap(async (req, res) => {
+    await deleteReply(db, req.user!.userId, parse(idParam, req.params.id));
+    res.status(204).end();
+  }));
+
+  app.post('/api/community/:id/report', auth.requireUser, wrap(async (req, res) => {
+    const { reason } = parse(z.object({ reason: z.string().max(200).default('') }), req.body ?? {});
+    await report(db, req.user!.userId, { noteId: parse(idParam, req.params.id) }, reason);
+    res.status(204).end();
+  }));
+
+  // Block whoever wrote a note or reply: nothing of theirs shows for you again.
+  app.post('/api/community/:id/block', auth.requireUser, wrap(async (req, res) => {
+    await blockAuthor(db, req.user!.userId, { noteId: parse(idParam, req.params.id) });
+    res.status(204).end();
+  }));
+
+  app.post('/api/community/replies/:id/block', auth.requireUser, wrap(async (req, res) => {
+    await blockAuthor(db, req.user!.userId, { replyId: parse(idParam, req.params.id) });
+    res.status(204).end();
+  }));
+
+  app.delete('/api/community-blocks', auth.requireUser, wrap(async (req, res) => {
+    res.json({ unblocked: await unblockAll(db, req.user!.userId) });
+  }));
+
+  app.post('/api/community/replies/:id/report', auth.requireUser, wrap(async (req, res) => {
+    const { reason } = parse(z.object({ reason: z.string().max(200).default('') }), req.body ?? {});
+    await report(db, req.user!.userId, { replyId: parse(idParam, req.params.id) }, reason);
+    res.status(204).end();
   }));
 
   // ── Welcome: Vivino import, then the 90-second taste quiz ────────────────
@@ -1001,7 +1097,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   }));
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError) return void res.status(err.status).json({ error: err.message });
+    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError || err instanceof CommunityError) return void res.status(err.status).json({ error: err.message });
     if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: err.message });
     if (err instanceof multer.MulterError) return void res.status(400).json({ error: err.message });
     console.error(err);

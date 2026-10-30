@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -207,6 +207,31 @@ export function createApi(authHeader: AuthHeader) {
       for (const k of ['notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
       return request<{ items: CellarPick[] }>(`/api/cellar/picks?${q}`);
     },
+    me: () => request<{ user_id: number; email: string; display_name: string; public_name: string; shown_as: string; tastings: number }>('/api/me'),
+    /** The name shown with community notes and a shared taste card ('' = first name and initial). */
+    setPublicName: (publicName: string) => request<unknown>('/api/me', json('PATCH', { publicName })),
+    // ── Community notes ──
+    community: (opts: { wineId?: number; mine?: boolean; before?: number; limit?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (opts.wineId) q.set('wineId', String(opts.wineId));
+      if (opts.mine) q.set('mine', 'true');
+      if (opts.before) q.set('before', String(opts.before));
+      if (opts.limit) q.set('limit', String(opts.limit));
+      return request<{ notes: CommunityNote[] }>(`/api/community?${q}`);
+    },
+    communityNote: (id: number) => request<{ note: CommunityNote; replies: NoteReply[] }>(`/api/community/${id}`),
+    shareNote: (n: { tastingId?: number; wineId?: number; vintage?: string | null; reaction: NoteReaction; maturity?: NoteMaturity | null; body?: string }) =>
+      request<{ noteId: number }>('/api/community', json('POST', n)),
+    updateNote: (id: number, p: { reaction?: NoteReaction; maturity?: NoteMaturity | null; body?: string }) => request<unknown>(`/api/community/${id}`, json('PATCH', p)),
+    deleteNote: (id: number) => request<void>(`/api/community/${id}`, { method: 'DELETE' }),
+    likeNote: (id: number, like: boolean) => request<void>(`/api/community/${id}/like`, { method: like ? 'PUT' : 'DELETE' }),
+    replyToNote: (id: number, body: string) => request<{ replyId: number }>(`/api/community/${id}/replies`, json('POST', { body })),
+    deleteReply: (id: number) => request<void>(`/api/community/replies/${id}`, { method: 'DELETE' }),
+    reportNote: (id: number, reason = '') => request<void>(`/api/community/${id}/report`, json('POST', { reason })),
+    blockNoteAuthor: (id: number) => request<void>(`/api/community/${id}/block`, json('POST', {})),
+    blockReplyAuthor: (id: number) => request<void>(`/api/community/replies/${id}/block`, json('POST', {})),
+    unblockAll: () => request<{ unblocked: number }>('/api/community-blocks', { method: 'DELETE' }),
+    reportReply: (id: number, reason = '') => request<void>(`/api/community/replies/${id}/report`, json('POST', { reason })),
     /** Welcome: the taste quiz, and whether it's been done. */
     onboarding: () => request<Onboarding>('/api/onboarding'),
     saveOnboarding: (p: { styles?: RecStyle[]; budget?: Budget | null; seeds?: Partial<Record<string, Reaction>>; done?: boolean; skipped?: boolean }) =>

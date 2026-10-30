@@ -198,6 +198,7 @@ export async function listTastings(db: Db, userId: number, opts: { limit?: numbe
             t.rating::float AS rating, t.notes, t.tags, t.price_paid_cents, t.price_context, t.bottle_ml, t.location,
             to_char(t.tasted_on, 'YYYY-MM-DD') AS tasted_on, t.kind, t.bottles, t.setting, w.image_url,
             t.cellar_id, t.receipt_id, COALESCE(m.role IN ('owner', 'editor'), t.user_id = $1) AS can_edit,
+            (SELECT c.note_id FROM community_notes c WHERE c.tasting_id = t.tasting_id) AS note_id,
             CASE WHEN t.user_id <> $1 THEN (SELECT COALESCE(NULLIF(u.display_name, ''), split_part(u.email, '@', 1)) FROM users u WHERE u.user_id = t.user_id) END AS added_by,
             (SELECT json_agg(json_build_object('rackId', s.rack_id, 'rack', r.name, 'row', s.row_no, 'col', s.col_no) ORDER BY r.sort, s.row_no, s.col_no)
                FROM cellar_slots s JOIN cellar_racks r USING (rack_id) WHERE s.tasting_id = t.tasting_id) AS places,

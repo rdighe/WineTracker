@@ -9,6 +9,7 @@ import { Glass } from '../../components/Glass';
 import { BackIcon, BookmarkIcon, BottleIcon, PlusIcon, RefreshIcon } from '../../components/icons';
 import { CellarRow, TastingRow } from '../../components/EntryRows';
 import { TastingForm, type TastingKind } from '../../components/TastingForm';
+import { WineNotes } from '../../components/WineNotes';
 import { WineAbout, useWineInfo } from '../../components/WineAbout';
 import { PriceBones, Skeleton, WineSkeleton } from '../../components/Skeleton';
 import { WinePhoto } from '../../components/WineThumb';
@@ -231,6 +232,8 @@ export default function WineScreen() {
               {tasted.map((t) => <TastingRow key={t.tasting_id} t={t} onChanged={loadMine} />)}
             </Card>
           )}
+
+          <WineNotes wineId={wineId} vintage={vintage} />
 
           {byVintage.length > 0 && (
             <Card>

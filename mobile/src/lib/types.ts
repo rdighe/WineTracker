@@ -118,6 +118,8 @@ export interface Tasting {
   places?: Place[] | null;
   added_by?: string | null;
   can_edit?: boolean;
+  /** The community note shared from this tasting, if any. */
+  note_id?: number | null;
 }
 
 export interface Place { rackId: number; rack: string; row: number; col: number }
@@ -397,3 +399,23 @@ export interface Onboarding extends TastePrefs { tastings: number; rated: number
  * how confident it is.
  */
 export interface Fit { percent: number | null; band: 'strong' | 'good' | 'maybe' | 'unlikely'; basis: number; confidence: 'high' | 'medium' | 'low' }
+
+export type NoteReaction = 'loved' | 'liked' | 'okay' | 'not_for_me';
+export type NoteMaturity = 'too_young' | 'ready' | 'peak' | 'past_prime';
+/** A view on a wine shared with the community: words, never a score. */
+export interface CommunityNote {
+  noteId: number;
+  author: { name: string; notes: number; me: boolean };
+  wine: { wineId: number; displayName: string; region: string; country: string; colour: string; wineType: string; imageUrl: string | null; medianCents: number | null };
+  vintage: string | null;
+  reaction: NoteReaction;
+  maturity: NoteMaturity | null;
+  body: string;
+  createdAt: string;
+  edited: boolean;
+  hidden: boolean;
+  likes: number;
+  liked: boolean;
+  replies: number;
+}
+export interface NoteReply { replyId: number; author: { name: string; me: boolean }; body: string; createdAt: string }

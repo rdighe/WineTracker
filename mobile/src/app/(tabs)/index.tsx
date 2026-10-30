@@ -19,9 +19,10 @@ import { Button, Card, Chip, Divider, Muted, radius, size, space, type, useTheme
 import { dollars, partOfDay, shortDate, wineTitle } from '../../lib/format';
 import { useLocation } from '../../lib/location';
 import { tour } from '../../lib/tour';
-import type { Recommendation, SavedPick, Tasting } from '../../lib/types';
+import type { Recommendation, SavedPick, Tasting, CommunityNote } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
 import { FitBadge, fitWords } from '../../components/FitBadge';
+import { NoteCard } from '../../components/NoteCard';
 
 /** The quick answers under the question; each opens Find a bottle already started that way. */
 const OCCASIONS = [
@@ -58,6 +59,7 @@ export default function Home() {
   const [cellar, setCellar] = useState<Held[] | null>(null);
   const [near, setNear] = useState<Recommendation[] | null>(null);
   const [lists, setLists] = useState<SavedPick[] | null>(null);
+  const [notes, setNotes] = useState<CommunityNote[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [touring, setTouring] = useState(false);
   const promptTarget = useTourTarget('prompt');
@@ -72,6 +74,7 @@ export default function Home() {
         ? api.recommendations({ near: loc.near }).then((r) => setNear(r.mode === 'profile' && r.near?.applied !== false ? r.items.slice(0, 3) : []), () => setNear([]))
         : Promise.resolve(setNear(null)),
       api.savedPicks().then((r) => setLists(r.saved.slice(0, 3)), () => setLists([])),
+      api.community({ limit: 2 }).then((r) => setNotes(r.notes), () => setNotes([])),
     ]);
     setLoading(false);
   }, [api, loc.near]);
@@ -171,6 +174,14 @@ export default function Home() {
             <Muted style={type.subhead}>Nothing near you matches yet. Rate a few more wines, or try Discover.</Muted>
           )}
         </Section>
+
+        {notes?.length ? (
+          <Section title="From the community" meta="What people are drinking, in their words" action={{ label: 'View all', onPress: () => router.push('/community') }}>
+            <View style={{ gap: space[3] }}>
+              {notes.map((n) => <NoteCard key={n.noteId} note={n} onChanged={load} />)}
+            </View>
+          </Section>
+        ) : null}
 
         {lists?.length ? (
           <Section title="Your lists" meta="Reopen one to rank it for your taste now" action={{ label: 'All lists', onPress: () => router.push('/lists') }}>

@@ -213,6 +213,32 @@ export function ShareIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
   );
 }
 
+export function HeartIcon({ color, size, strokeWidth = 1.7, filled }: IconProps & { filled?: boolean }) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill={filled ? color : 'none'}>
+      <Path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" />
+    </Svg>
+  );
+}
+
+export function ChatIcon({ color, size, strokeWidth = 1.7 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+    </Svg>
+  );
+}
+
+export function MoreIcon({ color, size }: IconProps) {
+  return (
+    <Svg {...base(size)} fill={color}>
+      <Circle cx="6" cy="12" r="1.6" />
+      <Circle cx="12" cy="12" r="1.6" />
+      <Circle cx="18" cy="12" r="1.6" />
+    </Svg>
+  );
+}
+
 /** Google's "G", in its own colors (for the sign-in button). */
 export function GoogleLogo({ size = 18 }: { size?: number }) {
   return (
