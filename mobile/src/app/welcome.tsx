@@ -18,6 +18,7 @@ import type { WineStyle } from '../components/theme';
 import { dollars, wineTitle } from '../lib/format';
 import type { Archetype, Budget, ImportSummary, Reaction, RecStyle, Recommendation } from '../lib/types';
 import { useApi } from '../lib/useApi';
+import { FitBadge } from '../components/FitBadge';
 
 type Step = 'vivino' | 'styles' | 'react' | 'budget' | 'picks';
 const QUIZ: Step[] = ['styles', 'react', 'budget'];
@@ -206,6 +207,7 @@ function FirstPicks({ onDone }: { onDone: () => void }) {
           <WineThumb uri={r.imageUrl} wineStyle={wineStyleOf(r.colour, r.wineType)} />
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={2}>{wineTitle(r.displayName, r.region)}</Text>
+            <FitBadge fit={r.fit} />
             {r.reasons.slice(0, 2).map((x) => <Text key={x} style={[type.footnote, { color: c.ink2 }]}>{x}</Text>)}
             {r.medianCents ? <Text style={[type.figure, { color: c.ink }]}>{dollars(r.medianCents)}</Text> : null}
           </View>

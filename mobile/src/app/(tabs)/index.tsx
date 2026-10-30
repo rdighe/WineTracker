@@ -21,6 +21,7 @@ import { useLocation } from '../../lib/location';
 import { tour } from '../../lib/tour';
 import type { Recommendation, SavedPick, Tasting } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
+import { FitBadge, fitWords } from '../../components/FitBadge';
 
 /** The quick answers under the question; each opens Find a bottle already started that way. */
 const OCCASIONS = [
@@ -226,7 +227,7 @@ function NearRow({ r }: { r: Recommendation }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
+      accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.fit ? fitWords(r.fit) : ''} ${r.reasons[0] ?? ''}`}
       onPress={() => router.push(`/wine/${r.wineId}`)}
       style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
     >
@@ -234,6 +235,7 @@ function NearRow({ r }: { r: Recommendation }) {
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={1}>{wineTitle(r.displayName)}</Text>
         <Text style={[type.footnote, { color: c.ink2 }]} numberOfLines={1}>{r.nearby ? nearbyLabel(r.nearby) : r.reasons[0] ?? r.region}</Text>
+        <FitBadge fit={r.fit} compact />
       </View>
       <Text style={[type.figure, { color: c.ink }]}>{dollars(r.medianCents)}</Text>
     </Pressable>

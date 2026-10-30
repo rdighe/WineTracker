@@ -9,14 +9,22 @@ Screens: four tabs, plus a floating **+** beside the tab bar.
   first, `GET /api/cellar/picks`, then from shops near you). **Out and about?** opens wine-list and shelf picks
   (`app/picks.tsx`: photograph a list or a shelf, or upload a PDF). Then what's in your cellar, what's worth buying
   near you, and your saved lists (`app/lists.tsx`).
-- **Cellar**: the bottles you own (and Saved), with cost, value now and change.
+- **Cellar**: the bottles you own (and Saved), with cost, value now and change, across one cellar or all of them.
+  **Racks** (`app/racks.tsx`) draws each rack as a grid in its wines' colors: tap a place to put a bottle there, move
+  it or take it off. **Receipts** (`app/receipts.tsx`): photograph a receipt or upload an invoice PDF, check the lines,
+  and the bottles go in at what they cost. **Share** (`app/cellars.tsx`): more cellars, invite a partner or a team by
+  link (can change, or can only look), roles; invite links open `app/join.tsx`.
 - **Discover**: picks from your ratings, filtered by Red / White / Sparkling / Dessert or best value; Refresh picks
   re-reads your ratings; Find wines searches by price range, style, region, tasting notes and food, and a search can
   be saved as a view.
 - **Journal**: everything you've tasted.
-- **+** offers Scan a label, Scan a lineup, Wine list or shelf, Choose a photo, or Search or add by hand.
-- The avatar at the top right of each tab opens **Settings** (appearance, location, account, Vivino import, Show the
-  tour). The **tour** (`components/Tour.tsx`) points at Find a bottle, Out and about?, + and Cellar the first time
+- **+** offers Scan a label, Scan a lineup, Receipt or invoice, Wine list or shelf, Choose a photo, or Search or add by hand.
+- Someone new starts at **Welcome** (`app/welcome.tsx`): import from Vivino, then a skippable 90-second taste quiz
+  (styles, a quick answer for ten kinds of wine, budget) and their first picks; then the tour.
+- Suggestions carry a **fit** (`components/FitBadge.tsx`): how likely you are to enjoy the wine, in steps of 5% with a
+  band, and whether Jev agrees. Never a predicted star rating.
+- The avatar at the top right of each tab opens **Settings** (appearance, location, account, Vivino import, the taste
+  quiz, Show the tour). The **tour** (`components/Tour.tsx`) points at Find a bottle, Out and about?, + and Cellar the first time
   Home opens.
 
 The **wine page** has the market price, your bottles and tastings of it, price by vintage, where to buy, background,

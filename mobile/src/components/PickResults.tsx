@@ -9,6 +9,7 @@ import { Alert, Pressable, Text, View } from 'react-native';
 import { dollars, wineTitle } from '../lib/format';
 import type { PickItem, PickResult } from '../lib/types';
 import { useApi } from '../lib/useApi';
+import { FitBadge } from './FitBadge';
 import { BackIcon, CheckIcon } from './icons';
 import { wineStyleOf } from './theme';
 import { Card, Chip, Divider, ErrorText, Field, Heading, IconButton, Muted, Screen, Segmented, Title, size, space, type, useTheme } from './ui';
@@ -178,6 +179,7 @@ function TopCard({ kind, item, rank, serving, onPress }: { kind: Kind; item: Pic
           </View>
           <Text style={[type.figure, { color: c.ink }]}>{dollars(priceFor(item, serving))}</Text>
         </View>
+        <FitBadge fit={item.fit} />
         {item.reasons.length ? (
           <View style={{ gap: 2 }}>
             {item.reasons.map((r) => (

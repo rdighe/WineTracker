@@ -216,6 +216,7 @@ export interface Recommendation {
   nMerchants: number;
   score: number;
   reasons: string[];
+  fit?: Fit;
 }
 
 /** A bottle in the person's cellar, scored for an occasion (GET /api/cellar/picks). */
@@ -238,6 +239,7 @@ export interface CellarPick {
   myRating: number | null;
   score: number;
   reasons: string[];
+  fit?: Fit;
 }
 
 /** What suggestions are based on: the rated wines' styles, usual price band and leading flavors. */
@@ -354,6 +356,7 @@ export interface PickItem {
   /** List price over typical retail (a glass counts as a fifth of a bottle); matched wines only. */
   markup: number | null;
   glassMarkup: number | null;
+  fit?: Fit | null;
 }
 
 export interface PickResult {
@@ -387,3 +390,10 @@ export type Budget = 'under20' | '20to40' | '40to80' | 'over80';
 export interface Archetype { key: string; title: string; detail: string; style: RecStyle }
 export interface TastePrefs { styles: RecStyle[]; budget: Budget | null; seeds: Partial<Record<string, Reaction>>; doneAt: string | null; skipped: boolean }
 export interface Onboarding extends TastePrefs { tastings: number; rated: number; archetypes: Archetype[] }
+
+/**
+ * How likely they are to enjoy a wine (server: src/recs/fit.ts): a percentage
+ * in steps of 5 (null with too few ratings), a band, what it rests on, and
+ * whether Jev agrees where it was asked.
+ */
+export interface Fit { percent: number | null; band: 'strong' | 'good' | 'maybe' | 'unlikely'; basis: number; jev?: 'agrees' | 'unsure' }

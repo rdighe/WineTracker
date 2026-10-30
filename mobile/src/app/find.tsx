@@ -18,6 +18,7 @@ import { dollars, partOfDay, wineTitle } from '../lib/format';
 import { useLocation } from '../lib/location';
 import type { CellarPick, RecStyle, Recommendation } from '../lib/types';
 import { useApi } from '../lib/useApi';
+import { FitBadge } from '../components/FitBadge';
 
 type Occasion = 'dinner' | 'guests' | 'celebrate' | 'new';
 const OCCASIONS: { key: Occasion; label: string }[] = [
@@ -175,6 +176,7 @@ function CellarCard({ p }: { p: CellarPick }) {
             <Text style={[type.footnote, { color: c.ink2 }]} numberOfLines={1}>{[p.region, p.vintages.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</Text>
           </View>
         </View>
+        <FitBadge fit={p.fit} />
         <Reasons reasons={p.reasons} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
           <PinIcon color={c.ink} size={16} />
@@ -202,6 +204,7 @@ function ShopCard({ r }: { r: Recommendation }) {
           </View>
           <Text style={[type.figure, { color: c.ink }]}>{dollars(r.medianCents)}</Text>
         </View>
+        <FitBadge fit={r.fit} />
         <Reasons reasons={r.reasons} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
           <StoreIcon color={c.ink} size={16} />

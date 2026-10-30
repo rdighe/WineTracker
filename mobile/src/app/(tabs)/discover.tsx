@@ -22,6 +22,7 @@ import type { WineStyle } from '../../components/theme';
 import { dollars } from '../../lib/format';
 import type { RecSearch, RecStyle, RecView, Recommendation, RecommendationsResponse, TasteSummary } from '../../lib/types';
 import { useApi } from '../../lib/useApi';
+import { FitBadge, fitWords } from '../../components/FitBadge';
 import { useLocation } from '../../lib/location';
 import { NearBar, nearNote, nearbyLabel } from '../../components/NearBar';
 import { ProfileButton } from '../../components/ProfileButton';
@@ -356,7 +357,7 @@ function WineCard({ r, index }: { r: Recommendation; index: number }) {
     <Animated.View entering={FadeInDown.duration(280).delay(Math.min(index, 8) * 45)} style={{ flex: 1, maxWidth: '50%' }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
+        accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.fit ? fitWords(r.fit) : ''} ${r.reasons[0] ?? ''}`}
         onPress={() => router.push(`/wine/${r.wineId}`)}
         style={({ pressed }) => [{ gap: space[2] }, pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] }]}
       >
@@ -373,6 +374,7 @@ function WineCard({ r, index }: { r: Recommendation; index: number }) {
             {[r.region, r.country].filter(Boolean).join(' · ')}
             {r.nMerchants ? ` · ${r.nMerchants} ${r.nMerchants === 1 ? 'shop' : 'shops'}` : ''}
           </Muted>
+          <View style={{ marginTop: 2 }}><FitBadge fit={r.fit} compact /></View>
           {r.nearby ? (
             <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
               <View style={{ marginTop: 2 }}><PinIcon color={c.positive} size={13} /></View>
