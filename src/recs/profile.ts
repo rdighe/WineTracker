@@ -30,11 +30,14 @@ export interface RatedWine {
   features: Features;
   rating: number;
   priceCents: number | null; // market (or paid) per-750 price
+  /** An answer in the taste quiz, not a wine they rated: reasons say "you said". */
+  said?: boolean;
 }
 
 export interface FeatureStat {
   weight: number;  // shrunk mean centered rating
   liked: number;   // tastings rated above the user's mean
+  said: number;    // quiz answers liking it (src/recs/archetypes.ts)
   count: number;
 }
 
@@ -50,36 +53,38 @@ export function buildProfile(rated: RatedWine[]): Profile {
   const n = rated.length;
   const meanRating = n ? rated.reduce((a, r) => a + r.rating, 0) / n : 3.5;
   const features = Object.fromEntries(FEATURE_KINDS.map((k) => [k, new Map<string, FeatureStat>()])) as Profile['features'];
-  const sums = Object.fromEntries(FEATURE_KINDS.map((k) => [k, new Map<string, { s: number; c: number; liked: number }>()])) as Record<
-    FeatureKind,
-    Map<string, { s: number; c: number; liked: number }>
-  >;
-  const flavorSums = new Map<Flavor, { s: number; c: number; liked: number }>();
+  type Sum = { s: number; c: number; liked: number; said: number };
+  const sums = Object.fromEntries(FEATURE_KINDS.map((k) => [k, new Map<string, Sum>()])) as Record<FeatureKind, Map<string, Sum>>;
+  const flavorSums = new Map<Flavor, Sum>();
   for (const r of rated) {
     // A small bonus for every tasting: choosing a wine is itself a signal.
     const v = r.rating - meanRating + 0.15;
+    const likedIt = r.rating >= meanRating && r.rating >= 3.5;
+    const count = (cur: Sum) => {
+      if (likedIt) cur[r.said ? 'said' : 'liked'] += 1;
+    };
     for (const [fl, w] of Object.entries(r.features.flavors ?? {}) as [Flavor, number][]) {
-      const cur = flavorSums.get(fl) ?? { s: 0, c: 0, liked: 0 };
+      const cur = flavorSums.get(fl) ?? { s: 0, c: 0, liked: 0, said: 0 };
       cur.s += v * w;
       cur.c += w;
-      if (r.rating >= meanRating && r.rating >= 3.5) cur.liked += 1;
+      count(cur);
       flavorSums.set(fl, cur);
     }
     for (const k of FEATURE_KINDS) {
       const val = r.features[k];
       if (!val) continue;
-      const cur = sums[k].get(val) ?? { s: 0, c: 0, liked: 0 };
+      const cur = sums[k].get(val) ?? { s: 0, c: 0, liked: 0, said: 0 };
       cur.s += v;
       cur.c += 1;
-      if (r.rating >= meanRating && r.rating >= 3.5) cur.liked += 1;
+      count(cur);
       sums[k].set(val, cur);
     }
   }
   for (const k of FEATURE_KINDS) {
-    for (const [val, { s, c, liked }] of sums[k]) features[k].set(val, { weight: s / (c + SHRINK), liked, count: c });
+    for (const [val, { s, c, liked, said }] of sums[k]) features[k].set(val, { weight: s / (c + SHRINK), liked, said, count: c });
   }
   const flavors = new Map<Flavor, FeatureStat>();
-  for (const [fl, { s, c, liked }] of flavorSums) flavors.set(fl, { weight: s / (c + SHRINK), liked, count: c });
+  for (const [fl, { s, c, liked, said }] of flavorSums) flavors.set(fl, { weight: s / (c + SHRINK), liked, said, count: c });
   const logs = rated.filter((r) => r.priceCents && r.rating >= meanRating).map((r) => Math.log(r.priceCents!));
   let price: Profile['price'] = null;
   if (logs.length) {
@@ -95,6 +100,8 @@ export interface Contribution {
   value: string;
   amount: number;
   liked: number;
+  /** Quiz answers liking it, when no rated wine does. */
+  said?: number;
 }
 
 export interface WineScore {
@@ -111,7 +118,7 @@ export function scoreWine(p: Profile, f: Features, priceCents: number | null): W
     if (!val || !stat) continue;
     const amount = stat.weight * KIND_WEIGHT[k];
     score += amount;
-    contributions.push({ kind: k, value: val, amount, liked: stat.liked });
+    contributions.push({ kind: k, value: val, amount, liked: stat.liked, said: stat.said });
   }
   // Flavor: what the user likes, weighted by how strongly the wine shows it.
   // Divided by sqrt(count) so a wine with a long list of notes isn't favoured for that alone.
@@ -121,7 +128,7 @@ export function scoreWine(p: Profile, f: Features, priceCents: number | null): W
     if (!stat) continue;
     const amount = (stat.weight * FLAVOR_WEIGHT * w) / Math.sqrt(fl.length);
     score += amount;
-    contributions.push({ kind: 'flavor', value: key, amount, liked: stat.liked });
+    contributions.push({ kind: 'flavor', value: key, amount, liked: stat.liked, said: stat.said });
   }
   if (p.price && priceCents) {
     const z = (Math.log(priceCents) - p.price.mu) / p.price.sigma;
@@ -138,15 +145,20 @@ export function scoreWine(p: Profile, f: Features, priceCents: number | null): W
 const title = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 const wines = (n: number) => (n === 1 ? 'wine' : 'wines');
 
-/** One-line reasons from the strongest positive contributions: flavors first. */
+/**
+ * One-line reasons from the strongest positive contributions: flavors first.
+ * What only the taste quiz says is put as what they said, never as wines they rated.
+ */
 export function explain(contributions: Contribution[]): string[] {
-  const liked = contributions.filter((c) => c.kind === 'flavor' && c.amount > 0.03 && c.liked > 0).slice(0, 3);
+  const liked = contributions.filter((c) => c.kind === 'flavor' && c.amount > 0.03 && (c.liked > 0 || (c.said ?? 0) > 0)).slice(0, 3);
   const flavor = liked.length ? [`Tastes of what you like: ${liked.map((c) => flavorLabel(c.value)).join(', ')}`] : [];
   return [...flavor, ...contributions
-    .filter((c) => c.amount > 0.05 && c.liked > 0 && (c.kind === 'grape' || c.kind === 'appellation' || c.kind === 'region' || c.kind === 'producer' || c.kind === 'country'))
+    .filter((c) => c.amount > 0.05 && (c.liked > 0 || (c.said ?? 0) > 0) && (c.kind === 'grape' || c.kind === 'appellation' || c.kind === 'region' || c.kind === 'producer' || c.kind === 'country'))
     .slice(0, 2)
     .map((c) =>
-      c.kind === 'country'
+      !c.liked
+        ? `You said you like ${c.kind === 'country' ? 'wines from ' : ''}${title(c.value)}`
+        : c.kind === 'country'
         ? `You rated ${c.liked} ${wines(c.liked)} from ${title(c.value)} highly`
         : c.kind === 'producer'
           ? `You rated ${c.liked} ${wines(c.liked)} by ${title(c.value)} highly`

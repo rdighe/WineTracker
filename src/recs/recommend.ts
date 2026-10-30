@@ -14,6 +14,7 @@ import type { Db } from '../db/pool.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { parseTitle } from '../lib/listing.js';
 import { normalize } from '../lib/normalize.js';
+import { archetype, BUDGET_CENTS, loadPrefs, REACTION_RATING } from './archetypes.js';
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
 import { flavorLabel, mergeFlavors, textFlavors, type Flavor, type FlavorProfile } from './flavors.js';
 import { buildProfile, explain, scoreWine, type Profile, type RatedWine } from './profile.js';
@@ -124,7 +125,30 @@ export function wineLabel(w: WineRow, f: Features): string {
 export type OwnFlavors = 'read' | 'keywords' | 'none';
 
 /** Every rated tasting of the user, with what the profile needs. */
-export async function loadRatedTastings(db: Db, userId: number): Promise<{ rated: RatedTasting[]; tasted: Set<number> }> {
+/**
+ * Answers from the taste quiz count until the person has rated this many real
+ * wines; past that, what they actually drank speaks for itself.
+ */
+export const SEEDS_UNTIL = 15;
+
+/** The taste quiz's answers as rated wines: a typical wine of each kind (src/recs/archetypes.ts). */
+export async function seededTastings(db: Db, userId: number): Promise<RatedTasting[]> {
+  const { seeds } = await loadPrefs(db, userId);
+  return Object.entries(seeds).flatMap(([key, reaction]) => {
+    const a = archetype(key);
+    const rating = reaction ? REACTION_RATING[reaction] : null;
+    if (!a || rating === null) return [];
+    const row = { wine_id: 0, ...a.row };
+    const features = wineFeatures(row, { text: a.notes });
+    return [{
+      tastingId: 0, wineId: 0, rating, priceCents: null,
+      label: `${wineLabel(row, features)} (a kind of wine they described, not one bottle)`,
+      features, style: recStyle(features), own: { keywords: {}, read: null, hasText: false },
+    }];
+  });
+}
+
+export async function loadRatedTastings(db: Db, userId: number, opts: { seeds?: boolean } = {}): Promise<{ rated: RatedTasting[]; tasted: Set<number> }> {
   const { rows } = await db.query(
     `SELECT ${WINE_COLS}, t.tasting_id, t.rating::float AS rating, t.tags, t.notes, t.note_flavors, t.note_flavors_for, ${NOTES_COLS},
             COALESCE(p.median_cents, CASE WHEN t.price_paid_cents IS NOT NULL THEN round(t.price_paid_cents * 750.0 / t.bottle_ml)::int END) AS price
@@ -154,13 +178,15 @@ export async function loadRatedTastings(db: Db, userId: number): Promise<{ rated
       },
     };
   });
+  // Too few real ratings yet: the taste quiz's answers fill in.
+  if (opts.seeds !== false && rated.length < SEEDS_UNTIL) rated.push(...(await seededTastings(db, userId)));
   return { rated, tasted };
 }
 
 /** A rated tasting as a profile input, with the person's own flavors added to the wine's. */
 export function ratedWine(t: RatedTasting, own: OwnFlavors = 'read'): RatedWine {
   const mine = own === 'none' ? {} : own === 'keywords' ? t.own.keywords : t.own.read ?? t.own.keywords;
-  return { features: { ...t.features, flavors: mergeFlavors(t.features.flavors ?? {}, mine) }, rating: t.rating, priceCents: t.priceCents };
+  return { features: { ...t.features, flavors: mergeFlavors(t.features.flavors ?? {}, mine) }, rating: t.rating, priceCents: t.priceCents, ...(t.tastingId === 0 ? { said: true } : {}) };
 }
 
 /** Styles the user liked at least one wine of, best average rating first. */
@@ -176,11 +202,15 @@ export function likedStyles(rated: RatedTasting[]): RecStyle[] {
 
 /** unread: rated tastings whose notes no model has read yet (src/tastings/noteFlavors.ts). */
 export async function loadProfile(db: Db, userId: number): Promise<{ profile: Profile; tasted: Set<number>; styles: RecStyle[]; unread: number[] }> {
-  const { rated, tasted } = await loadRatedTastings(db, userId);
+  const [{ rated, tasted }, prefs] = await Promise.all([loadRatedTastings(db, userId), loadPrefs(db, userId)]);
+  const profile = buildProfile(rated.map((t) => ratedWine(t)));
+  // What they said they spend, until a few priced ratings say otherwise.
+  if (prefs.budget && rated.filter((t) => t.priceCents).length < 3) profile.price = { mu: Math.log(BUDGET_CENTS[prefs.budget]), sigma: 0.45 };
+  const liked = likedStyles(rated);
   return {
-    profile: buildProfile(rated.map((t) => ratedWine(t))),
+    profile,
     tasted,
-    styles: likedStyles(rated),
+    styles: liked.length ? liked : prefs.styles,
     unread: rated.filter((t) => t.own.hasText && !t.own.read).map((t) => t.tastingId),
   };
 }

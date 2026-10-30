@@ -48,7 +48,7 @@ try {
     const reader = createNoteFlavorReader(db, [jevFlavors && jevNoteReader(jevFlavors), createNoteProvider()], (m) => console.log(`  ${m}`));
     if (!reader.available) throw new Error('--read-notes needs OPENROUTER_API_KEY');
     for (const u of users) {
-      const { rated } = await loadRatedTastings(db, u.user_id);
+      const { rated } = await loadRatedTastings(db, u.user_id, { seeds: false });
       const n = await reader.request(rated.filter((t) => t.own.hasText && !t.own.read).map((t) => t.tastingId));
       console.log(`user ${u.user_id}: reading ${n} notes...`);
       await reader.drained();
@@ -73,7 +73,7 @@ try {
   const totals = new Map<OwnFlavors, EvalResult[]>(MODES.map(([m]) => [m, []]));
 
   for (const u of users) {
-    const { rated } = await loadRatedTastings(db, u.user_id);
+    const { rated } = await loadRatedTastings(db, u.user_id, { seeds: false });
     const withText = rated.filter((t) => t.own.hasText).length;
     const read = rated.filter((t) => t.own.read).length;
     console.log(`user ${u.user_id}: ${rated.length} rated tastings, ${withText} with notes or tags, ${read} of those read by a model`);

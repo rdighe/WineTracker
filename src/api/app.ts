@@ -34,6 +34,7 @@ import { maybeQueueWineImage } from '../catalog/images.js';
 import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { cellarPicks, recommend } from '../recs/recommend.js';
+import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs } from '../recs/archetypes.js';
 import {
   acceptInvite, CellarError, createCellar, createInvite, createRack, deleteCellar, deleteRack, listCellars, listRacks, previewInvite, removeMember,
   renameCellar, setMemberRole, setPlaces, updateRack,
@@ -473,6 +474,37 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
       [req.user!.userId]
     );
     res.json(rows[0]);
+  }));
+
+  // ── Welcome: Vivino import, then the 90-second taste quiz ────────────────
+  // Offered once to someone new (done is null and they've logged nothing); Settings can bring it back.
+  app.get('/api/onboarding', auth.requireUser, wrap(async (req, res) => {
+    const userId = req.user!.userId;
+    const [prefs, { rows: [n] }] = await Promise.all([
+      loadPrefs(db, userId),
+      db.query(`SELECT COUNT(*)::int AS tastings, COUNT(rating)::int AS rated FROM tastings WHERE user_id = $1`, [userId]),
+    ]);
+    res.json({
+      ...prefs,
+      tastings: n.tastings,
+      rated: n.rated,
+      archetypes: ARCHETYPES.map(({ key, title, detail, style }) => ({ key, title, detail, style })),
+    });
+  }));
+
+  app.put('/api/onboarding', auth.requireUser, wrap(async (req, res) => {
+    const b = parse(
+      z.object({
+        styles: z.array(z.enum(['red', 'white', 'rose', 'sparkling', 'orange', 'sweet'])).max(6).optional(),
+        budget: z.enum(['under20', '20to40', '40to80', 'over80']).nullable().optional(),
+        seeds: z.partialRecord(z.enum(ARCHETYPE_KEYS), z.enum(['love', 'fine', 'dislike', 'unknown'])).optional(),
+        done: z.boolean().optional(),
+        skipped: z.boolean().optional(),
+      }),
+      req.body
+    );
+    await savePrefs(db, req.user!.userId, b);
+    res.json(await loadPrefs(db, req.user!.userId));
   }));
 
   // ── Tastings ─────────────────────────────────────────────────────────────
