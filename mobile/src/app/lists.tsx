@@ -1,7 +1,8 @@
 /**
  * Lists (from Home › Your lists): what to order or buy when you're out. Photograph a restaurant wine
  * list or a store shelf to see its wines ranked for your palate (app/picks.tsx),
- * and come back to the lists and shelves you saved, with their photos.
+ * and come back to the lists and shelves you saved, with their photos, and
+ * to those you didn't save from the last 14 days (Settings changes how long).
  */
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -20,13 +21,18 @@ export default function Lists() {
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
   const [saved, setSaved] = useState<SavedPick[] | null>(null);
+  const [recent, setRecent] = useState<{ pickId: number; kind: 'list' | 'shelf'; readAt: string; wines: number; topPick: string }[]>([]);
+  const [keepDays, setKeepDays] = useState(14);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setSaved((await api.savedPicks()).saved);
+      const r = await api.savedPicks();
+      setSaved(r.saved);
+      setRecent(r.recent ?? []);
+      setKeepDays(r.keepDays ?? 14);
       setError(null);
     } catch (e) {
       setError(e);
@@ -48,7 +54,7 @@ export default function Lists() {
         refreshControl={<RefreshControl refreshing={loading && saved !== null} onRefresh={load} tintColor={c.ink3} />}
         ListHeaderComponent={
           <View style={{ gap: space[4] }}>
-            <View style={{ marginLeft: -space[2], marginBottom: -space[2] }}>
+            <View style={{ marginLeft: -space[2], marginBottom: -space[2], alignSelf: 'flex-start' }}>
               <IconButton label="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
                 <BackIcon color={c.ink} size={20} />
               </IconButton>
@@ -62,10 +68,31 @@ export default function Lists() {
               <Action title="Store shelf" detail="At a shop" Icon={ShelfIcon} onPress={() => router.push('/picks?kind=shelf')} />
             </View>
             <ErrorText error={error} />
+            {recent.length ? (
+              <View style={{ gap: space[2] }}>
+                <Label>{`Recent, not saved · kept ${keepDays} days`}</Label>
+                <View style={{ borderRadius: radius.md, backgroundColor: c.surface, overflow: 'hidden' }}>
+                  {recent.map((p, i) => {
+                    const Icon = p.kind === 'shelf' ? ShelfIcon : ListIcon;
+                    return (
+                      <Pressable key={p.pickId} accessibilityRole="button" accessibilityLabel={`${p.kind === 'shelf' ? 'Shelf' : 'Wine list'} from ${shortDate(p.readAt)}, ${p.wines} wines`}
+                        onPress={() => router.push(`/picks?id=${p.pickId}`)}
+                        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], paddingVertical: space[3], paddingHorizontal: space[4], borderTopWidth: i ? 1 : 0, borderColor: c.hairline }, pressed && { backgroundColor: c.fillQuiet }]}>
+                        <Icon color={c.ink2} size={22} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[type.subhead, { fontWeight: '600', color: c.ink }]}>{`${p.kind === 'shelf' ? 'Shelf' : 'Wine list'} · ${shortDate(p.readAt)}`}</Text>
+                          <Text style={[type.footnote, { color: c.ink2 }]} numberOfLines={1}>{[`${p.wines} ${p.wines === 1 ? 'wine' : 'wines'}`, p.topPick ? `top pick: ${p.topPick}` : ''].filter(Boolean).join(' · ')}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
             {saved?.length ? <Label>Saved</Label> : null}
           </View>
         }
-        ListEmptyComponent={saved ? (
+        ListEmptyComponent={saved && !recent.length ? (
           <Muted style={type.subhead}>Lists and shelves you save show up here, with their photos and the best picks for you.</Muted>
         ) : null}
         renderItem={({ item }) => <SavedCard pick={item} />}

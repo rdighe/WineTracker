@@ -8,7 +8,7 @@ import { LocationSettings } from '../components/LocationSettings';
 import { CellarTrackerImport } from '../components/CellarTrackerImport';
 import { VivinoImport } from '../components/VivinoImport';
 import { BackIcon } from '../components/icons';
-import { Button, Card, Field, Heading, IconButton, Muted, Screen, Title, space, type, useTheme } from '../components/ui';
+import { Button, Card, Chip, Field, Heading, IconButton, Muted, Screen, Title, space, type, useTheme } from '../components/ui';
 import { useApi } from '../lib/useApi';
 import { tour } from '../lib/tour';
 import { useAuth } from '../lib/auth';
@@ -24,8 +24,14 @@ export default function Settings() {
         </IconButton>
       </View>
       <Title>Settings</Title>
+      <Card>
+        <Heading>Your taste</Heading>
+        <Muted style={type.subhead}>Your taste card: what your ratings say you like. Change it, or share it with friends to see how alike you are.</Muted>
+        <Button title="Open your taste card" variant="tinted" size="sm" onPress={() => router.push('/taste')} />
+      </Card>
       <AppearanceSettings />
       <LocationSettings />
+      <ListHistory />
       <Card>
         <Heading>Account</Heading>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3] }}>
@@ -77,6 +83,28 @@ function PublicName() {
         <Button title="Unblock everyone" variant="plain" size="sm" onPress={() => void api.unblockAll().then((r) => setUnblocked(r.unblocked), () => {})} />
       </View>
       {unblocked !== null ? <Muted>{unblocked ? `Unblocked ${unblocked}.` : 'You had blocked no one.'}</Muted> : null}
+    </Card>
+  );
+}
+
+const KEEP_OPTIONS = [{ days: 0, label: "Don't keep" }, { days: 7, label: '7 days' }, { days: 14, label: '14 days' }, { days: 30, label: '30 days' }, { days: 90, label: '90 days' }];
+
+/** How long wine lists and shelves you don't save stay under Lists › Recent. */
+function ListHistory() {
+  const api = useApi();
+  const [days, setDays] = useState<number | null>(null);
+  useEffect(() => {
+    api.me().then((m) => setDays(m.pick_history_days ?? 14), () => setDays(14));
+  }, [api]);
+  return (
+    <Card>
+      <Heading>Wine lists and shelves</Heading>
+      <Muted style={type.subhead}>Ones you don&apos;t save stay under Lists › Recent for this long, then they&apos;re deleted.</Muted>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {KEEP_OPTIONS.map((o) => (
+          <Chip key={o.days} small selected={days === o.days} onPress={() => { setDays(o.days); void api.setPickHistoryDays(o.days).catch(() => {}); }}>{o.label}</Chip>
+        ))}
+      </View>
     </Card>
   );
 }

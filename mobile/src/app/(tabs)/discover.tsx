@@ -143,7 +143,7 @@ export default function Discover() {
               <LockedCard rated={data.rated} needed={data.needed} />
             ) : (
               <>
-                <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center', flexWrap: 'wrap' }}>
                   <Button
                     size="sm"
                     variant="secondary"
@@ -156,6 +156,7 @@ export default function Discover() {
                   <View ref={findButton} collapsable={false}>
                     <Button size="sm" variant="tinted" title="Find wines" icon={(color) => <SearchIcon color={color} size={15} />} onPress={openFind} />
                   </View>
+                  <Button size="sm" variant="secondary" title="Your taste" onPress={() => router.push('/taste')} />
                 </View>
                 {saved.length ? (
                   <View style={{ gap: space[2] }}>

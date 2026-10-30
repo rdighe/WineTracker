@@ -565,8 +565,8 @@ export async function pickWines(
 ): Promise<PickResult> {
   const scored = await scorePicks(db, userId, entries, jev, times, kind);
   const { rows: [row] } = await db.query(
-    'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries) VALUES ($1, $2, $3, $4, $5) RETURNING pick_id',
-    [userId, kind, source, sha, JSON.stringify(entries)]
+    'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries, top_pick) VALUES ($1, $2, $3, $4, $5, $6) RETURNING pick_id',
+    [userId, kind, source, sha, JSON.stringify(entries), scored.mode === 'profile' ? scored.items[0]?.displayName ?? '' : '']
   );
   return { pickId: Number(row.pick_id), kind, source, ...scored };
 }
@@ -622,6 +622,35 @@ export async function listSavedPicks(db: Db, userId: number): Promise<SavedPick[
     pickId: Number(r.pick_id), kind: r.kind, name: r.name, savedAt: new Date(r.saved_at).toISOString(),
     wines: Number(r.wines), photos: r.photos, topPick: r.top_pick,
   }));
+}
+
+/**
+ * Lists and shelves read but not saved, from the last `pick_history_days`
+ * (Settings; 14 by default), newest first. Older ones are forgotten first.
+ */
+export async function listRecentPicks(db: Db, userId: number): Promise<{ days: number; recent: (Omit<SavedPick, 'savedAt' | 'name' | 'photos'> & { readAt: string })[] }> {
+  await forgetOldPicks(db, userId);
+  const { rows: [u] } = await db.query('SELECT pick_history_days FROM users WHERE user_id = $1', [userId]);
+  const { rows } = await db.query(
+    `SELECT p.pick_id, p.kind, p.created_at, jsonb_array_length(p.entries) AS wines, p.top_pick
+       FROM pick_scans p WHERE p.user_id = $1 AND NOT p.saved ORDER BY p.created_at DESC LIMIT 100`,
+    [userId]
+  );
+  return {
+    days: u?.pick_history_days ?? 14,
+    recent: rows.map((r) => ({ pickId: Number(r.pick_id), kind: r.kind, readAt: new Date(r.created_at).toISOString(), wines: Number(r.wines), topPick: r.top_pick })),
+  };
+}
+
+/** Forget unsaved lists and shelves older than each person keeps them (one person's, or everyone's). */
+export async function forgetOldPicks(db: Db, userId?: number): Promise<number> {
+  const { rowCount } = await db.query(
+    `DELETE FROM pick_scans p USING users u
+      WHERE u.user_id = p.user_id AND NOT p.saved AND ($1::bigint IS NULL OR p.user_id = $1)
+        AND p.created_at < NOW() - make_interval(days => u.pick_history_days)`,
+    [userId ?? null]
+  );
+  return rowCount ?? 0;
 }
 
 /** A saved (or recent) scan, scored again for the person's palate as it is now. */

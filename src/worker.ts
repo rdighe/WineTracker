@@ -9,6 +9,7 @@
  * `npm run worker -- --once feeds|pages|watched` runs one job and exits.
  * A job is skipped if its previous run is still going.
  */
+import { forgetOldPicks } from './picks/picks.js';
 import cron from 'node-cron';
 import { config } from './config.js';
 import { createPool } from './db/pool.js';
@@ -60,6 +61,10 @@ const jobs: Record<string, () => Promise<void>> = {
     }
     log('watched', `refreshed ${done} of ${rows.length} watched wines`);
   },
+  // Wine lists and shelves nobody saved, past how long each person keeps them (14 days unless they chose otherwise).
+  async picks() {
+    log('picks', `forgot ${await forgetOldPicks(db)} unsaved lists and shelves`);
+  },
 };
 
 const running = new Set<string>();
@@ -91,5 +96,6 @@ if (onceIdx >= 0) {
   cron.schedule('17 9 * * *', () => run('feeds'), { timezone: 'UTC' });
   cron.schedule('47 */6 * * *', () => run('pages'), { timezone: 'UTC' });
   cron.schedule('23 11 * * *', () => run('watched'), { timezone: 'UTC' });
-  console.log(`worker started (LLM provider: ${provider.name}); jobs: feeds daily 09:17 UTC, pages every 6h, watched daily 11:23 UTC`);
+  cron.schedule('41 3 * * *', () => run('picks'), { timezone: 'UTC' });
+  console.log(`worker started (LLM provider: ${provider.name}); jobs: feeds daily 09:17 UTC, pages every 6h, watched daily 11:23 UTC, picks daily 03:41 UTC`);
 }

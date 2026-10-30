@@ -55,6 +55,8 @@ function Navigator() {
         <Stack.Screen name="racks" />
         <Stack.Screen name="receipts" />
         <Stack.Screen name="community" />
+        <Stack.Screen name="taste" />
+        <Stack.Screen name="taste-card" />
         <Stack.Screen name="share-note" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="welcome" options={{ animation: 'fade', gestureEnabled: false }} />
       </Stack>

@@ -82,11 +82,16 @@ export interface TastePrefs {
   /** When the quiz was finished or skipped; null: not yet. */
   doneAt: string | null;
   skipped: boolean;
+  /** Their own changes to their taste (Your taste): flavor keys liked and not, grapes or places to avoid, a budget always used. */
+  likedFlavors: string[];
+  dislikedFlavors: string[];
+  avoid: string[];
+  budgetFixed: boolean;
 }
 
 export async function loadPrefs(db: Db, userId: number): Promise<TastePrefs> {
   const [{ rows: [p] }, { rows: seeds }] = await Promise.all([
-    db.query('SELECT styles, budget, done_at, skipped FROM taste_prefs WHERE user_id = $1', [userId]),
+    db.query('SELECT styles, budget, done_at, skipped, liked_flavors, disliked_flavors, avoid, budget_fixed FROM taste_prefs WHERE user_id = $1', [userId]),
     db.query('SELECT archetype, reaction FROM taste_seeds WHERE user_id = $1', [userId]),
   ]);
   return {
@@ -95,6 +100,10 @@ export async function loadPrefs(db: Db, userId: number): Promise<TastePrefs> {
     seeds: Object.fromEntries(seeds.filter((s) => BY_KEY.has(s.archetype)).map((s) => [s.archetype, s.reaction as Reaction])),
     doneAt: p?.done_at ? new Date(p.done_at).toISOString() : null,
     skipped: Boolean(p?.skipped),
+    likedFlavors: p?.liked_flavors ?? [],
+    dislikedFlavors: p?.disliked_flavors ?? [],
+    avoid: p?.avoid ?? [],
+    budgetFixed: Boolean(p?.budget_fixed),
   };
 }
 
@@ -118,4 +127,17 @@ export async function savePrefs(
       [userId, key, reaction]
     );
   }
+}
+
+/** Their own changes to their taste profile; only what's given changes. */
+export async function saveTasteEdits(
+  db: Db, userId: number, e: { likedFlavors?: string[]; dislikedFlavors?: string[]; avoid?: string[]; budgetFixed?: boolean; styles?: RecStyle[]; budget?: Budget | null }
+): Promise<void> {
+  await savePrefs(db, userId, { styles: e.styles, budget: e.budget });
+  await db.query(
+    `UPDATE taste_prefs SET liked_flavors = COALESCE($2::text[], liked_flavors), disliked_flavors = COALESCE($3::text[], disliked_flavors),
+            avoid = COALESCE($4::text[], avoid), budget_fixed = COALESCE($5::boolean, budget_fixed)
+      WHERE user_id = $1`,
+    [userId, e.likedFlavors ?? null, e.dislikedFlavors ?? null, e.avoid ?? null, e.budgetFixed ?? null]
+  );
 }

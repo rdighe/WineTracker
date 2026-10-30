@@ -427,3 +427,32 @@ export interface CtSummary {
   addedWines: number;
   addedNames: string[];
 }
+
+/** Flavor families (server: src/recs/flavors.ts), for the taste editor. */
+export const FLAVOR_LABELS: Record<string, string> = {
+  black_fruit: 'black fruit', red_fruit: 'red fruit', citrus: 'citrus', orchard: 'apple & pear', stone_fruit: 'stone fruit', tropical: 'tropical fruit',
+  floral: 'floral', herbal: 'herbal', earthy: 'earthy', mineral: 'mineral', oak: 'oaky', spice: 'spicy', savory: 'savory', rich_sweet: 'honeyed',
+  yeasty: 'brioche', tannic: 'firm tannins', fresh: 'high acidity', full: 'full-bodied', light: 'light & elegant', sweet: 'sweet',
+};
+
+export interface TasteCard {
+  name: string;
+  rated: number;
+  likes: { key: string; label: string; strength: number }[];
+  dislikes: { key: string; label: string }[];
+  styles: RecStyle[];
+  priceLowCents: number | null;
+  priceHighCents: number | null;
+  grapes: string[];
+  places: string[];
+  favorites: { wineId: number; name: string; vintage: string | null }[];
+  edits?: { likedFlavors: string[]; dislikedFlavors: string[]; avoid: string[]; budget: Budget | null; budgetFixed: boolean; styles: RecStyle[] };
+}
+export interface TasteComparison {
+  /** null until both have rated a few wines. */
+  similarity: number | null;
+  shared: string[];
+  bothLoved: { wineId: number; name: string }[];
+  theyLoveYouHavent: { wineId: number; name: string; vintage: string | null }[];
+}
+export interface SharedTaste { userId: number; me: boolean; friend: boolean; card: TasteCard; comparison: TasteComparison | null }

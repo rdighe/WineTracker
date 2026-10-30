@@ -209,14 +209,40 @@ export function likedStyles(rated: RatedTasting[]): RecStyle[] {
 }
 
 /** unread: rated tastings whose notes no model has read yet (src/tastings/noteFlavors.ts). */
+/**
+ * Their own changes to their taste (Your taste) on top of what their ratings
+ * say: a flavor they like counts as liked (said, never "rated"), one they
+ * don't as disliked, and a grape, region or country to avoid counts strongly
+ * against wines of it.
+ */
+export function applyTasteEdits(profile: Profile, e: { likedFlavors: string[]; dislikedFlavors: string[]; avoid: string[] }): void {
+  for (const f of e.likedFlavors) {
+    const cur = profile.flavors.get(f as Flavor) ?? { weight: 0, liked: 0, said: 0, count: 0 };
+    profile.flavors.set(f as Flavor, { ...cur, weight: Math.max(cur.weight, 0) + 0.5, said: cur.said + 1, count: cur.count + 1 });
+  }
+  for (const f of e.dislikedFlavors) {
+    const cur = profile.flavors.get(f as Flavor) ?? { weight: 0, liked: 0, said: 0, count: 0 };
+    profile.flavors.set(f as Flavor, { ...cur, weight: Math.min(cur.weight, 0) - 0.6, liked: 0, said: 0, count: cur.count + 1 });
+  }
+  for (const raw of e.avoid) {
+    const v = normalize(raw);
+    if (!v) continue;
+    for (const k of ['grape', 'appellation', 'region', 'country'] as const) {
+      const cur = profile.features[k].get(v);
+      profile.features[k].set(v, { weight: -1.5, liked: 0, said: 0, count: cur?.count ?? 1 });
+    }
+  }
+}
+
 export async function loadProfile(db: Db, userId: number): Promise<{
   profile: Profile; tasted: Set<number>; styles: RecStyle[]; unread: number[]; rated: RatedTasting[]; wines: RatedWine[];
 }> {
   const [{ rated, tasted }, prefs] = await Promise.all([loadRatedTastings(db, userId), loadPrefs(db, userId)]);
   const wines = rated.map((t) => ratedWine(t));
   const profile = buildProfile(wines);
-  // What they said they spend, until a few priced ratings say otherwise.
-  if (prefs.budget && rated.filter((t) => t.priceCents).length < 3) profile.price = { mu: Math.log(BUDGET_CENTS[prefs.budget]), sigma: 0.45 };
+  // What they said they spend: until a few priced ratings say otherwise, or always if they fixed it.
+  if (prefs.budget && (prefs.budgetFixed || rated.filter((t) => t.priceCents).length < 3)) profile.price = { mu: Math.log(BUDGET_CENTS[prefs.budget]), sigma: 0.45 };
+  applyTasteEdits(profile, prefs);
   const liked = likedStyles(rated);
   return {
     profile,

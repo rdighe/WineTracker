@@ -23,6 +23,14 @@ Screens: four tabs, plus a floating **+** beside the tab bar.
   (styles, a quick answer for ten kinds of wine, budget) and their first picks; then the tour.
 - Suggestions carry a **fit** (`components/FitBadge.tsx`): how likely you are to enjoy the wine, in steps of 5% with a
   band and a confidence. Never a predicted star rating, and never which model worked it out.
+- **Community** (`app/community.tsx`, `app/share-note.tsx`): share a tasting as a note (how you liked it, whether it
+  was ready, your words; never your stars), read others' on Home, a wine's page or the feed; like, reply, report,
+  block. People show by a name they choose, never their email.
+- **Your taste** (`app/taste.tsx`): your taste card from your ratings, editable (flavors, styles, price, things to
+  avoid), shared by link with friends, who see how alike you are (`app/taste-card.tsx`).
+- **Imports** in Welcome and Settings: CellarTracker (`components/CellarTrackerImport.tsx`: handle and password sent
+  on once, never kept; or exported CSV files) and Vivino, each with how-to.
+- Wine lists and shelves not saved stay under Lists › Recent for 14 days (Settings changes it).
 - The avatar at the top right of each tab opens **Settings** (appearance, location, account, Vivino import, the taste
   quiz, Show the tour). The **tour** (`components/Tour.tsx`) points at Find a bottle, Out and about?, + and Cellar the first time
   Home opens.

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity, CtPart } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity, CtPart, TasteCard, SharedTaste } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -161,7 +161,10 @@ export function createApi(authHeader: AuthHeader) {
     pickFromShelf: (photo: { base64: string; mimeType: string }, text: string, ref: string) =>
       request<PickJob>('/api/picks', json('POST', { kind: 'shelf', imageBase64: photo.base64, mimeType: photo.mimeType, ref, ...(text.trim() ? { text: text.slice(0, 6000) } : {}) })),
     /** Saved lists and shelves, newest first. */
-    savedPicks: () => request<{ saved: SavedPick[] }>('/api/picks'),
+    /** Saved lists and shelves, and recent ones not saved (kept keepDays). */
+    savedPicks: () => request<{ saved: SavedPick[]; recent?: { pickId: number; kind: 'list' | 'shelf'; readAt: string; wines: number; topPick: string }[]; keepDays?: number }>('/api/picks'),
+    /** How long wine lists and shelves not saved are kept (0: not at all). */
+    setPickHistoryDays: (pickHistoryDays: number) => request<unknown>('/api/me', json('PATCH', { pickHistoryDays })),
     /** A saved list, ranked for the palate as it is now. */
     openPick: (id: number) => request<PickResult & { name: string; saved: boolean; photos: number }>(`/api/picks/${id}`),
     /** Save (or rename) a list, then keep its photos. */
@@ -213,9 +216,19 @@ export function createApi(authHeader: AuthHeader) {
       for (const k of ['notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
       return request<{ items: CellarPick[] }>(`/api/cellar/picks?${q}`);
     },
-    me: () => request<{ user_id: number; email: string; display_name: string; public_name: string; shown_as: string; tastings: number }>('/api/me'),
+    me: () => request<{ user_id: number; email: string; display_name: string; public_name: string; shown_as: string; pick_history_days: number; tastings: number }>('/api/me'),
     /** The name shown with community notes and a shared taste card ('' = first name and initial). */
     setPublicName: (publicName: string) => request<unknown>('/api/me', json('PATCH', { publicName })),
+    // ── Your taste ──
+    taste: () => request<TasteCard>('/api/taste'),
+    editTaste: (e: { likedFlavors?: string[]; dislikedFlavors?: string[]; avoid?: string[]; styles?: RecStyle[]; budget?: Budget | null; budgetFixed?: boolean }) =>
+      request<TasteCard>('/api/taste', json('PUT', e)),
+    tasteLink: (renew = false) => request<{ code: string }>('/api/taste/link', json('POST', { renew })),
+    tasteCardByCode: (code: string) => request<SharedTaste>(`/api/taste/cards/${encodeURIComponent(code)}`),
+    addTasteFriend: (code: string) => request<{ userId: number }>(`/api/taste/cards/${encodeURIComponent(code)}/friend`, json('POST', {})),
+    tasteFriends: () => request<{ friends: { userId: number; name: string; similarity: number | null }[] }>('/api/taste/friends'),
+    tasteFriend: (id: number) => request<SharedTaste>(`/api/taste/friends/${id}`),
+    removeTasteFriend: (id: number) => request<void>(`/api/taste/friends/${id}`, { method: 'DELETE' }),
     // ── Community notes ──
     community: (opts: { wineId?: number; mine?: boolean; before?: number; limit?: number } = {}) => {
       const q = new URLSearchParams();

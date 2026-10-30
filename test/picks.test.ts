@@ -304,4 +304,25 @@ describe('picks API', () => {
     // Not someone else's to read.
     expect((await request(app).get(`/api/scans/jobs/${ref}`).set('Authorization', 'Dev someone-else')).status).toBe(404);
   });
+
+  it('keeps lists and shelves not saved for 14 days by default (a setting), then forgets them', async () => {
+    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const list = { kind: 'list', entries: [{ producer: 'Domaine Vacheron', name: 'Sancerre', colour: 'white', bottleCents: 9000 }] };
+    const a = (await as(request(app).post('/api/picks')).send(list)).body.pickId;
+    const b = (await as(request(app).post('/api/picks')).send(list)).body.pickId;
+    await as(request(app).patch(`/api/picks/${b}`)).send({ name: 'Saved one' });
+    let r = (await as(request(app).get('/api/picks'))).body;
+    expect(r).toMatchObject({ keepDays: 14, recent: [{ pickId: a, kind: 'list', wines: 1 }], saved: [{ pickId: b }] });
+    // 15 days on, the unsaved one is gone; the saved one stays.
+    await db.query(`UPDATE pick_scans SET created_at = NOW() - INTERVAL '15 days'`);
+    r = (await as(request(app).get('/api/picks'))).body;
+    expect(r.recent).toEqual([]);
+    expect(r.saved).toHaveLength(1);
+    // Keep them 30 days instead.
+    const c = (await as(request(app).post('/api/picks')).send(list)).body.pickId;
+    await as(request(app).patch('/api/me')).send({ pickHistoryDays: 30 });
+    await db.query(`UPDATE pick_scans SET created_at = NOW() - INTERVAL '20 days' WHERE pick_id = $1`, [c]);
+    expect((await as(request(app).get('/api/picks'))).body).toMatchObject({ keepDays: 30, recent: [{ pickId: c }] });
+  });
 });

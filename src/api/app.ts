@@ -19,7 +19,7 @@ import { createJev, createNoteProvider, createPickReaders } from '../llm/index.j
 import { jevNoteReader } from '../llm/jev.js';
 import { MAX_LIST_CHARS, MAX_LIST_ENTRIES } from '../llm/prompts.js';
 import {
-  deletePick, inputSha, listSavedPicks, newMatchTimes, type PickJev, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos, startMatching,
+  deletePick, inputSha, listRecentPicks, listSavedPicks, newMatchTimes, type PickJev, MAX_PICK_PHOTO_BYTES, MAX_PICK_PHOTOS, openPick, pickPhoto, pickWines, readListPages, readShelfPhoto, savePick, setPickPhotos, startMatching,
 } from '../picks/picks.js';
 import { FLAVOR_KEYS } from '../recs/flavors.js';
 import { createNoteFlavorReader, type NoteFlavorReader } from '../tastings/noteFlavors.js';
@@ -37,8 +37,9 @@ import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { CellarTrackerError, CT_PARTS, detectPart, fetchCellarTracker, importCellarTracker, type CtPart } from '../imports/cellartracker.js';
 import { cellarPicks, recommend } from '../recs/recommend.js';
-import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs } from '../recs/archetypes.js';
+import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs, saveTasteEdits } from '../recs/archetypes.js';
 import { jevReport } from '../recs/jevLog.js';
+import { addFriend, cardByCode, cardCode, friendCard, listFriends, removeFriend, tasteCard, TasteError } from '../recs/tasteCard.js';
 import {
   blockAuthor, CommunityError, deleteNote, unblockAll, deleteReply, listNotes, listReplies, MATURITIES, PUBLIC_NAME, REACTIONS, reply, report, setLike, shareNote, updateNote,
 } from '../community/community.js';
@@ -493,7 +494,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   // ── Me ───────────────────────────────────────────────────────────────────
   app.get('/api/me', auth.requireUser, wrap(async (req, res) => {
     const { rows } = await db.query(
-      `SELECT u.user_id, u.email, u.display_name, u.public_name, ${PUBLIC_NAME} AS shown_as, u.created_at,
+      `SELECT u.user_id, u.email, u.display_name, u.public_name, ${PUBLIC_NAME} AS shown_as, u.pick_history_days, u.created_at,
               (SELECT COUNT(*)::int FROM tastings t WHERE t.user_id = u.user_id) AS tastings,
               (SELECT COUNT(*)::int FROM saved_wines s WHERE s.user_id = u.user_id) AS saved
          FROM users u WHERE u.user_id = $1`,
@@ -503,9 +504,13 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   }));
 
   // The name shown with community notes and on a shared taste card (never the email).
+  // pickHistoryDays: how long wine lists and shelves not saved are kept (0: not at all).
   app.patch('/api/me', auth.requireUser, wrap(async (req, res) => {
-    const { publicName } = parse(z.object({ publicName: z.string().trim().max(40) }), req.body);
-    await db.query('UPDATE users SET public_name = $2 WHERE user_id = $1', [req.user!.userId, publicName]);
+    const b = parse(z.object({ publicName: z.string().trim().max(40).optional(), pickHistoryDays: z.number().int().min(0).max(365).optional() }), req.body);
+    await db.query(
+      'UPDATE users SET public_name = COALESCE($2, public_name), pick_history_days = COALESCE($3, pick_history_days) WHERE user_id = $1',
+      [req.user!.userId, b.publicName ?? null, b.pickHistoryDays ?? null]
+    );
     res.json({ ok: true });
   }));
 
@@ -624,6 +629,52 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
     );
     await savePrefs(db, req.user!.userId, b);
     res.json(await loadPrefs(db, req.user!.userId));
+  }));
+
+  // ── Your taste: the card, editing it, sharing it with friends ────────────
+  app.get('/api/taste', auth.requireUser, wrap(async (req, res) => {
+    res.json(await tasteCard(db, req.user!.userId));
+  }));
+
+  app.put('/api/taste', auth.requireUser, wrap(async (req, res) => {
+    const b = parse(z.object({
+      likedFlavors: z.array(z.enum(FLAVOR_KEYS)).max(20).optional(),
+      dislikedFlavors: z.array(z.enum(FLAVOR_KEYS)).max(20).optional(),
+      avoid: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+      styles: z.array(z.enum(['red', 'white', 'rose', 'sparkling', 'orange', 'sweet'])).max(6).optional(),
+      budget: z.enum(['under20', '20to40', '40to80', 'over80']).nullable().optional(),
+      budgetFixed: z.boolean().optional(),
+    }), req.body);
+    await saveTasteEdits(db, req.user!.userId, b);
+    res.json(await tasteCard(db, req.user!.userId));
+  }));
+
+  // The card's link (renew: a new one, so the old link stops working).
+  app.post('/api/taste/link', auth.requireUser, wrap(async (req, res) => {
+    const { renew } = parse(z.object({ renew: z.boolean().default(false) }), req.body ?? {});
+    res.json({ code: await cardCode(db, req.user!.userId, renew) });
+  }));
+
+  const cardCodeParam = z.string().regex(/^[A-Za-z0-9_-]{8,32}$/);
+  app.get('/api/taste/cards/:code', auth.requireUser, wrap(async (req, res) => {
+    res.json(await cardByCode(db, req.user!.userId, parse(cardCodeParam, req.params.code)));
+  }));
+
+  app.post('/api/taste/cards/:code/friend', auth.requireUser, wrap(async (req, res) => {
+    res.json({ userId: await addFriend(db, req.user!.userId, parse(cardCodeParam, req.params.code)) });
+  }));
+
+  app.get('/api/taste/friends', auth.requireUser, wrap(async (req, res) => {
+    res.json({ friends: await listFriends(db, req.user!.userId) });
+  }));
+
+  app.get('/api/taste/friends/:id', auth.requireUser, wrap(async (req, res) => {
+    res.json(await friendCard(db, req.user!.userId, parse(idParam, req.params.id)));
+  }));
+
+  app.delete('/api/taste/friends/:id', auth.requireUser, wrap(async (req, res) => {
+    await removeFriend(db, req.user!.userId, parse(idParam, req.params.id));
+    res.status(204).end();
   }));
 
   // ── Tastings ─────────────────────────────────────────────────────────────
@@ -815,8 +866,10 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   }
 
   // Saved lists and shelves: name one to keep it; its photos are sent separately.
+  // Saved lists, and recent ones not saved (kept pick_history_days, Settings).
   app.get('/api/picks', auth.requireUser, wrap(async (req, res) => {
-    res.json({ saved: await listSavedPicks(db, req.user!.userId) });
+    const [saved, recent] = await Promise.all([listSavedPicks(db, req.user!.userId), listRecentPicks(db, req.user!.userId)]);
+    res.json({ saved, recent: recent.recent, keepDays: recent.days });
   }));
 
   app.get('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
@@ -1131,7 +1184,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   }));
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError || err instanceof CommunityError || err instanceof CellarTrackerError) return void res.status(err.status).json({ error: err.message });
+    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError || err instanceof CommunityError || err instanceof CellarTrackerError || err instanceof TasteError) return void res.status(err.status).json({ error: err.message });
     if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: err.message });
     if (err instanceof multer.MulterError) return void res.status(400).json({ error: err.message });
     console.error(err);
