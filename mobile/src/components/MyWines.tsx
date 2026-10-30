@@ -14,6 +14,7 @@ import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dollars, shortDate, wineTitle } from '../lib/format';
 import type { Cellar, Tasting } from '../lib/types';
+import { usePullRefresh } from '../lib/usePullRefresh';
 import { useApi } from '../lib/useApi';
 import { Section, TastingRow } from './EntryRows';
 import { SavedWines } from './SavedWines';
@@ -21,7 +22,7 @@ import { ChevronIcon, DocumentIcon, PeopleIcon, RackIcon } from './icons';
 import { ProfileButton } from './ProfileButton';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
-import { Button, Card, Chip, Divider, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
+import { Button, Card, Chip, Divider, Field, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
 export type Mode = 'cellar' | 'tastings' | 'saved';
 type Sort = 'recent' | 'value' | 'rating';
@@ -78,11 +79,11 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
   const [cellars, setCellars] = useState<Cellar[] | null>(null);
   // Which cellar the list shows: one, or all of them.
   const [cellarId, setCellarId] = useState<number | 'all'>('all');
+  const [adding, setAdding] = useState(false);
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState<Filters>({});
   const [open, setOpen] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const setMode = (m: Mode) => {
@@ -99,7 +100,6 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
   }
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       const [t, cs] = await Promise.all([api.tastings(), side === 'cellar' ? api.cellars() : null]);
@@ -111,11 +111,10 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
       }
     } catch (e) {
       setError(e);
-    } finally {
-      setLoading(false);
     }
   }, [api, side]);
   useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   const inCellar = useMemo(() => (rows ?? []).filter((t) => t.kind !== 'cellar' || cellarId === 'all' || t.cellar_id === cellarId), [rows, cellarId]);
   const groups = useMemo(() => group(inCellar).filter((g) => (mode === 'cellar' ? g.cellar.length > 0 : g.notes.length > 0)), [inCellar, mode]);
@@ -162,7 +161,7 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
       key={mode}
       keyExtractor={(g) => `${mode}-${g.wineId}`}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={c.ink3} />}
       ListHeaderComponent={
         <View style={{ gap: space[4], marginBottom: space[4] }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3] }}>
@@ -183,16 +182,18 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
             />
             {modeSwitch}
           </View>
-          {mode === 'cellar' && cellars && (cellars.length > 1 || shared) ? (
+          {mode === 'cellar' && cellars ? (
             <View accessibilityRole="tablist" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              <Chip small selected={cellarId === 'all'} onPress={() => setCellarId('all')}>All cellars</Chip>
+              {cellars.length > 1 ? <Chip small selected={cellarId === 'all'} onPress={() => setCellarId('all')}>All cellars</Chip> : null}
               {cellars.map((x) => (
-                <Chip key={x.cellarId} small selected={cellarId === x.cellarId} onPress={() => setCellarId(x.cellarId)}>
+                <Chip key={x.cellarId} small selected={cellars.length > 1 && cellarId === x.cellarId} onPress={() => setCellarId(cellars.length > 1 ? x.cellarId : 'all')}>
                   {x.members.length > 1 ? `${x.name} · ${x.members.length} people` : x.name}
                 </Chip>
               ))}
+              <Chip small onPress={() => setAdding(!adding)}>{adding ? 'Cancel' : '+ New cellar'}</Chip>
             </View>
           ) : null}
+          {mode === 'cellar' && adding ? <NewCellar onAdded={async (id) => { setAdding(false); await load(); setCellarId(id); }} /> : null}
           {mode === 'cellar' ? (
             <View style={{ flexDirection: 'row', gap: space[2] }}>
               <Button title="Racks" variant="secondary" size="sm" style={{ flex: 1 }} icon={(fg) => <RackIcon color={fg} size={18} />}
@@ -336,5 +337,33 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
         </Animated.View>
       ) : null}
     </Animated.View>
+  );
+}
+
+/** Another cellar, right from the Cellar tab: a name, then it's the one shown. */
+function NewCellar({ onAdded }: { onAdded: (cellarId: number) => Promise<void> }) {
+  const api = useApi();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  async function add() {
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      const { cellarId } = await api.createCellar(name.trim());
+      await onAdded(cellarId);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card style={{ gap: space[3] }}>
+      <Field label="New cellar" value={name} onChangeText={setName} placeholder="Wine locker, second home, the office…" autoFocus returnKeyType="done" onSubmitEditing={() => void add()} maxLength={60} />
+      <Muted>Each cellar has its own racks, receipts and people you share it with.</Muted>
+      <ErrorText error={error} />
+      <Button title="Add cellar" variant="tinted" size="md" busy={busy} disabled={!name.trim()} onPress={() => void add()} />
+    </Card>
   );
 }

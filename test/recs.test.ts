@@ -285,4 +285,17 @@ describe('recommendations API', () => {
     expect((await as(request(app).delete(`/api/rec-views/${saved.body.viewId}`))).status).toBe(204);
     expect((await as(request(app).get('/api/rec-views'))).body.views).toEqual([]);
   });
+
+  it('names the kind of wine that best suits an occasion: food first, bubbles to celebrate, your taste after', async () => {
+    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev kinds');
+    const lamb = (await as(request(app).get('/api/occasion/kinds?occasion=dinner&food=lamb chops'))).body.kinds;
+    expect(lamb).toHaveLength(2);
+    expect(lamb[0].style).toBe('red');
+    expect(lamb[0].reasons.join(' ')).toContain('Goes with lamb chops');
+    const party = (await as(request(app).get('/api/occasion/kinds?occasion=celebrate'))).body.kinds;
+    expect(party[0]).toMatchObject({ style: 'sparkling', reasons: expect.arrayContaining(['Bubbles for the occasion']) });
+    const white = (await as(request(app).get('/api/occasion/kinds?food=oysters&styles=white'))).body.kinds;
+    expect(white.every((k: { style: string }) => k.style === 'white')).toBe(true);
+  });
 });

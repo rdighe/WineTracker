@@ -2,14 +2,12 @@
  * Your taste (Settings, Discover): your taste card, built from your ratings
  * and the taste quiz, and yours to change - flavors you like or don't,
  * styles, a budget to always use, grapes or places to keep away from. Share
- * it by link with friends (app/taste-card.tsx), see how alike you are, and
- * revoke the link whenever.
+ * it by link with friends (app/taste-card.tsx) and see how alike you are.
  */
 import * as Linking from 'expo-linking';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Share, Text, View } from 'react-native';
-import { confirm } from '../components/EntryRows';
 import { FlavorCardView } from '../components/FlavorCardView';
 import { ChevronIcon, ShareIcon } from '../components/icons';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -96,10 +94,6 @@ export default function Taste() {
           <Muted style={{ color: c.ink3 }}>
             Your card shows your name, the flavors, styles, grapes and places you like, your usual price and your favorite bottles. Never your ratings, notes or cellar.
           </Muted>
-          <Button title="Stop the old link working" variant="plain" size="sm" onPress={async () => {
-            if (!(await confirm('Make a new link?', 'Anyone with the old link can no longer open your card. Friends you already have stay.', 'New link'))) return;
-            await api.tasteLink(true).catch(setError);
-          }} />
         </>
       )}
     </Screen>

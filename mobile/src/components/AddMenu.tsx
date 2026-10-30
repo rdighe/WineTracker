@@ -6,7 +6,7 @@
  */
 import { router } from 'expo-router';
 import { useEffect, type ReactElement } from 'react';
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { lift } from './Glass';
@@ -15,13 +15,24 @@ import { radius, space, type, useTheme } from './theme';
 
 type Start = 'camera' | 'lineup' | 'receipt' | 'list' | 'library' | 'search';
 
-const CHOICES: { key: Start; title: string; detail: string; Icon: (p: { color: string; size?: number }) => ReactElement }[] = [
-  { key: 'camera', title: 'Scan a label', detail: 'Photograph the front label', Icon: ScanIcon },
-  { key: 'lineup', title: 'Scan a lineup', detail: 'Several bottles in one photo', Icon: BottleIcon },
-  { key: 'receipt', title: 'Receipt or invoice', detail: 'Add the bottles you bought, at what they cost', Icon: DocumentIcon },
-  { key: 'list', title: 'Wine list or shelf', detail: 'Rank it for your taste', Icon: ListIcon },
-  { key: 'library', title: 'Choose a photo', detail: 'A label photo you already took', Icon: PhotosIcon },
-  { key: 'search', title: 'Search or add by hand', detail: 'Type the producer or wine', Icon: SearchIcon },
+type Choice = { key: Start; title: string; detail: string; Icon: (p: { color: string; size?: number }) => ReactElement };
+
+/** Two groups: adding wines you have or bought, and choosing what to order or buy. */
+const SECTIONS: { title: string; choices: Choice[] }[] = [
+  {
+    title: 'Add a wine',
+    choices: [
+      { key: 'camera', title: 'Scan a label', detail: 'Photograph the front label', Icon: ScanIcon },
+      { key: 'lineup', title: 'Scan a lineup', detail: 'Several bottles in one photo', Icon: BottleIcon },
+      { key: 'library', title: 'Choose a photo', detail: 'A label photo you already took', Icon: PhotosIcon },
+      { key: 'search', title: 'Search or add by hand', detail: 'Type the producer or wine', Icon: SearchIcon },
+      { key: 'receipt', title: 'Receipt or invoice', detail: 'Add the bottles you bought, at what they cost', Icon: DocumentIcon },
+    ],
+  },
+  {
+    title: 'Wine selection',
+    choices: [{ key: 'list', title: 'Wine list or store shelf', detail: 'The best wines on it for your taste', Icon: ListIcon }],
+  },
 ];
 
 export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right }: {
@@ -56,8 +67,9 @@ export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right
 
   function choose(k: Start) {
     onRequestClose();
-    // A wine list or shelf (app/picks.tsx) and a receipt (app/receipts.tsx) have their own flows; the rest start Add wine.
-    router.push(k === 'list' ? '/picks?kind=list' : k === 'receipt' ? '/receipts?new=1' : `/add?start=${k}`);
+    // Wine list or store shelf: the Wine selection assistant (app/lists.tsx) to choose which. A receipt has its own flow
+    // (app/receipts.tsx); the rest start Add wine.
+    router.push(k === 'list' ? '/lists' : k === 'receipt' ? '/receipts?new=1' : `/add?start=${k}`);
   }
 
   return (
@@ -73,8 +85,10 @@ export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right
           card,
         ]}
       >
-        <Text accessibilityRole="header" style={[type.footnote, { fontWeight: '600', color: c.ink2, paddingHorizontal: space[4], paddingTop: space[2], paddingBottom: space[1] }]}>Add a wine</Text>
-        {CHOICES.map(({ key, title, detail, Icon }) => (
+        {SECTIONS.map((section, si) => (
+          <View key={section.title} style={si ? { marginTop: space[1], borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.hairline, paddingTop: space[1] } : undefined}>
+        <Text accessibilityRole="header" style={[type.footnote, { fontWeight: '600', color: c.ink2, paddingHorizontal: space[4], paddingTop: space[2], paddingBottom: space[1] }]}>{section.title}</Text>
+        {section.choices.map(({ key, title, detail, Icon }) => (
           <Pressable
             key={key}
             accessibilityRole="button"
@@ -90,6 +104,8 @@ export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right
               <Text style={[type.footnote, { color: c.ink2 }]}>{detail}</Text>
             </View>
           </Pressable>
+        ))}
+          </View>
         ))}
       </Animated.View>
     </Modal>

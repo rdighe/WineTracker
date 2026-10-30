@@ -8,6 +8,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AuthProvider } from '../lib/auth';
 import { LocationProvider } from '../lib/location';
 import { SplashIntro } from '../components/SplashIntro';
+import { introFinished } from '../lib/intro';
 import { ThemeProvider, useTheme } from '../components/theme';
 
 // The native splash stays up until the opening animation has drawn its first frame.
@@ -36,7 +37,10 @@ export default function RootLayout() {
 function Navigator() {
   const { c, scheme } = useTheme();
   const [intro, setIntro] = useState(true);
-  const introDone = useCallback(() => setIntro(false), []);
+  const introDone = useCallback(() => {
+    setIntro(false);
+    introFinished();
+  }, []);
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBar style={intro || scheme === 'dark' ? 'light' : 'dark'} />

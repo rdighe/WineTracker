@@ -1,5 +1,6 @@
 /**
- * Lists (from Home › Your lists): what to order or buy when you're out. Photograph a restaurant wine
+ * Wine selection assistant (+ › Wine list or store shelf, Home › Your lists): what to order or buy when you're out.
+ * Choose a wine list or a store shelf. Photograph a restaurant wine
  * list or a store shelf to see its wines ranked for your palate (app/picks.tsx),
  * and come back to the lists and shelves you saved, with their photos, and
  * to those you didn't save from the last 14 days (Settings changes how long).
@@ -14,6 +15,7 @@ import { ErrorText, IconButton, Label, Muted, Title, radius, space, type, useThe
 import { lift } from '../components/Glass';
 import { shortDate } from '../lib/format';
 import type { SavedPick } from '../lib/types';
+import { usePullRefresh } from '../lib/usePullRefresh';
 import { useApi } from '../lib/useApi';
 
 export default function Lists() {
@@ -23,11 +25,9 @@ export default function Lists() {
   const [saved, setSaved] = useState<SavedPick[] | null>(null);
   const [recent, setRecent] = useState<{ pickId: number; kind: 'list' | 'shelf'; readAt: string; wines: number; topPick: string }[]>([]);
   const [keepDays, setKeepDays] = useState(14);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const r = await api.savedPicks();
       setSaved(r.saved);
@@ -36,11 +36,10 @@ export default function Lists() {
       setError(null);
     } catch (e) {
       setError(e);
-    } finally {
-      setLoading(false);
     }
   }, [api]);
   useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
@@ -51,7 +50,7 @@ export default function Lists() {
         numColumns={2}
         data={saved ?? []}
         keyExtractor={(p) => String(p.pickId)}
-        refreshControl={<RefreshControl refreshing={loading && saved !== null} onRefresh={load} tintColor={c.ink3} />}
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={c.ink3} />}
         ListHeaderComponent={
           <View style={{ gap: space[4] }}>
             <View style={{ marginLeft: -space[2], marginBottom: -space[2], alignSelf: 'flex-start' }}>
@@ -60,12 +59,12 @@ export default function Lists() {
               </IconButton>
             </View>
             <View>
-              <Title>Lists</Title>
-              <Muted style={{ marginTop: 2 }}>The best wines for you on a menu or a shelf</Muted>
+              <Title>Wine selection assistant</Title>
+              <Muted style={{ marginTop: 2 }}>Photograph a wine list or a store shelf and see the best wines on it for you</Muted>
             </View>
             <View style={{ flexDirection: 'row', gap: space[3] }}>
-              <Action title="Wine list" detail="At a restaurant" Icon={ListIcon} onPress={() => router.push('/picks?kind=list')} />
-              <Action title="Store shelf" detail="At a shop" Icon={ShelfIcon} onPress={() => router.push('/picks?kind=shelf')} />
+              <Action title="Wine list" detail="At a restaurant or bar: photos of the pages, or a PDF" Icon={ListIcon} onPress={() => router.push('/picks?kind=list')} />
+              <Action title="Store shelf" detail="At a shop: a photo of the shelf, price tags in view" Icon={ShelfIcon} onPress={() => router.push('/picks?kind=shelf')} />
             </View>
             <ErrorText error={error} />
             {recent.length ? (
@@ -89,7 +88,7 @@ export default function Lists() {
                 </View>
               </View>
             ) : null}
-            {saved?.length ? <Label>Saved</Label> : null}
+            {saved?.length ? <Label>Saved lists and shelves</Label> : null}
           </View>
         }
         ListEmptyComponent={saved && !recent.length ? (

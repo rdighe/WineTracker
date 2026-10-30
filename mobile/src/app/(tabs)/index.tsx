@@ -19,7 +19,9 @@ import { Button, Card, Chip, Divider, Muted, radius, size, space, type, useTheme
 import { dollars, partOfDay, shortDate, wineTitle } from '../../lib/format';
 import { useLocation } from '../../lib/location';
 import { tour } from '../../lib/tour';
+import { afterIntro } from '../../lib/intro';
 import type { Recommendation, SavedPick, Tasting, CommunityNote } from '../../lib/types';
+import { usePullRefresh } from '../../lib/usePullRefresh';
 import { useApi } from '../../lib/useApi';
 import { FitBadge, fitWords } from '../../components/FitBadge';
 import { NoteCard } from '../../components/NoteCard';
@@ -60,13 +62,11 @@ export default function Home() {
   const [near, setNear] = useState<Recommendation[] | null>(null);
   const [lists, setLists] = useState<SavedPick[] | null>(null);
   const [notes, setNotes] = useState<CommunityNote[] | null>(null);
-  const [loading, setLoading] = useState(false);
   const [touring, setTouring] = useState(false);
   const promptTarget = useTourTarget('prompt');
   const scanTarget = useTourTarget('scan');
 
   const load = useCallback(async () => {
-    setLoading(true);
     // Each section stands on its own: one failing leaves the others.
     await Promise.all([
       api.tastings().then((r) => setCellar(held(r.tastings)), () => setCellar([])),
@@ -76,23 +76,26 @@ export default function Home() {
       api.savedPicks().then((r) => setLists(r.saved.slice(0, 3)), () => setLists([])),
       api.community({ limit: 2 }).then((r) => setNotes(r.notes), () => setNotes([])),
     ]);
-    setLoading(false);
   }, [api, loc.near]);
   useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
-  // Someone new goes to Welcome first (Vivino, then the taste quiz), which comes back here for the tour.
-  // The tour: once, the first time Home opens; and whenever Settings asks for it.
+  // Nothing opens over the opening animation. Then: someone new goes to Welcome (imports, the taste quiz).
+  // The tour never starts by itself: only when asked (?tour=1, from Welcome, Settings or the card below).
+  const [offerTour, setOfferTour] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    void tour.done().then(async (done) => {
-      if (cancelled || (done && params.tour !== '1')) return;
-      if (params.tour !== '1') {
-        const o = await api.onboarding().catch(() => null);
-        if (cancelled) return;
-        if (o && !o.doneAt && o.tastings === 0) return void router.push('/welcome');
+    void afterIntro().then(async () => {
+      if (cancelled) return;
+      if (params.tour === '1') {
+        scroll.current?.scrollTo({ y: 0, animated: false });
+        setTouring(true);
+        return;
       }
-      scroll.current?.scrollTo({ y: 0, animated: false });
-      setTouring(true);
+      const [done, o] = await Promise.all([tour.done(), api.onboarding().catch(() => null)]);
+      if (cancelled) return;
+      if (o && !o.doneAt && o.tastings === 0) return void router.push('/welcome');
+      setOfferTour(!done);
     });
     return () => {
       cancelled = true;
@@ -100,6 +103,7 @@ export default function Home() {
   }, [api, params.tour]);
   const tourDone = useCallback(() => {
     setTouring(false);
+    setOfferTour(false);
     void tour.finish();
     if (params.tour) router.setParams({ tour: undefined });
   }, [params.tour]);
@@ -113,12 +117,23 @@ export default function Home() {
         ref={scroll}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120, gap: space[6] }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={c.ink3} />}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text accessibilityRole="header" style={[type.wordmark, { color: c.accent }]}>WineTracker</Text>
           <ProfileButton />
         </View>
+
+        {offerTour ? (
+          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[type.headline, { color: c.ink }]}>New here?</Text>
+              <Muted>A one-minute look at what WineTracker does.</Muted>
+            </View>
+            <Button title="Not now" variant="plain" size="sm" onPress={tourDone} />
+            <Button title="Take the tour" variant="tinted" size="sm" onPress={() => { scroll.current?.scrollTo({ y: 0, animated: false }); setOfferTour(false); setTouring(true); }} />
+          </Card>
+        ) : null}
 
         <View ref={promptTarget} collapsable={false}>
           <Card style={{ gap: space[3], padding: space[5] }}>

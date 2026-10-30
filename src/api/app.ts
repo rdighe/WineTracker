@@ -36,7 +36,7 @@ import { maybeQueueWineImage } from '../catalog/images.js';
 import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { CellarTrackerError, CT_PARTS, detectPart, fetchCellarTracker, importCellarTracker, type CtPart } from '../imports/cellartracker.js';
-import { cellarPicks, recommend } from '../recs/recommend.js';
+import { bestKinds, cellarPicks, recommend } from '../recs/recommend.js';
 import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs, saveTasteEdits } from '../recs/archetypes.js';
 import { jevReport } from '../recs/jevLog.js';
 import { addFriend, cardByCode, cardCode, friendCard, listFriends, removeFriend, tasteCard, TasteError } from '../recs/tasteCard.js';
@@ -1090,6 +1090,19 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
     notes: z.string().trim().max(200).optional(),
     food: z.string().trim().max(200).optional(),
   });
+
+  // Find a bottle: the kinds of wine that best suit the occasion (an example kind, not a bottle).
+  app.get('/api/occasion/kinds', auth.requireUser, wrap(async (req, res) => {
+    const q = parse(
+      z.object({
+        occasion: z.enum(['dinner', 'guests', 'celebrate', 'new']).optional(),
+        styles: z.string().max(80).optional().transform((s) => (s ? s.split(',').filter(Boolean) : undefined)).pipe(searchSchema.shape.styles),
+        food: searchSchema.shape.food,
+      }),
+      req.query
+    );
+    res.json({ kinds: await bestKinds(db, req.user!.userId, q) });
+  }));
 
   // Home › Find a bottle: the person's own bottles, best first for the occasion.
   app.get('/api/cellar/picks', auth.requireUser, wrap(async (req, res) => {

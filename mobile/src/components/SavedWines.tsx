@@ -9,6 +9,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dollars, shortDate, wineTitle } from '../lib/format';
 import type { SavedWine } from '../lib/types';
+import { usePullRefresh } from '../lib/usePullRefresh';
 import { useApi } from '../lib/useApi';
 import { SearchBar } from './AddSearch';
 import { BookmarkIcon, ChevronIcon } from './icons';
@@ -28,22 +29,19 @@ export function SavedWines({ modeSwitch }: { modeSwitch: ReactNode }) {
   const [rows, setRows] = useState<SavedWine[] | null>(null);
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       setRows((await api.saved()).saved);
     } catch (e) {
       setError(e);
-    } finally {
-      setLoading(false);
     }
   }, [api]);
   // Again on every visit: a wine may have been saved or removed on its page.
   useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   const visible = useMemo(() => {
     const q = normalizeForSearch(query);
@@ -60,7 +58,7 @@ export function SavedWines({ modeSwitch }: { modeSwitch: ReactNode }) {
       key="saved"
       keyExtractor={(w) => `saved-${w.wine_id}`}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={c.ink3} />}
       ListHeaderComponent={
         <View style={{ gap: space[4], marginBottom: space[4] }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3] }}>

@@ -241,7 +241,8 @@ export interface CellarPick {
   myRating: number | null;
   score: number;
   reasons: string[];
-  fit?: Fit;
+  /** null when they've rated it themselves. */
+  fit?: Fit | null;
 }
 
 /** What suggestions are based on: the rated wines' styles, usual price band and leading flavors. */
@@ -456,3 +457,6 @@ export interface TasteComparison {
   theyLoveYouHavent: { wineId: number; name: string; vintage: string | null }[];
 }
 export interface SharedTaste { userId: number; me: boolean; friend: boolean; card: TasteCard; comparison: TasteComparison | null }
+
+/** A kind of wine (not one bottle) that suits an occasion: Find a bottle's "best kind for this". */
+export interface BestKind { key: string; title: string; detail: string; style: RecStyle; reasons: string[]; fit: Fit | null }

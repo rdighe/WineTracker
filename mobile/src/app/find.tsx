@@ -1,9 +1,10 @@
 /**
  * Find a bottle (Home): what you're after - the occasion, what's on the
- * table, a style - and where to look: your cellar (GET /api/cellar/picks) and
- * shops near you (GET /api/recommendations with the same food and styles).
- * Your own bottles come first; shop picks fill in. ?occasion= starts it from
- * one of Home's quick answers.
+ * table, a style - and where to look: your cellar (GET /api/cellar/picks),
+ * shops near you, and all wines (GET /api/recommendations with the same food
+ * and styles, near you or anywhere). First, the kind of wine that best suits
+ * the occasion (GET /api/occasion/kinds); then your own bottles, then the
+ * rest. ?occasion= starts it from one of Home's quick answers.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -16,7 +17,7 @@ import { Button, Card, Chip, ErrorText, Field, IconButton, Label, Muted, Screen,
 import type { WineStyle } from '../components/theme';
 import { dollars, partOfDay, wineTitle } from '../lib/format';
 import { useLocation } from '../lib/location';
-import type { CellarPick, RecStyle, Recommendation } from '../lib/types';
+import type { BestKind, CellarPick, RecStyle, Recommendation } from '../lib/types';
 import { useApi } from '../lib/useApi';
 import { FitBadge } from '../components/FitBadge';
 
@@ -36,8 +37,8 @@ const STYLES: { key: RecStyle; label: string; dot: WineStyle }[] = [
 ];
 const STYLE_DOT: Record<string, WineStyle> = { red: 'red', white: 'white', rose: 'rose', sparkling: 'sparkling', orange: 'orange', sweet: 'fortified' };
 
-interface Asked { occasion: Occasion | null; food: string; styles: RecStyle[]; cellar: boolean; near: boolean }
-interface Answer { cellar: CellarPick[] | null; near: Recommendation[] | null; nearApplied: boolean }
+interface Asked { occasion: Occasion | null; food: string; styles: RecStyle[]; cellar: boolean; near: boolean; all: boolean }
+interface Answer { kinds: BestKind[]; cellar: CellarPick[] | null; near: Recommendation[] | null; nearApplied: boolean; all: Recommendation[] | null }
 
 export default function FindABottle() {
   const api = useApi();
@@ -53,6 +54,8 @@ export default function FindABottle() {
     // Something new looks in shops, not the cellar you already know.
     cellar: start !== 'new',
     near: Boolean(loc.near),
+    // Without a location, the best wines anywhere.
+    all: !loc.near,
   });
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState(false);
@@ -65,15 +68,22 @@ export default function FindABottle() {
     setError(null);
     try {
       const search = { food: a.food, styles: a.styles };
-      const [cellar, near] = await Promise.all([
+      const [kinds, cellar, near, all] = await Promise.all([
+        api.occasionKinds({ occasion: a.occasion, ...search }).then((r) => r.kinds, () => []),
         a.cellar ? api.cellarPicks(search).then((r) => r.items.slice(0, 3)) : Promise.resolve(null),
         a.near && loc.near ? api.recommendations({ ...search, near: loc.near }) : Promise.resolve(null),
+        a.all ? api.recommendations(search) : Promise.resolve(null),
       ]);
       if (mine !== latest.current) return;
+      const nearItems = near?.mode === 'profile' ? near.items.slice(0, cellar && cellar.length >= 3 ? 2 : 4) : near ? [] : null;
+      // All wines: those not already shown as near you.
+      const shown = new Set((nearItems ?? []).map((r) => r.wineId));
       setAnswer({
+        kinds,
         cellar,
-        near: near?.mode === 'profile' ? near.items.slice(0, cellar && cellar.length >= 3 ? 2 : 4) : near ? [] : null,
+        near: nearItems,
         nearApplied: near?.mode === 'profile' ? near.near?.applied !== false : false,
+        all: all?.mode === 'profile' ? all.items.filter((r) => !shown.has(r.wineId)).slice(0, 4) : all ? [] : null,
       });
     } catch (e) {
       if (mine === latest.current) setError(e);
@@ -125,13 +135,15 @@ export default function FindABottle() {
           <Chip selected={asked.near} onPress={() => (loc.near ? set({ near: !asked.near }) : router.push('/settings'))}>
             {loc.here ? `Shops near ${loc.here.label}` : 'Shops near me (turn on Location)'}
           </Chip>
+          <Chip selected={asked.all} onPress={() => set({ all: !asked.all })}>All wines</Chip>
         </View>
       </View>
-      <Button title="Show me bottles" busy={busy} disabled={!asked.cellar && !(asked.near && loc.near)} onPress={() => void run(asked)} />
+      <Button title="Show me bottles" busy={busy} disabled={!asked.cellar && !(asked.near && loc.near) && !asked.all} onPress={() => void run(asked)} />
       <ErrorText error={error} />
 
       {answer ? (
         <View style={{ gap: space[5] }}>
+          {answer.kinds[0] ? <KindCard kind={answer.kinds[0]} also={answer.kinds[1]} /> : null}
           {answer.cellar ? (
             <View style={{ gap: space[3] }}>
               <Text accessibilityRole="header" style={[type.title3, { color: c.ink }]}>From your cellar</Text>
@@ -153,6 +165,16 @@ export default function FindABottle() {
                   <ShopCard r={r} />
                 </Animated.View>
               )) : <Muted style={type.subhead}>Rate a few wines to get suggestions from shops.</Muted>}
+            </View>
+          ) : null}
+          {answer.all ? (
+            <View style={{ gap: space[3] }}>
+              <Text accessibilityRole="header" style={[type.title3, { color: c.ink }]}>Best for this, anywhere</Text>
+              {answer.all.length ? answer.all.map((r, i) => (
+                <Animated.View key={r.wineId} entering={FadeInDown.delay(i * 60).duration(260)}>
+                  <ShopCard r={r} anywhere />
+                </Animated.View>
+              )) : <Muted style={type.subhead}>Rate a few wines and the best ones for the occasion show here.</Muted>}
             </View>
           ) : null}
         </View>
@@ -189,7 +211,7 @@ function CellarCard({ p }: { p: CellarPick }) {
 }
 
 /** A wine to buy: on its wash, why it fits, the nearest shop, and the price. */
-function ShopCard({ r }: { r: Recommendation }) {
+function ShopCard({ r, anywhere }: { r: Recommendation; anywhere?: boolean }) {
   const { c } = useTheme();
   const ws = wineStyleOf(r.colour, r.wineType);
   return (
@@ -198,7 +220,7 @@ function ShopCard({ r }: { r: Recommendation }) {
         <View style={{ flexDirection: 'row', gap: space[3] }}>
           <WineThumb uri={r.imageUrl} wineStyle={ws} width={56} height={74} />
           <View style={{ flex: 1, gap: 2 }}>
-            <Text style={[type.caption, { color: c.ink2, letterSpacing: 0.6 }]}>NEAR YOU</Text>
+            <Text style={[type.caption, { color: c.ink2, letterSpacing: 0.6 }]}>{anywhere ? 'TO BUY' : 'NEAR YOU'}</Text>
             <Text style={[type.wineTitle, { fontSize: 19, lineHeight: 24, color: c.ink }]} numberOfLines={2}>{wineTitle(r.displayName)}</Text>
             <Text style={[type.footnote, { color: c.ink2 }]} numberOfLines={1}>{r.region}</Text>
           </View>
@@ -230,3 +252,23 @@ function Reasons({ reasons }: { reasons: string[] }) {
   );
 }
 
+
+/** The kind of wine that suits the occasion best (an example, not a bottle), why, and the runner-up. */
+function KindCard({ kind, also }: { kind: BestKind; also?: BestKind }) {
+  const { c } = useTheme();
+  const ws = STYLE_DOT[kind.style] ?? 'red';
+  return (
+    <Animated.View entering={FadeInDown.duration(260)}>
+      <Card style={{ backgroundColor: c.wash[ws], gap: space[3], borderWidth: 1.5, borderColor: c.accent }}>
+        <Text style={[type.caption, { color: c.accent, letterSpacing: 0.6 }]}>BEST KIND OF WINE FOR THIS</Text>
+        <View style={{ gap: 2 }}>
+          <Text accessibilityRole="header" style={[type.wineDisplay, { color: c.ink }]}>{kind.title}</Text>
+          <Text style={[type.subhead, { color: c.ink2 }]}>{kind.detail}</Text>
+        </View>
+        <FitBadge fit={kind.fit} />
+        <Reasons reasons={kind.reasons} />
+        {also ? <Muted>{`Also good: ${also.title}`}</Muted> : null}
+      </Card>
+    </Animated.View>
+  );
+}

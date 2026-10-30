@@ -14,6 +14,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { Button, Card, Chip, ErrorText, Muted, space, type, useStyles, useTheme } from '../components/ui';
 import { ago } from '../lib/format';
 import type { CommunityNote, NoteReply } from '../lib/types';
+import { usePullRefresh } from '../lib/usePullRefresh';
 import { useApi } from '../lib/useApi';
 
 export default function Community() {
@@ -45,6 +46,7 @@ function Feed({ wineId, mine }: { wineId?: number; mine: boolean }) {
     }
   }, [api, wineId, mine]);
   useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   async function next() {
     if (!notes?.length || !more || loading) return;
@@ -67,7 +69,7 @@ function Feed({ wineId, mine }: { wineId?: number; mine: boolean }) {
       contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 80, gap: space[3] }}
       data={notes ?? []}
       keyExtractor={(n) => String(n.noteId)}
-      refreshControl={<RefreshControl refreshing={loading && notes !== null} onRefresh={load} tintColor={c.ink3} />}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={c.ink3} />}
       onEndReached={() => void next()}
       onEndReachedThreshold={0.4}
       ListHeaderComponent={

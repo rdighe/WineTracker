@@ -14,7 +14,7 @@ import type { Db } from '../db/pool.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { parseTitle } from '../lib/listing.js';
 import { normalize } from '../lib/normalize.js';
-import { archetype, BUDGET_CENTS, loadPrefs, REACTION_RATING } from './archetypes.js';
+import { archetype, ARCHETYPES, BUDGET_CENTS, loadPrefs, REACTION_RATING } from './archetypes.js';
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
 import { flavorLabel, mergeFlavors, textFlavors, type Flavor, type FlavorProfile } from './flavors.js';
 import { buildProfile, explain, scoreWine, type Profile, type RatedWine } from './profile.js';
@@ -517,8 +517,8 @@ export interface CellarPick {
   myRating: number | null;
   score: number;
   reasons: string[];
-  /** How well it suits their taste, apart from the occasion. */
-  fit: Fit;
+  /** How well it suits their taste, apart from the occasion; null when they've rated it (their rating says it). */
+  fit: Fit | null;
 }
 
 /**
@@ -571,7 +571,7 @@ export async function cellarPicks(db: Db, userId: number, opts: { food?: string;
     return {
       wineId: Number(r.wine_id), displayName: r.display_name, region: r.sub_region || r.region, style, imageUrl: r.image_url ?? null,
       vintages, bottles: Number(r.bottles), location: r.location ?? '', place: r.place ?? null, cellar: r.cellar ?? null, medianCents: r.median_cents ?? null, myRating,
-      score: Math.round(score * 1000) / 1000, reasons, fit: fitOf(cal, s.score),
+      score: Math.round(score * 1000) / 1000, reasons, fit: myRating == null ? fitOf(cal, s.score) : null,
     };
   }).filter((x): x is CellarPick => x !== null && x.bottles > 0);
   items.sort((a, b) => b.score - a.score);
@@ -653,4 +653,55 @@ function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_u
     reasons,
     fit,
   };
+}
+
+export type Occasion = 'dinner' | 'guests' | 'celebrate' | 'new';
+
+export interface BestKind {
+  key: string;
+  title: string;
+  detail: string;
+  style: RecStyle;
+  reasons: string[];
+  fit: Fit | null;
+}
+
+/**
+ * The kinds of wine (src/recs/archetypes.ts) that best suit an occasion, for
+ * Find a bottle: what's on the table first, then the occasion (bubbles to
+ * celebrate; easy, generous wines for a crowd; for something new, kinds
+ * unlike what they already drink), then their own taste. Best two.
+ */
+export async function bestKinds(db: Db, userId: number, opts: { occasion?: Occasion | null; food?: string; styles?: RecStyle[] } = {}): Promise<BestKind[]> {
+  const { profile, wines } = await loadProfile(db, userId);
+  const knows = profile.n >= MIN_RATED;
+  const cal = knows ? calibrationFor(userId, wines) : null;
+  const foods = foodHints(opts.food);
+  const scored = ARCHETYPES.flatMap((a) => {
+    if (opts.styles?.length && !opts.styles.includes(a.style)) return [];
+    const row = { wine_id: 0, ...a.row };
+    const f = wineFeatures(row, { text: a.notes });
+    const food = foodMatch(foods, f, a.style, []);
+    const taste = knows ? scoreWine(profile, f, null) : null;
+    const reasons = [...food.reasons];
+    let occasion = 0;
+    if (opts.occasion === 'celebrate' && a.style === 'sparkling') {
+      occasion = 0.8;
+      reasons.push('Bubbles for the occasion');
+    } else if (opts.occasion === 'guests') {
+      // Generous, easy to like: fruit, not too tannic or austere.
+      const fl = f.flavors ?? {};
+      occasion = ((fl.red_fruit ?? 0) + (fl.black_fruit ?? 0) + (fl.stone_fruit ?? 0)) * 0.25 - (fl.tannic ?? 0) * 0.3 - (fl.sweet ?? 0) * 0.3;
+      if (occasion > 0.15) reasons.push('Easy to like for a crowd');
+    } else if (opts.occasion === 'new' && knows) {
+      // Something new: a grape and place they haven't leaned on.
+      const known = (profile.features.grape.get(f.grape ?? '')?.count ?? 0) + (profile.features.region.get(f.region ?? '')?.count ?? 0);
+      occasion = known ? -0.6 : 0.5;
+      if (!known) reasons.push("Not like what you usually drink");
+    }
+    if (taste) reasons.push(...explain(taste.contributions));
+    const score = food.score * 1.2 + occasion + (taste ? 0.6 * taste.score : 0);
+    return [{ a, score, reasons: [...new Set(reasons)].slice(0, 2), fit: cal && taste ? fitOf(cal, taste.score) : null }];
+  });
+  return scored.sort((x, y) => y.score - x.score).slice(0, 2).map(({ a, reasons, fit }) => ({ key: a.key, title: a.title, detail: a.detail, style: a.style, reasons, fit }));
 }

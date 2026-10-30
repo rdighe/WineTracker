@@ -21,6 +21,7 @@ import { Button, Card, Chip, ErrorText, Field, Heading, Label, Muted, Title, rad
 import type { WineStyle } from '../../components/theme';
 import { dollars } from '../../lib/format';
 import type { RecSearch, RecStyle, RecView, Recommendation, RecommendationsResponse, TasteSummary } from '../../lib/types';
+import { usePullRefresh } from '../../lib/usePullRefresh';
 import { useApi } from '../../lib/useApi';
 import { FitBadge, fitWords } from '../../components/FitBadge';
 import { useLocation } from '../../lib/location';
@@ -82,6 +83,7 @@ export default function Discover() {
       if (mine === latest.current) setLoading(false);
     }
   }, [api, filter, view, listKey, near]);
+  const pull = usePullRefresh(load);
   const loadSaved = useCallback(() => {
     api.recViews().then((r) => setSaved(r.views), () => setSaved([]));
   }, [api]);
@@ -129,7 +131,7 @@ export default function Discover() {
         // Each filter's or search's list fades in as a new list.
         key={listKey}
         keyExtractor={(r) => `${listKey}-${r.wineId}`}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={c.ink3} />}
         ListHeaderComponent={
           <View style={{ gap: space[4] }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3] }}>

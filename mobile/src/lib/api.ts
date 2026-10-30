@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity, CtPart, TasteCard, SharedTaste } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity, CtPart, TasteCard, SharedTaste, BestKind } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -281,6 +281,14 @@ export function createApi(authHeader: AuthHeader) {
     receipt: (id: number) => request<ReceiptDetail>(`/api/receipts/${id}`),
     deleteReceipt: (id: number) => request<void>(`/api/receipts/${id}`, { method: 'DELETE' }),
     receiptPhoto: async (id: number) => ({ uri: `${getApiUrl()}/api/receipts/${id}/photo`, headers: { Authorization: (await authHeader()) ?? '' } }),
+    /** The kinds of wine that best suit an occasion (Find a bottle). */
+    occasionKinds: (opts: { occasion?: string | null; food?: string; styles?: RecStyle[] }) => {
+      const q = new URLSearchParams();
+      if (opts.occasion) q.set('occasion', opts.occasion);
+      if (opts.food?.trim()) q.set('food', opts.food.trim());
+      if (opts.styles?.length) q.set('styles', opts.styles.join(','));
+      return request<{ kinds: BestKind[] }>(`/api/occasion/kinds?${q}`);
+    },
     recViews: () => request<{ views: RecView[] }>('/api/rec-views'),
     saveRecView: (name: string, criteria: RecSearch) => request<RecView>('/api/rec-views', json('POST', { name, criteria })),
     deleteRecView: (id: number) => request<void>(`/api/rec-views/${id}`, { method: 'DELETE' }),

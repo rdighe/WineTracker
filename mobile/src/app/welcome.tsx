@@ -3,7 +3,7 @@
  * over from CellarTracker or Vivino (each with how to); then a skippable 90-second taste quiz - the styles they
  * drink, a quick answer for a dozen well-known kinds of wine, what they
  * usually spend (src/recs/archetypes.ts on the server) - and their first
- * picks, with what they're based on. Ends at Home with the tour. Settings ›
+ * picks, with what they're based on. Ends at Home, with the tour only if they ask for it. Settings ›
  * Retake the taste quiz opens it at the quiz (?redo=1).
  */
 import { router, useLocalSearchParams } from 'expo-router';
@@ -72,7 +72,7 @@ export default function Welcome() {
   /** Leave for Home and its tour; answers so far are kept. */
   async function finish(skipped: boolean) {
     await api.saveOnboarding({ styles, budget, seeds, done: true, skipped }).catch(() => {});
-    router.dismissTo('/?tour=1');
+    router.dismissTo('/');
   }
 
   const quizAt = QUIZ.indexOf(step);
@@ -175,7 +175,7 @@ export default function Welcome() {
         </Animated.View>
       ) : null}
 
-      {step === 'picks' ? <FirstPicks onDone={() => router.dismissTo('/?tour=1')} /> : null}
+      {step === 'picks' ? <FirstPicks onDone={(tour) => router.dismissTo(tour ? '/?tour=1' : '/')} /> : null}
     </Screen>
   );
 }
@@ -203,7 +203,7 @@ function ReactionCard({ a, n, of, current, onAnswer, onBack }: {
 }
 
 /** The first picks the answers give, and why. */
-function FirstPicks({ onDone }: { onDone: () => void }) {
+function FirstPicks({ onDone }: { onDone: (tour: boolean) => void }) {
   const api = useApi();
   const { c } = useTheme();
   const [items, setItems] = useState<Recommendation[] | null>(null);
@@ -227,7 +227,8 @@ function FirstPicks({ onDone }: { onDone: () => void }) {
           </View>
         </Card>
       )) : <Muted>Picks will show up as soon as there are prices for wines like these.</Muted>}
-      <Button title="Show me around" onPress={onDone} />
+      <Button title="Start" onPress={() => onDone(false)} />
+      <Button title="Show me around first" variant="secondary" onPress={() => onDone(true)} />
     </Animated.View>
   );
 }
