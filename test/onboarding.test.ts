@@ -49,6 +49,7 @@ describe('the taste quiz', () => {
     expect(recs.items[0].wineId).toBe(nebbiolo);
     expect(recs.items[0].reasons.join(' ')).toMatch(/You said you like|Tastes of what you like/);
     expect(recs.items[0].reasons.join(' ')).not.toMatch(/You rated/);
+    expect(recs.items[0].fit).toMatchObject({ band: expect.stringMatching(/strong|good|maybe|unlikely/), basis: 4 });
   });
 
   it('can be skipped, and is remembered', async () => {

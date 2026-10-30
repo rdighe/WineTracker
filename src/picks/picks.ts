@@ -19,6 +19,7 @@
  * On a shelf the same ratio says how the store's price compares with typical
  * retail (below 1 is a good deal).
  */
+import { calibrationFor, fitOf, type Fit } from '../recs/fit.js';
 import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import { ProviderUnavailableError, type ListEntry, type LlmProvider } from '../llm/types.js';
@@ -219,6 +220,8 @@ export interface PickItem {
   glassMarkup: number | null;
   /** Jev's prediction, 0 (would dislike) to 4 (would love), when that prototype is on; already blended into score. */
   jevScore?: number | null;
+  /** How likely they are to enjoy it, checked against Jev where it ran (src/recs/fit.ts); null until the profile is unlocked. */
+  fit?: Fit | null;
 }
 
 export interface PickResult {
@@ -479,6 +482,8 @@ export async function scorePicks(
   const myRating = new Map(mine.map((r) => [Number(r.wine_id), r.rating as number]));
 
   // 3. Score.
+  // The profile's own score per entry (before their rating of it and Jev): what the match is calibrated on.
+  const taste = new Map<number, number>();
   const items = entries.map((entry, index): PickItem => {
     const { match, wineId } = matches[index]!;
     const wine = wineId ? wines.get(wineId) : undefined;
@@ -488,6 +493,7 @@ export async function scorePicks(
     let reasons: string[] = [];
     if (profile) {
       const s = scoreWine(profile, features, null);
+      taste.set(index, s.score);
       // Their own verdict on this very wine outweighs any guess.
       score = s.score + (rated === null ? 0 : (rated - profile.meanRating) * 0.5);
       reasons = explain(s.contributions);
@@ -534,6 +540,11 @@ export async function scorePicks(
     } catch (err) {
       console.log(`picks: jev predict failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  if (profile && prof && userId) {
+    const cal = calibrationFor(userId, prof.wines);
+    for (const x of items) x.fit = taste.has(x.index) ? fitOf(cal, taste.get(x.index)!, x.jevScore) : null;
   }
 
   // Best fit first; without a profile, the best value (lowest markup) first, then as listed.

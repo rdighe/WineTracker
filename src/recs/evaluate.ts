@@ -10,6 +10,10 @@
  *   liked        wines rated LIKED or more; where each would rank among the
  *                priced catalog: the median percentile from the top, and the
  *                share that would make the top 5% and 10%
+ *   fit          the fit percentage the app shows (src/recs/fit.ts), calibrated
+ *                without the held-out wine: Brier score, and how often wines in
+ *                each band were enjoyed; with Jev, how often the fit was right
+ *                when Jev agreed with it and when it didn't
  *
  * Run it with scripts/eval-recs.ts.
  */
@@ -17,6 +21,7 @@ import type { Features } from './features.js';
 import { buildProfile, scoreWine } from './profile.js';
 import { ratedWine, type OwnFlavors, type RatedTasting } from './recommend.js';
 import { ENJOY_MID } from './jevPredict.js';
+import { calibrate, enjoyed, fitOf, type FitBand } from './fit.js';
 
 export const LIKED = 4;
 
@@ -132,7 +137,7 @@ export function evaluateUser(rated: RatedTasting[], own: OwnFlavors, catalog: Ca
  */
 export async function evaluateJev(
   rated: RatedTasting[], predict: (others: RatedTasting[], wine: RatedTasting) => Promise<number | null>, own: OwnFlavors = 'read', weight = 1, concurrency = 4
-): Promise<{ wines: number; answered: number; profile: Pick<EvalResult, 'concordance' | 'spearman'>; jev: Pick<EvalResult, 'concordance' | 'spearman'>; blended: Pick<EvalResult, 'concordance' | 'spearman'> }> {
+): Promise<{ wines: number; answered: number; byWine: Map<number, number>; profile: Pick<EvalResult, 'concordance' | 'spearman'>; jev: Pick<EvalResult, 'concordance' | 'spearman'>; blended: Pick<EvalResult, 'concordance' | 'spearman'> }> {
   const wineIds = [...new Set(rated.map((t) => t.wineId))];
   const rows: { profile: number; jev: number | null; ratings: number[] }[] = new Array(wineIds.length);
   let next = 0;
@@ -155,9 +160,49 @@ export async function evaluateJev(
   return {
     wines: wineIds.length,
     answered: answered.length,
+    byWine: new Map(rows.flatMap((r, i) => (r.jev === null ? [] : [[wineIds[i]!, r.jev] as [number, number]]))),
     // On the same wines Jev answered, so the three are comparable.
     profile: measure((r) => r.profile),
     jev: measure((r) => r.jev!),
     blended: measure((r) => r.profile + weight * (r.jev! - ENJOY_MID)),
   };
+}
+
+export interface FitEval {
+  wines: number;
+  /** Mean squared error of the fit (as a share) against enjoyed or not: 0.25 is a coin flip, lower is better. */
+  brier: number | null;
+  /** Per band: wines shown in it, and how many of those they enjoyed. */
+  bands: Record<FitBand, { n: number; enjoyed: number }>;
+  /** With Jev's predictions: was the fit right (50%+ and enjoyed, or under and not) when Jev agreed, and when it didn't. */
+  jev?: { agrees: { n: number; right: number }; unsure: { n: number; right: number } };
+}
+
+/**
+ * The fit the app would have shown for each rated wine, from everything else
+ * they rated (profile and calibration both), against whether they enjoyed
+ * it. At most `max` wines are held out (each costs a calibration).
+ */
+export function evaluateFit(rated: RatedTasting[], jevByWine?: Map<number, number>, own: OwnFlavors = 'read', max = 60): FitEval {
+  const mean = rated.reduce((s, t) => s + t.rating, 0) / Math.max(1, rated.length);
+  const bands: FitEval['bands'] = { strong: { n: 0, enjoyed: 0 }, good: { n: 0, enjoyed: 0 }, maybe: { n: 0, enjoyed: 0 }, unlikely: { n: 0, enjoyed: 0 } };
+  const jev = { agrees: { n: 0, right: 0 }, unsure: { n: 0, right: 0 } };
+  let sq = 0, n = 0;
+  for (const held of rated.slice(-max)) {
+    const others = rated.filter((t) => t !== held).map((t) => ratedWine(t, own));
+    const score = scoreWine(buildProfile(others), held.features, held.priceCents).score;
+    const cal = calibrate(others);
+    const fit = fitOf(cal, score, jevByWine?.get(held.wineId));
+    const p = 1 / (1 + Math.exp(-(cal.a * score + cal.b)));
+    const y = enjoyed(held.rating, mean);
+    sq += (p - (y ? 1 : 0)) ** 2;
+    n++;
+    bands[fit.band].n++;
+    if (y) bands[fit.band].enjoyed++;
+    if (fit.jev) {
+      jev[fit.jev].n++;
+      if ((p >= 0.5) === y) jev[fit.jev].right++;
+    }
+  }
+  return { wines: n, brier: n ? sq / n : null, bands, ...(jevByWine ? { jev } : {}) };
 }

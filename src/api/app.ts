@@ -937,6 +937,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
         near: parseNear(req.query.near) ?? undefined,
         places,
         noteReader,
+        jev: pickJev.predict,
       })
     );
   }));

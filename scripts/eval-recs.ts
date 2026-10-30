@@ -8,8 +8,12 @@
  *   npm run eval:recs -- --min-rated 5      fewer ratings needed (default 8)
  *   npm run eval:recs -- --sample 3000      catalog wines to rank against (default 3000; 0 = skip)
  *   npm run eval:recs -- --read-notes       first read unread rated notes with OpenRouter (writes them to the database)
- *   npm run eval:recs -- --jev              also test Jev's predictions (src/recs/jevPredict.ts) against the profile score:
+ *   npm run eval:recs -- --jev              also test Jev's predictions (src/recs/jevPredict.ts) against the profile score,
+ *                                           and whether a fit Jev agrees with is right more often:
  *                                           one OpenRouter call per rated wine; needs OPENROUTER_API_KEY
+ *
+ * Each user also gets the fit the app shows (src/recs/fit.ts) checked against
+ * what they rated: Brier score, and how often each band's wines were enjoyed.
  *
  * Uses DATABASE_URL. Only reads, unless --read-notes is given.
  */
@@ -18,7 +22,7 @@ import { config } from '../src/config.js';
 import { createJev, createNoteProvider } from '../src/llm/index.js';
 import { JevClient, jevNoteReader } from '../src/llm/jev.js';
 import { predictEnjoyment } from '../src/recs/jevPredict.js';
-import { evaluateJev, evaluateUser, type CatalogWine, type EvalResult } from '../src/recs/evaluate.js';
+import { evaluateFit, evaluateJev, evaluateUser, type CatalogWine, type EvalResult } from '../src/recs/evaluate.js';
 import { candidates, loadRatedTastings, MIN_RATED, type OwnFlavors } from '../src/recs/recommend.js';
 import { createNoteFlavorReader } from '../src/tastings/noteFlavors.js';
 
@@ -83,6 +87,7 @@ try {
       totals.get(mode)!.push(r);
       console.log(`  ${label.padEnd(21)}  ${pct(r.concordance)}     ${num(r.spearman)}  ${String(r.liked).padStart(5)}  ${pct(r.likedMedianPct).padStart(11)}  ${pct(r.likedTop5).padStart(6)}  ${pct(r.likedTop10).padStart(7)}`);
     }
+    let jevByWine: Map<number, number> | undefined;
     if (withJev) {
       if (!config.openrouterApiKey) throw new Error('--jev needs OPENROUTER_API_KEY');
       const jev = new JevClient({ apiKey: config.openrouterApiKey, model: config.jevModel || undefined });
@@ -91,6 +96,14 @@ try {
       for (const [label, m] of [['profile score', j.profile], ['jev alone', j.jev], ['profile + jev', j.blended]] as const) {
         console.log(`  ${label.padEnd(21)}  ${pct(m.concordance)}     ${num(m.spearman)}`);
       }
+      jevByWine = j.byWine;
+    }
+    const fit = evaluateFit(rated, jevByWine);
+    const band = (b: keyof typeof fit.bands) => (fit.bands[b].n ? `${b} ${fit.bands[b].enjoyed}/${fit.bands[b].n} enjoyed` : `${b} -`);
+    console.log(`  fit: brier ${num(fit.brier)} (0.25 = coin flip) · ${(['strong', 'good', 'maybe', 'unlikely'] as const).map(band).join(' · ')}`);
+    if (fit.jev) {
+      const r = (x: { n: number; right: number }) => (x.n ? `${x.right}/${x.n} right` : '-');
+      console.log(`  fit when jev agrees: ${r(fit.jev.agrees)} · when jev is unsure: ${r(fit.jev.unsure)}`);
     }
     console.log('');
   }

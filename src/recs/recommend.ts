@@ -18,6 +18,9 @@ import { archetype, BUDGET_CENTS, loadPrefs, REACTION_RATING } from './archetype
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
 import { flavorLabel, mergeFlavors, textFlavors, type Flavor, type FlavorProfile } from './flavors.js';
 import { buildProfile, explain, scoreWine, type Profile, type RatedWine } from './profile.js';
+import { calibrationFor, fitOf, type Fit } from './fit.js';
+import { predictEnjoyment } from './jevPredict.js';
+import type { JevClient } from '../llm/jev.js';
 import { currentNoteFlavors, noteHash, ownFlavorWeights, type NoteFlavorReader } from '../tastings/noteFlavors.js';
 import type { Near, Places, Reach } from '../places/places.js';
 
@@ -32,6 +35,8 @@ const PHOTO_BONUS = 0.05;
 
 export interface RecOptions {
   limit?: number;
+  /** Jev, to check the first suggestions' fit against (src/recs/fit.ts). */
+  jev?: JevClient | null;
   /** Still reds, still whites, or everything else (rosé, sparkling, sweet, fortified): older app versions. */
   colour?: 'red' | 'white' | 'other';
   /** One style only. */
@@ -83,6 +88,8 @@ export interface Recommendation {
   nMerchants: number;
   score: number;
   reasons: string[];
+  /** How likely they are to enjoy it (src/recs/fit.ts), checked by Jev where it runs. */
+  fit: Fit;
 }
 
 const WINE_COLS = `w.wine_id, w.display_name, w.producer, w.grape, w.colour, w.wine_type, w.region, w.sub_region, w.country`;
@@ -201,9 +208,12 @@ export function likedStyles(rated: RatedTasting[]): RecStyle[] {
 }
 
 /** unread: rated tastings whose notes no model has read yet (src/tastings/noteFlavors.ts). */
-export async function loadProfile(db: Db, userId: number): Promise<{ profile: Profile; tasted: Set<number>; styles: RecStyle[]; unread: number[] }> {
+export async function loadProfile(db: Db, userId: number): Promise<{
+  profile: Profile; tasted: Set<number>; styles: RecStyle[]; unread: number[]; rated: RatedTasting[]; wines: RatedWine[];
+}> {
   const [{ rated, tasted }, prefs] = await Promise.all([loadRatedTastings(db, userId), loadPrefs(db, userId)]);
-  const profile = buildProfile(rated.map((t) => ratedWine(t)));
+  const wines = rated.map((t) => ratedWine(t));
+  const profile = buildProfile(wines);
   // What they said they spend, until a few priced ratings say otherwise.
   if (prefs.budget && rated.filter((t) => t.priceCents).length < 3) profile.price = { mu: Math.log(BUDGET_CENTS[prefs.budget]), sigma: 0.45 };
   const liked = likedStyles(rated);
@@ -212,6 +222,8 @@ export async function loadProfile(db: Db, userId: number): Promise<{ profile: Pr
     tasted,
     styles: liked.length ? liked : prefs.styles,
     unread: rated.filter((t) => t.own.hasText && !t.own.read).map((t) => t.tastingId),
+    rated,
+    wines,
   };
 }
 
@@ -330,9 +342,21 @@ export type RecResult =
   /** Not enough ratings to say anything personal yet: no suggestions, just how far along the user is. */
   | { mode: 'locked'; rated: number; needed: number; items: [] };
 
+/** Suggestions Jev is asked about (the first ones shown), and how long it gets before they go without. */
+const JEV_CHECKED = 8;
+const JEV_WAIT_MS = 6000;
+
+/** Jev's enjoyment level (0..4) for each wine, by key; whatever it answers in time (cached answers are instant). */
+async function jevCheck(db: Db, jev: JevClient, rated: RatedTasting[], wines: { key: string; label: string }[]): Promise<Map<string, number>> {
+  if (!wines.length || !rated.length) return new Map();
+  const timeout = new Promise<Map<string, { score: number }>>((resolve) => setTimeout(() => resolve(new Map()), JEV_WAIT_MS));
+  const got = await Promise.race([predictEnjoyment(jev, rated, wines, db).catch(() => new Map<string, { score: number }>()), timeout]);
+  return new Map([...got].map(([k, v]) => [k, v.score]));
+}
+
 export async function recommend(db: Db, userId: number, opts: RecOptions = {}): Promise<RecResult> {
   const limit = Math.min(opts.limit ?? 20, 100);
-  const { profile, tasted, styles, unread } = await loadProfile(db, userId);
+  const { profile, tasted, styles, unread, rated, wines } = await loadProfile(db, userId);
   if (unread.length) void opts.noteReader?.request(unread).catch(() => {});
   const search = Boolean(opts.styles?.length || opts.minPriceCents || opts.maxPriceCents || opts.region?.trim() || opts.notes?.trim() || opts.food?.trim());
   const regionWords = normalize(opts.region ?? '').split(' ').filter(Boolean);
@@ -364,7 +388,7 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
         if (regionWords.length) extra.push(`From ${titleCase(r.sub_region || r.region || opts.region!)}`);
       }
       const reasons = [...extra, ...explain(s.contributions)].slice(0, 2);
-      return { r, style, score, rank: score + (r.image_url ? PHOTO_BONUS : 0), reasons, merchants: c.merchants };
+      return { r, f, style, score, taste: s.score, rank: score + (r.image_url ? PHOTO_BONUS : 0), reasons, merchants: c.merchants };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => b.rank - a.rank || b.r.n_merchants - a.r.n_merchants);
@@ -426,11 +450,13 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
     ? await db.query('SELECT wine_id, image_url, image_checked_at FROM wines WHERE wine_id = ANY($1)', [picked.map((x) => x.r.wine_id)])
     : { rows: [] };
   const photo = new Map(photos.map((p) => [Number(p.wine_id), p]));
+  const cal = calibrationFor(userId, wines);
+  const jev = opts.jev ? await jevCheck(db, opts.jev, rated, picked.slice(0, JEV_CHECKED).map((x) => ({ key: String(x.r.wine_id), label: wineLabel(x.r, x.f) }))) : new Map<string, number>();
   const items = picked.map((x) => {
     const now = photo.get(Number(x.r.wine_id)) ?? x.r;
     // No photo yet: look for one in the background, so it shows next time.
     if (!now.image_url) maybeQueueWineImage(db, { wine_id: x.r.wine_id, image_url: now.image_url, image_checked_at: now.image_checked_at });
-    const rec = toRec({ ...x.r, image_url: now.image_url }, x.style, x.score, x.reasons);
+    const rec = toRec({ ...x.r, image_url: now.image_url }, x.style, x.score, x.reasons, fitOf(cal, x.taste, jev.get(String(x.r.wine_id))));
     const r = near?.applied ? bestReach.get(x.r.wine_id) : undefined;
     if (r) rec.nearby = { shop: r.shop, local: r.local, miles: r.miles, city: r.city, ships: r.ships };
     return rec;
@@ -459,6 +485,8 @@ export interface CellarPick {
   myRating: number | null;
   score: number;
   reasons: string[];
+  /** How well it suits their taste, apart from the occasion. */
+  fit: Fit;
 }
 
 /**
@@ -489,7 +517,8 @@ export async function cellarPicks(db: Db, userId: number, opts: { food?: string;
     [userId]
   );
   if (!rows.length) return { items: [] };
-  const { profile } = await loadProfile(db, userId);
+  const { profile, wines } = await loadProfile(db, userId);
+  const cal = calibrationFor(userId, wines);
   const wanted = wantedTaste(opts.notes);
   const foods = foodHints(opts.food);
   const items = rows.map((r): CellarPick | null => {
@@ -510,7 +539,7 @@ export async function cellarPicks(db: Db, userId: number, opts: { food?: string;
     return {
       wineId: Number(r.wine_id), displayName: r.display_name, region: r.sub_region || r.region, style, imageUrl: r.image_url ?? null,
       vintages, bottles: Number(r.bottles), location: r.location ?? '', place: r.place ?? null, cellar: r.cellar ?? null, medianCents: r.median_cents ?? null, myRating,
-      score: Math.round(score * 1000) / 1000, reasons,
+      score: Math.round(score * 1000) / 1000, reasons, fit: fitOf(cal, s.score),
     };
   }).filter((x): x is CellarPick => x !== null && x.bottles > 0);
   items.sort((a, b) => b.score - a.score);
@@ -576,7 +605,7 @@ function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle
   return { score, reasons: said ? [`Pairs with ${said.toLowerCase()}`] : score > 0.6 ? [`Goes with ${q.dish}`] : [] };
 }
 
-function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_url?: string | null }, style: RecStyle | '', score: number, reasons: string[]): Recommendation {
+function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_url?: string | null }, style: RecStyle | '', score: number, reasons: string[], fit: Fit): Recommendation {
   return {
     wineId: r.wine_id,
     displayName: r.display_name,
@@ -590,5 +619,6 @@ function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_u
     nMerchants: r.n_merchants,
     score: Math.round(score * 1000) / 1000,
     reasons,
+    fit,
   };
 }
