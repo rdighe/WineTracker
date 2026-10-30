@@ -420,6 +420,10 @@ export interface CellarPick {
   bottles: number;
   /** Where the bottles are, as the person wrote it (the newest entry's location). */
   location: string;
+  /** Where one sits on a rack ("Kitchen rack · row 2, place 3"), when placed. */
+  place: string | null;
+  /** The cellar it's in, when the person has more than one. */
+  cellar: string | null;
   /** Market price per 750 ml now, when known. */
   medianCents: number | null;
   myRating: number | null;
@@ -440,11 +444,17 @@ export async function cellarPicks(db: Db, userId: number, opts: { food?: string;
             array_agg(DISTINCT coalesce(nullif(t.vintage_key, ''), 'NV')) AS vintages,
             (array_agg(t.location ORDER BY t.tasted_on DESC, t.tasting_id DESC))[1] AS location,
             (SELECT r.rating::float FROM tastings r WHERE r.user_id = $1 AND r.wine_id = w.wine_id AND r.rating IS NOT NULL
-              ORDER BY r.tasted_on DESC, r.tasting_id DESC LIMIT 1) AS my_rating
+              ORDER BY r.tasted_on DESC, r.tasting_id DESC LIMIT 1) AS my_rating,
+            (SELECT rk.name || ' · row ' || (s.row_no + 1) || ', place ' || (s.col_no + 1)
+               FROM cellar_slots s JOIN cellar_racks rk USING (rack_id)
+              WHERE s.tasting_id = ANY(array_agg(t.tasting_id)) ORDER BY rk.sort, s.row_no, s.col_no LIMIT 1) AS place,
+            CASE WHEN (SELECT COUNT(*) FROM cellar_members cm WHERE cm.user_id = $1) > 1
+                 THEN (SELECT c.name FROM cellars c WHERE c.cellar_id = min(t.cellar_id)) END AS cellar
        FROM tastings t JOIN wines w ON w.wine_id = t.wine_id
        ${NOTES_JOIN}
        LEFT JOIN wine_prices p ON p.wine_id = w.wine_id AND p.vintage_key = '*' AND p.currency = 'USD'
-      WHERE t.user_id = $1 AND t.kind = 'cellar'
+      WHERE t.kind = 'cellar'
+        AND (t.cellar_id IN (SELECT cellar_id FROM cellar_members WHERE user_id = $1) OR (t.cellar_id IS NULL AND t.user_id = $1))
       GROUP BY ${WINE_COLS}, w.image_url, i.info, p.median_cents`,
     [userId]
   );
@@ -469,7 +479,7 @@ export async function cellarPicks(db: Db, userId: number, opts: { food?: string;
     const vintages = (r.vintages as string[]).filter(Boolean).sort((a, b) => (a === 'NV' ? 1 : b === 'NV' ? -1 : b.localeCompare(a)));
     return {
       wineId: Number(r.wine_id), displayName: r.display_name, region: r.sub_region || r.region, style, imageUrl: r.image_url ?? null,
-      vintages, bottles: Number(r.bottles), location: r.location ?? '', medianCents: r.median_cents ?? null, myRating,
+      vintages, bottles: Number(r.bottles), location: r.location ?? '', place: r.place ?? null, cellar: r.cellar ?? null, medianCents: r.median_cents ?? null, myRating,
       score: Math.round(score * 1000) / 1000, reasons,
     };
   }).filter((x): x is CellarPick => x !== null && x.bottles > 0);

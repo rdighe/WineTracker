@@ -34,6 +34,11 @@ import { maybeQueueWineImage } from '../catalog/images.js';
 import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { cellarPicks, recommend } from '../recs/recommend.js';
+import {
+  acceptInvite, CellarError, createCellar, createInvite, createRack, deleteCellar, deleteRack, listCellars, listRacks, previewInvite, removeMember,
+  renameCellar, setMemberRole, setPlaces, updateRack,
+} from '../cellars/cellars.js';
+import { deleteReceipt, getReceipt, listReceipts, readReceipt, receiptPhoto, saveReceipt, setReceiptPhoto, updateReceipt } from '../cellars/receipts.js';
 import { createPlaces, parseNear, type Places } from '../places/places.js';
 
 export interface AppDeps {
@@ -109,6 +114,8 @@ const tastingBody = z.object({
   tastedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   kind: z.enum(['tasted', 'cellar']).optional(),
   bottles: z.number().int().min(1).max(9999).nullable().optional(),
+  /** The cellar a cellar entry is (or moves) in; default: the person's first. */
+  cellarId: z.number().int().positive().nullable().optional(),
   /** Flavors the phone read from the notes and tags (Apple Intelligence): family -> intensity 1-3. */
   noteFlavors: z.partialRecord(z.enum(FLAVOR_KEYS), z.number().int().min(1).max(3)).nullable().optional(),
   /** The phone will send noteFlavors once it has read the notes: the server needn't. */
@@ -668,6 +675,175 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
     res.status(204).end();
   }));
 
+  // ── Cellars: several, shared, with racks and receipts ────────────────────
+  const cellarName = z.string().trim().min(1).max(60);
+  app.get('/api/cellars', auth.requireUser, wrap(async (req, res) => {
+    res.json({ cellars: await listCellars(db, req.user!.userId) });
+  }));
+
+  app.post('/api/cellars', auth.requireUser, wrap(async (req, res) => {
+    const { name } = parse(z.object({ name: cellarName }), req.body);
+    res.status(201).json({ cellarId: await createCellar(db, req.user!.userId, name) });
+  }));
+
+  app.patch('/api/cellars/:id', auth.requireUser, wrap(async (req, res) => {
+    const { name } = parse(z.object({ name: cellarName }), req.body);
+    await renameCellar(db, req.user!.userId, parse(idParam, req.params.id), name);
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/cellars/:id', auth.requireUser, wrap(async (req, res) => {
+    await deleteCellar(db, req.user!.userId, parse(idParam, req.params.id));
+    res.status(204).end();
+  }));
+
+  // Sharing: an owner makes a link; whoever opens it (signed in) joins.
+  app.post('/api/cellars/:id/invites', auth.requireUser, wrap(async (req, res) => {
+    const { role } = parse(z.object({ role: z.enum(['editor', 'viewer']).default('editor') }), req.body ?? {});
+    res.status(201).json(await createInvite(db, req.user!.userId, parse(idParam, req.params.id), role));
+  }));
+
+  const inviteCode = z.string().trim().regex(/^[a-z0-9]{6,32}$/i);
+  app.get('/api/cellar-invites/:code', auth.requireUser, wrap(async (req, res) => {
+    res.json(await previewInvite(db, req.user!.userId, parse(inviteCode, req.params.code)));
+  }));
+
+  app.post('/api/cellar-invites/:code/accept', auth.requireUser, wrap(async (req, res) => {
+    res.json(await acceptInvite(db, req.user!.userId, parse(inviteCode, req.params.code)));
+  }));
+
+  app.patch('/api/cellars/:id/members/:userId', auth.requireUser, wrap(async (req, res) => {
+    const { role } = parse(z.object({ role: z.enum(['owner', 'editor', 'viewer']) }), req.body);
+    await setMemberRole(db, req.user!.userId, parse(idParam, req.params.id), parse(idParam, req.params.userId), role);
+    res.json({ ok: true });
+  }));
+
+  // Leave (your own id) or, owners, take someone out.
+  app.delete('/api/cellars/:id/members/:userId', auth.requireUser, wrap(async (req, res) => {
+    await removeMember(db, req.user!.userId, parse(idParam, req.params.id), parse(idParam, req.params.userId));
+    res.status(204).end();
+  }));
+
+  // Racks, and where each bottle sits on them.
+  const rackBody = z.object({ name: z.string().trim().min(1).max(40), rows: z.number().int().min(1).max(40), cols: z.number().int().min(1).max(40) });
+  app.get('/api/cellars/:id/racks', auth.requireUser, wrap(async (req, res) => {
+    res.json({ racks: await listRacks(db, req.user!.userId, parse(idParam, req.params.id)) });
+  }));
+
+  app.post('/api/cellars/:id/racks', auth.requireUser, wrap(async (req, res) => {
+    const b = parse(rackBody, req.body);
+    res.status(201).json({ rackId: await createRack(db, req.user!.userId, parse(idParam, req.params.id), b) });
+  }));
+
+  app.patch('/api/racks/:id', auth.requireUser, wrap(async (req, res) => {
+    await updateRack(db, req.user!.userId, parse(idParam, req.params.id), parse(rackBody.partial(), req.body));
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/racks/:id', auth.requireUser, wrap(async (req, res) => {
+    await deleteRack(db, req.user!.userId, parse(idParam, req.params.id));
+    res.status(204).end();
+  }));
+
+  app.put('/api/tastings/:id/places', auth.requireUser, wrap(async (req, res) => {
+    const { places } = parse(
+      z.object({ places: z.array(z.object({ rackId: z.number().int().positive(), row: z.number().int().min(0).max(39), col: z.number().int().min(0).max(39) })).max(200) }),
+      req.body
+    );
+    await setPlaces(db, req.user!.userId, parse(idParam, req.params.id), places);
+    res.json({ ok: true });
+  }));
+
+  // Receipts and invoices: read one (text from the phone, or its photo), check the lines, then file it.
+  const receiptPhotoBody = z.object({ base64: z.string().max(6_000_000), mimeType: z.string().max(40) });
+  const decodePhoto = (p: z.infer<typeof receiptPhotoBody>) => {
+    if (!IMAGE_TYPES.has(p.mimeType)) throw new HttpError(400, 'unsupported image type');
+    const bytes = Buffer.from(p.base64.replace(/^data:[^,]*,/, ''), 'base64');
+    if (bytes.length > MAX_PICK_PHOTO_BYTES) throw new HttpError(413, 'photo too large');
+    return { bytes, contentType: p.mimeType };
+  };
+  app.post('/api/receipts/read', auth.requireUser, scanLimit, scanJson, wrap(async (req, res) => {
+    const b = parse(
+      z.object({
+        pages: z.array(z.string().max(MAX_LIST_CHARS)).max(MAX_PICK_PHOTOS).optional(),
+        imageBase64: z.string().max(12_000_000).optional(),
+        mimeType: z.string().max(40).optional(),
+        ref: z.string().regex(/^[A-Za-z0-9-]{16,64}$/).optional(),
+      }).refine((x) => x.pages?.some((p) => p.trim()) || x.imageBase64, 'pages or imageBase64 required'),
+      req.body
+    );
+    const run = async () => {
+      let image: { bytes: Buffer; mimeType: string } | undefined;
+      if (!b.pages?.some((p) => p.trim()) && b.imageBase64) {
+        const mimeType = b.mimeType ?? 'image/jpeg';
+        if (!IMAGE_TYPES.has(mimeType)) throw new HttpError(400, 'unsupported image type');
+        image = { bytes: Buffer.from(b.imageBase64.replace(/^data:[^,]*,/, ''), 'base64'), mimeType };
+      }
+      const read = await readReceipt(db, { pages: b.pages, image }, pickReaders, pickJev);
+      if (!read.lines.length) throw new HttpError(422, "No wines found on that receipt. Try a sharper photo, or add the bottles by hand.");
+      return read;
+    };
+    if (b.ref) return res.status(202).json(await startJob(b.ref, req.user!.userId, 'picks', run));
+    res.json(await run());
+  }));
+
+  const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  app.post('/api/receipts', auth.requireUser, scanJson, wrap(async (req, res) => {
+    const b = parse(
+      z.object({
+        cellarId: z.number().int().positive().nullable().optional(),
+        merchant: z.string().max(120).optional(),
+        purchasedOn: day.nullable().optional(),
+        totalCents: z.number().int().min(1).max(100_000_000).nullable().optional(),
+        photo: receiptPhotoBody.nullable().optional(),
+        lines: z.array(z.object({
+          wineId: z.number().int().positive().nullable().optional(),
+          producer: z.string().max(120).optional(),
+          name: z.string().max(160).optional(),
+          colour: z.enum(['red', 'white', 'rose', 'orange', '']).optional(),
+          vintage: vintageSchema,
+          qty: z.number().int().min(1).max(999),
+          unitCents: z.number().int().min(1).max(10_000_000).nullable().optional(),
+          bottleMl: z.number().int().min(50).max(30000).nullable().optional(),
+        })).min(1).max(200),
+      }),
+      req.body
+    );
+    const saved = await saveReceipt(db, req.user!.userId, { ...b, photo: b.photo ? decodePhoto(b.photo) : null });
+    res.status(201).json(saved);
+  }));
+
+  app.get('/api/receipts', auth.requireUser, wrap(async (req, res) => {
+    const cellarId = req.query.cellarId === undefined ? undefined : parse(idParam, req.query.cellarId);
+    res.json({ receipts: await listReceipts(db, req.user!.userId, cellarId) });
+  }));
+
+  app.get('/api/receipts/:id', auth.requireUser, wrap(async (req, res) => {
+    res.json(await getReceipt(db, req.user!.userId, parse(idParam, req.params.id)));
+  }));
+
+  app.patch('/api/receipts/:id', auth.requireUser, wrap(async (req, res) => {
+    const b = parse(z.object({ merchant: z.string().max(120).optional(), purchasedOn: day.nullable().optional(), totalCents: z.number().int().min(1).max(100_000_000).nullable().optional() }), req.body);
+    await updateReceipt(db, req.user!.userId, parse(idParam, req.params.id), b);
+    res.json({ ok: true });
+  }));
+
+  app.put('/api/receipts/:id/photo', auth.requireUser, scanJson, wrap(async (req, res) => {
+    await setReceiptPhoto(db, req.user!.userId, parse(idParam, req.params.id), decodePhoto(parse(receiptPhotoBody, req.body)));
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/receipts/:id/photo', auth.requireUser, wrap(async (req, res) => {
+    const ph = await receiptPhoto(db, req.user!.userId, parse(idParam, req.params.id));
+    if (!ph) throw new HttpError(404, 'no photo');
+    res.set('Content-Type', ph.contentType).set('Cache-Control', 'private, max-age=86400').send(ph.bytes);
+  }));
+
+  app.delete('/api/receipts/:id', auth.requireUser, wrap(async (req, res) => {
+    await deleteReceipt(db, req.user!.userId, parse(idParam, req.params.id));
+    res.status(204).end();
+  }));
+
   // ── Recommendations ──────────────────────────────────────────────────────
   const recStyleSchema = z.enum(['red', 'white', 'rose', 'sparkling', 'orange', 'sweet']);
   /** "Find wines": what a search (and a saved view) can ask for. Prices in dollars. */
@@ -763,7 +939,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
 
   // ── Errors ───────────────────────────────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError || err instanceof ScanError) return void res.status(err.status).json({ error: err.message });
+    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError) return void res.status(err.status).json({ error: err.message });
     if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: err.message });
     if (err instanceof multer.MulterError) return void res.status(400).json({ error: err.message });
     console.error(err);
