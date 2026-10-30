@@ -419,3 +419,11 @@ export interface CommunityNote {
   replies: number;
 }
 export interface NoteReply { replyId: number; author: { name: string; me: boolean }; body: string; createdAt: string }
+
+export type CtPart = 'collection' | 'pending' | 'wishlist' | 'notes' | 'history';
+export interface CtSummary {
+  parts: Partial<Record<CtPart, { rows: number; imported: number; alreadyImported: number; bottles?: number }>>;
+  matched: number;
+  addedWines: number;
+  addedNames: string[];
+}

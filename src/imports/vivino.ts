@@ -9,12 +9,10 @@
  * remembers its source, so importing the same file again adds nothing.
  */
 import { createHash } from 'node:crypto';
-import { createWine } from '../catalog/wines.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
 import type { Db } from '../db/pool.js';
-import { normalize } from '../lib/normalize.js';
-import { matchWine } from '../match/matcher.js';
 import { createTasting } from '../tastings/tastings.js';
+import { WineResolver } from './resolve.js';
 
 export const MAX_IMPORT_ROWS = 5000;
 
@@ -158,25 +156,9 @@ export async function importVivino(db: Db, userId: number, csv: string): Promise
   const summary: ImportSummary = { rows: total, imported: 0, alreadyImported: 0, matched: 0, addedWines: 0, skipped: total - rows.length, addedNames: [], missingColumns };
   if (columns.producer === undefined && columns.name === undefined) return summary;
 
-  const created = new Map<string, number>(); // same wine on several rows -> one new wine
+  const wines = new WineResolver(db);
   for (const r of rows) {
-    const text = [r.producer, r.name, r.region].filter(Boolean).join(' ');
-    let wineId: number;
-    const match = await matchWine(db, { text, producer: r.producer || undefined, name: r.name || undefined, colour: r.colour || undefined });
-    if (match.outcome === 'auto') {
-      wineId = match.candidates[0]!.wine.wine_id;
-      summary.matched++;
-    } else {
-      const k = normalize(`${r.producer} ${r.name}`);
-      const existing = created.get(k);
-      if (existing) wineId = existing;
-      else {
-        wineId = await createWine(db, { producer: r.producer || r.name, name: r.producer ? r.name : '', region: r.region, country: r.country, colour: r.colour, source: 'user' });
-        created.set(k, wineId);
-        summary.addedWines++;
-        if (summary.addedNames.length < 20) summary.addedNames.push([r.producer, r.name].filter(Boolean).join(' '));
-      }
-    }
+    const wineId = await wines.resolve({ producer: r.producer, name: r.name, region: r.region, country: r.country, colour: r.colour });
     const kind = r.bottles && r.rating === null ? 'cellar' : 'tasted';
     const id = await createTasting(db, userId, {
       wineId, vintage: r.vintage, rating: r.rating, notes: r.review.slice(0, 4000), location: r.location.slice(0, 200),
@@ -189,5 +171,8 @@ export async function importVivino(db: Db, userId: number, csv: string): Promise
       if (w) maybeQueueWineImage(db, w, r.vintage);
     }
   }
+  summary.matched = wines.matched;
+  summary.addedWines = wines.added;
+  summary.addedNames = wines.addedNames;
   return summary;
 }

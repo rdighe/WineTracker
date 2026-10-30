@@ -1,6 +1,6 @@
 /**
  * Welcome, for someone new (Home sends them here once): first, bring wines
- * over from Vivino; then a skippable 90-second taste quiz - the styles they
+ * over from CellarTracker or Vivino (each with how to); then a skippable 90-second taste quiz - the styles they
  * drink, a quick answer for a dozen well-known kinds of wine, what they
  * usually spend (src/recs/archetypes.ts on the server) - and their first
  * picks, with what they're based on. Ends at Home with the tour. Settings ›
@@ -11,12 +11,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInRight } from 'react-native-reanimated';
 import { CheckIcon } from '../components/icons';
+import { CellarTrackerImport } from '../components/CellarTrackerImport';
 import { VivinoImport } from '../components/VivinoImport';
 import { WineThumb } from '../components/WineThumb';
 import { Button, Card, Chip, ErrorText, Label, Muted, Screen, Title, radius, space, type, useTheme, wineStyleOf } from '../components/ui';
 import type { WineStyle } from '../components/theme';
 import { dollars, wineTitle } from '../lib/format';
-import type { Archetype, Budget, ImportSummary, Reaction, RecStyle, Recommendation } from '../lib/types';
+import type { Archetype, Budget, Reaction, RecStyle, Recommendation } from '../lib/types';
 import { useApi } from '../lib/useApi';
 import { FitBadge } from '../components/FitBadge';
 
@@ -47,7 +48,8 @@ export default function Welcome() {
   const [seeds, setSeeds] = useState<Partial<Record<string, Reaction>>>({});
   const [budget, setBudget] = useState<Budget | null>(null);
   const [asked, setAsked] = useState(0);
-  const [imported, setImported] = useState<ImportSummary | null>(null);
+  const [imported, setImported] = useState(false);
+  const [from, setFrom] = useState<'cellartracker' | 'vivino' | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
@@ -93,18 +95,30 @@ export default function Welcome() {
         <Animated.View entering={FadeIn.duration(250)} style={{ gap: space[5] }}>
           <View style={{ gap: space[2] }}>
             <Title>Welcome to WineTracker</Title>
-            <Text style={[type.body, { color: c.ink2 }]}>Start with what you already know. Bring your ratings over from Vivino and your first picks will be built on them.</Text>
+            <Text style={[type.body, { color: c.ink2 }]}>Start with what you already know. Bring your cellar and ratings over and your first picks are built on them.</Text>
           </View>
-          <Card style={{ gap: space[3] }}>
-            <Text style={[type.headline, { color: c.ink }]}>Import from Vivino</Text>
-            <Muted>In Vivino, ask for a copy of your data (account or privacy settings). When the email comes, choose the wine list CSV from the download.</Muted>
-            <VivinoImport bare onDone={setImported} />
-          </Card>
+          <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: space[2] }}>
+            <Chip selected={from === 'cellartracker'} onPress={() => setFrom(from === 'cellartracker' ? null : 'cellartracker')}>From CellarTracker</Chip>
+            <Chip selected={from === 'vivino'} onPress={() => setFrom(from === 'vivino' ? null : 'vivino')}>From Vivino</Chip>
+          </View>
+          {from === 'cellartracker' ? (
+            <Card style={{ gap: space[3] }}>
+              <Text style={[type.headline, { color: c.ink }]}>Import from CellarTracker</Text>
+              <CellarTrackerImport bare onDone={() => setImported(true)} />
+            </Card>
+          ) : from === 'vivino' ? (
+            <Card style={{ gap: space[3] }}>
+              <Text style={[type.headline, { color: c.ink }]}>Import from Vivino</Text>
+              <VivinoImport bare onDone={() => setImported(true)} />
+            </Card>
+          ) : (
+            <Muted>Pick where your wines are now. Both can be done later from Settings.</Muted>
+          )}
           {imported ? (
             <Button title="Next" onPress={() => setStep('styles')} />
           ) : (
             <View style={{ gap: space[2] }}>
-              <Button title="I don't use Vivino" variant="secondary" onPress={() => setStep('styles')} />
+              <Button title={from ? 'Skip this for now' : "I don't use either"} variant="secondary" onPress={() => setStep('styles')} />
               <Muted style={{ textAlign: 'center' }}>Next: a 90-second taste quiz you can skip.</Muted>
             </View>
           )}
@@ -115,7 +129,7 @@ export default function Welcome() {
         <Animated.View entering={FadeInRight.duration(250)} style={{ gap: space[5] }}>
           <View style={{ gap: space[2] }}>
             <Title>What do you usually drink?</Title>
-            <Muted>{imported?.imported ? `Thanks: ${imported.imported} wines came over from Vivino. A few answers will sharpen your picks.` : 'Pick any. About 90 seconds in all.'}</Muted>
+            <Muted>{imported ? 'Your wines are in. A few answers will sharpen your picks.' : 'Pick any. About 90 seconds in all.'}</Muted>
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
             {STYLES.map((s) => (

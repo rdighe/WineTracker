@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { AppearanceSettings } from '../components/Appearance';
 import { LocationSettings } from '../components/LocationSettings';
+import { CellarTrackerImport } from '../components/CellarTrackerImport';
 import { VivinoImport } from '../components/VivinoImport';
 import { BackIcon } from '../components/icons';
 import { Button, Card, Field, Heading, IconButton, Muted, Screen, Title, space, type, useTheme } from '../components/ui';
@@ -33,6 +34,7 @@ export default function Settings() {
         </View>
       </Card>
       <PublicName />
+      <CellarTrackerImport />
       <VivinoImport />
       <Card>
         <Heading>Taste quiz</Heading>

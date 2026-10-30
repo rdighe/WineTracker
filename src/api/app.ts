@@ -35,6 +35,7 @@ import { createTasting, deleteTasting, listTastings, removeFromCellar, updateTas
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
+import { CellarTrackerError, CT_PARTS, detectPart, fetchCellarTracker, importCellarTracker, type CtPart } from '../imports/cellartracker.js';
 import { cellarPicks, recommend } from '../recs/recommend.js';
 import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs } from '../recs/archetypes.js';
 import { jevReport } from '../recs/jevLog.js';
@@ -74,6 +75,8 @@ export interface AppDeps {
   adminToken?: string;
   /** Tests: keep which reader read something, and Jev's scores, in responses. Never in production. */
   exposeInternals?: boolean;
+  /** Fetches CellarTracker's export (tests pass a fake). */
+  ctFetch?: typeof fetch;
   /** What reads wine lists and shelf photos, in order (default: OpenRouter's free models, then `provider`). */
   pickReaders?: LlmProvider[];
   /** Fetches shop images for /api/photo (tests pass a fake). */
@@ -140,7 +143,7 @@ const tastingBody = z.object({
   noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, apple, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep, adminToken = config.adminToken, exposeInternals = false }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, apple, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep, adminToken = config.adminToken, exposeInternals = false, ctFetch = fetch }: AppDeps) {
   /**
    * People never see which model or service read a label, a list or a receipt,
    * nor Jev's scores: `source` and `jevScore` are taken out of what's sent.
@@ -195,8 +198,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   // Scans may carry a base64 photo in JSON (React Native's fetch can't always
   // send a file part), so that one route gets a larger body limit.
   const smallJson = express.json({ limit: '100kb' });
-  const bigBody = new Set(['/api/scans', '/api/scans/lineup', '/api/import/vivino', '/api/picks']);
-  app.use((req, res, next) => (bigBody.has(req.path) || /^\/api\/picks\/\d+\/photos$/.test(req.path) ? next() : smallJson(req, res, next)));
+  const bigBody = new Set(['/api/scans', '/api/scans/lineup', '/api/import/vivino', '/api/import/cellartracker', '/api/picks', '/api/receipts', '/api/receipts/read']);
+  app.use((req, res, next) => (bigBody.has(req.path) || /^\/api\/(picks\/\d+\/photos|receipts\/\d+\/photo)$/.test(req.path) ? next() : smallJson(req, res, next)));
   const scanJson = express.json({ limit: '12mb' });
   const importJson = express.json({ limit: '8mb' });
   const importLimit = limiter(60 * 60_000, 20);
@@ -277,7 +280,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
    * background or the connection drops while a wine list is read. The same
    * ref sent again doesn't start it twice. Returns the job as it stands.
    */
-  async function startJob(ref: string, userId: number, kind: 'picks', run: () => Promise<unknown>) {
+  async function startJob(ref: string, userId: number, kind: 'picks' | 'import', run: () => Promise<unknown>) {
     await db.query(`DELETE FROM scan_jobs WHERE created_at < NOW() - INTERVAL '7 days'`);
     const { rows: [claimed] } = await db.query(
       `INSERT INTO scan_jobs (ref, user_id, kind) VALUES ($1, $2, $3) ON CONFLICT (ref) DO NOTHING RETURNING ref`,
@@ -287,7 +290,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
       void run().then(
         (result) => db.query(`UPDATE scan_jobs SET status = 'done', result = $2, updated_at = NOW() WHERE ref = $1`, [ref, JSON.stringify(result)]),
         (e) => {
-          const status = e instanceof HttpError ? e.status : e instanceof ProviderUnavailableError ? 503 : 500;
+          const status = e instanceof HttpError || e instanceof CellarTrackerError || e instanceof CellarError || e instanceof CommunityError ? e.status : e instanceof ProviderUnavailableError ? 503 : 500;
           if (status === 500) console.error(`job ${ref}:`, e);
           return db.query(`UPDATE scan_jobs SET status = 'failed', error = $2, http_status = $3, updated_at = NOW() WHERE ref = $1`, [ref, status === 500 ? 'internal error' : (e as Error).message, status]);
         }
@@ -681,6 +684,37 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
       throw new HttpError(400, "This doesn't look like a Vivino wine list: no Winery or Wine name column.");
     }
     res.json(summary);
+  }));
+
+  // CellarTracker: with the person's handle and password (sent to CellarTracker for this import only, never kept or
+  // logged), or CSV files downloaded from it. A job (ref) the app collects, since a big cellar takes a while.
+  app.post('/api/import/cellartracker', auth.requireUser, importLimit, importJson, wrap(async (req, res) => {
+    const b = parse(
+      z.object({
+        handle: z.string().trim().max(80).optional(),
+        password: z.string().max(200).optional(),
+        parts: z.array(z.enum(CT_PARTS)).max(5).default(['collection', 'notes']),
+        files: z.array(z.string().max(8_000_000)).max(5).optional(),
+        cellarId: z.number().int().positive().nullable().optional(),
+        ref: z.string().regex(/^[A-Za-z0-9-]{16,64}$/).optional(),
+      }).refine((x) => (x.handle && x.password) || x.files?.length, 'handle and password, or files'),
+      req.body
+    );
+    const userId = req.user!.userId;
+    const run = async () => {
+      const tables: Partial<Record<CtPart, string>> = {};
+      if (b.handle && b.password) {
+        for (const part of new Set(b.parts)) tables[part] = await fetchCellarTracker(b.handle, b.password, part, ctFetch);
+      }
+      for (const csv of b.files ?? []) {
+        const part = detectPart(csv);
+        if (!part) throw new HttpError(400, "That file doesn't look like a CellarTracker export. Export it as CSV from CellarTracker.");
+        tables[part] = csv;
+      }
+      return importCellarTracker(db, userId, tables, { cellarId: b.cellarId });
+    };
+    if (b.ref) return res.status(202).json(await startJob(b.ref, userId, 'import', run));
+    res.json(await run());
   }));
 
   // ── Saved wines (want to try / watch the price) ──────────────────────────
@@ -1097,7 +1131,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   }));
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError || err instanceof CommunityError) return void res.status(err.status).json({ error: err.message });
+    if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError || err instanceof CommunityError || err instanceof CellarTrackerError) return void res.status(err.status).json({ error: err.message });
     if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: err.message });
     if (err instanceof multer.MulterError) return void res.status(400).json({ error: err.message });
     console.error(err);

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction, CommunityNote, NoteReply, NoteReaction, NoteMaturity, CtPart } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -172,6 +172,12 @@ export function createApi(authHeader: AuthHeader) {
     deletePick: (id: number) => request<void>(`/api/picks/${id}`, { method: 'DELETE' }),
     /** A saved list's photo, with what it takes to load it (it's private). */
     pickPhoto: async (id: number, n: number) => ({ uri: `${getApiUrl()}/api/picks/${id}/photos/${n}`, headers: { Authorization: (await authHeader()) ?? '' } }),
+    /**
+     * Start a CellarTracker import (handle and password, sent on to CellarTracker once and never kept; or exported
+     * CSV files). Collect it with scanAnswer(ref).
+     */
+    importCellarTracker: (input: { handle?: string; password?: string; parts?: CtPart[]; files?: string[]; cellarId?: number | null }, ref: string) =>
+      request<PickJob>('/api/import/cellartracker', json('POST', { ...input, ref })),
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
     /** Notes and tags sent together are read on the phone when it can; notes alone are left to the server, which knows the tags. */

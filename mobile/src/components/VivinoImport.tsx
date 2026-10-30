@@ -42,9 +42,7 @@ export function VivinoImport({ onDone, bare }: { onDone?: (summary: ImportSummar
   return (
     <Wrap bare={bare}>
       {bare ? null : <Heading>Import from Vivino</Heading>}
-      {bare ? null : <Muted>
-        Request a copy of your data from Vivino (in the app&apos;s account or privacy settings), then pick the wine list CSV from the download. Ratings, reviews and dates come across; importing the same file again adds nothing.
-      </Muted>}
+      <VivinoSteps />
       <Button title="Choose Vivino CSV" variant={bare ? 'primary' : 'secondary'} size={bare ? 'lg' : 'md'} busy={busy} onPress={pick} />
       {result ? (
         <View style={{ gap: 4 }}>
@@ -61,5 +59,26 @@ export function VivinoImport({ onDone, bare }: { onDone?: (summary: ImportSummar
       ) : null}
       <ErrorText error={error} />
     </Wrap>
+  );
+}
+
+/** How to get a Vivino export, step by step. */
+export function VivinoSteps() {
+  const { c } = useTheme();
+  const steps = [
+    'In Vivino (the app or vivino.com), open your profile, then Settings.',
+    'Under Privacy (or Account), choose to request a copy of your data. Vivino emails a download link, usually within a day.',
+    'Download the file on this phone (or AirDrop it here) and unzip it if it is a .zip.',
+    "Tap Choose Vivino CSV and pick the wine list file (its name mentions wines or ratings). Importing the same file again adds nothing new.",
+  ];
+  return (
+    <View style={{ gap: 6 }}>
+      {steps.map((t, i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
+          <Text style={[type.footnote, type.tabular, { color: c.accent, fontWeight: '700', width: 16 }]}>{i + 1}</Text>
+          <Text style={[type.footnote, { color: c.ink2, flex: 1 }]}>{t}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
