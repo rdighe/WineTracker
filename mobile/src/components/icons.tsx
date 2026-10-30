@@ -159,6 +159,30 @@ export function ShelfIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
   );
 }
 
+export function HomeIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M4 10.5L12 4l8 6.5V20h-5.5v-6h-5v6H4z" />
+    </Svg>
+  );
+}
+
+export function BookIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 7h6" />
+    </Svg>
+  );
+}
+
+export function StoreIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9.5 20v-6h5v6" />
+    </Svg>
+  );
+}
+
 /** Google's "G", in its own colors (for the sign-in button). */
 export function GoogleLogo({ size = 18 }: { size?: number }) {
   return (

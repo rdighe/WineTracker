@@ -1,7 +1,7 @@
 /**
  * A wine's photo at the size its context allows. Reference photos are shop
  * packshots on white, so they sit on white in both themes and are never
- * cropped. Without one: a bottle in the wine's style color, never a stock image.
+ * cropped. Without one: a bottle in the wine's style color on its wash, never a stock image.
  */
 import { useState, type ReactNode } from 'react';
 import { Image, Text, View, type StyleProp, type ViewStyle } from 'react-native';
@@ -41,7 +41,7 @@ export function WinePhoto({ uri, wineStyle = 'red', style, padding = 0, emptyLab
   const src = uri ? (n === 0 ? photoSource(uri) : n === 1 && photoSource(uri) !== uri ? uri : null) : null;
   const has = Boolean(src);
   return (
-    <View style={[{ overflow: 'hidden', backgroundColor: has ? '#ffffff' : c.surfaceSunken }, style]}>
+    <View style={[{ overflow: 'hidden', backgroundColor: has ? '#ffffff' : c.wash[wineStyle] }, style]}>
       {has ? (
         <View style={{ flex: 1, padding }}>
           <Image source={{ uri: src! }} style={{ flex: 1 }} resizeMode="contain" onError={() => setAttempt({ uri, n: n + 1 })} accessibilityIgnoresInvertColors />

@@ -2,10 +2,11 @@
  * Picks: photograph a restaurant wine list (?kind=list, a page per photo) or
  * a store shelf (?kind=shelf), or upload a list as a PDF, and see its wines
  * ranked for your palate; open a saved one (?id=); or read photos or a PDF
- * shared from another app (?shared=1, src/app/shared.tsx). The phone reads a
- * list's text (lib/wineList.ts); the server reads it into wines, matches and
- * scores them (src/picks/). A list or shelf can be saved, with its photos,
- * to the Lists tab.
+ * shared from another app (?shared=1, src/app/shared.tsx), or start with the
+ * PDF chooser (?start=pdf, from Home). The phone reads a list's text
+ * (lib/wineList.ts); the server reads it into wines, matches and scores them
+ * (src/picks/). A list or shelf can be saved, with its photos, to Home ›
+ * Your lists (app/lists.tsx).
  */
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,7 +38,7 @@ const SAVED_PHOTO_SIDE = 1600;
 
 export default function PicksScreen() {
   const api = useApi();
-  const params = useLocalSearchParams<{ kind?: string; id?: string; shared?: string }>();
+  const params = useLocalSearchParams<{ kind?: string; id?: string; shared?: string; start?: string }>();
   const savedId = params.id ? Number(params.id) : null;
   const [kind, setKind] = useState<Kind>(params.kind === 'shelf' ? 'shelf' : 'list');
   const [pages, setPages] = useState<Page[]>([]);
@@ -157,6 +158,16 @@ export default function PicksScreen() {
       setStatus(null);
     }
   }
+
+  // Home › Upload a list as a PDF (?start=pdf): open the file chooser once, on arrival.
+  const pdfAsked = useRef(false);
+  useEffect(() => {
+    if (params.start !== 'pdf' || pdfAsked.current) return;
+    pdfAsked.current = true;
+    void addPdf();
+    // addPdf reads only refs and setters; asking once is the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.start]);
 
   // Shared from another app's share sheet (src/app/shared.tsx): read once, on arrival.
   const sharedTaken = useRef(false);

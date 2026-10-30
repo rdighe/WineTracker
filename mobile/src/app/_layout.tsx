@@ -47,6 +47,9 @@ function Navigator() {
         <Stack.Screen name="add" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="picks" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="shared" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="find" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="lists" />
       </Stack>
       {intro ? <SplashIntro onDone={introDone} /> : null}
     </View>

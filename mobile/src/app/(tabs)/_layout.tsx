@@ -5,7 +5,8 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AddMenu } from '../../components/AddMenu';
 import { Glass } from '../../components/Glass';
-import { BottleIcon, GearIcon, ListIcon, PlusIcon, SparkleIcon } from '../../components/icons';
+import { BookIcon, BottleIcon, HomeIcon, PlusIcon, SparkleIcon } from '../../components/icons';
+import { useTourTarget } from '../../components/Tour';
 import { radius, space, type, useTheme } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
 import { pendingScan } from '../../lib/pendingScan';
@@ -13,10 +14,10 @@ import { pendingScan } from '../../lib/pendingScan';
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
 const ICONS: Record<string, (p: { color: string; size?: number }) => React.ReactElement> = {
-  index: SparkleIcon,
-  lists: ListIcon,
-  wines: BottleIcon,
-  settings: GearIcon,
+  index: HomeIcon,
+  cellar: BottleIcon,
+  discover: SparkleIcon,
+  journal: BookIcon,
 };
 /** The + button beside the tab bar: a glass circle as tall as the bar. */
 const PLUS = 62;
@@ -43,6 +44,9 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
     x.value = reduceMotion ? withTiming(state.index * tabW, { duration: 120 }) : withSpring(state.index * tabW, { damping: 20, stiffness: 260, mass: 0.8 });
   }, [state.index, reduceMotion, x, tabW]);
   const highlight = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+  // The tour points at the + button and the Cellar tab.
+  const addTarget = useTourTarget('add');
+  const cellarTarget = useTourTarget('cellar');
 
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', left: space[4], right: space[4], bottom, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: space[3] }}>
@@ -57,6 +61,7 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
             return (
               <Pressable
                 key={route.key}
+                ref={route.name === 'cellar' ? cellarTarget : undefined}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: focused }}
                 accessibilityLabel={title}
@@ -77,6 +82,7 @@ function GlassTabBar({ state, descriptors, navigation }: TabBarProps) {
         </View>
       </Glass>
       <Pressable
+        ref={addTarget}
         accessibilityRole="button"
         accessibilityLabel="Add a wine"
         accessibilityState={{ expanded: Boolean(menu && !menu.closing) }}
@@ -117,10 +123,10 @@ function SignedInTabs() {
   }, []);
   return (
     <Tabs tabBar={(props) => <GlassTabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: c.bg }, animation: 'fade' }}>
-      <Tabs.Screen name="index" options={{ title: 'For you' }} />
-      <Tabs.Screen name="lists" options={{ title: 'Lists' }} />
-      <Tabs.Screen name="wines" options={{ title: 'My wines' }} />
-      <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
+      <Tabs.Screen name="index" options={{ title: 'Home' }} />
+      <Tabs.Screen name="cellar" options={{ title: 'Cellar' }} />
+      <Tabs.Screen name="discover" options={{ title: 'Discover' }} />
+      <Tabs.Screen name="journal" options={{ title: 'Journal' }} />
     </Tabs>
   );
 }

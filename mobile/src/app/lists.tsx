@@ -1,5 +1,5 @@
 /**
- * Lists: what to order or buy when you're out. Photograph a restaurant wine
+ * Lists (from Home › Your lists): what to order or buy when you're out. Photograph a restaurant wine
  * list or a store shelf to see its wines ranked for your palate (app/picks.tsx),
  * and come back to the lists and shelves you saved, with their photos.
  */
@@ -7,13 +7,13 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ListIcon, ShelfIcon } from '../../components/icons';
-import { PickPhoto } from '../../components/PickPhoto';
-import { ErrorText, Label, Muted, Title, radius, space, type, useTheme } from '../../components/ui';
-import { lift } from '../../components/Glass';
-import { shortDate } from '../../lib/format';
-import type { SavedPick } from '../../lib/types';
-import { useApi } from '../../lib/useApi';
+import { BackIcon, ListIcon, ShelfIcon } from '../components/icons';
+import { PickPhoto } from '../components/PickPhoto';
+import { ErrorText, IconButton, Label, Muted, Title, radius, space, type, useTheme } from '../components/ui';
+import { lift } from '../components/Glass';
+import { shortDate } from '../lib/format';
+import type { SavedPick } from '../lib/types';
+import { useApi } from '../lib/useApi';
 
 export default function Lists() {
   const api = useApi();
@@ -48,6 +48,11 @@ export default function Lists() {
         refreshControl={<RefreshControl refreshing={loading && saved !== null} onRefresh={load} tintColor={c.ink3} />}
         ListHeaderComponent={
           <View style={{ gap: space[4] }}>
+            <View style={{ marginLeft: -space[2], marginBottom: -space[2] }}>
+              <IconButton label="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
+                <BackIcon color={c.ink} size={20} />
+              </IconButton>
+            </View>
             <View>
               <Title>Lists</Title>
               <Muted style={{ marginTop: 2 }}>The best wines for you on a menu or a shelf</Muted>

@@ -11,7 +11,7 @@ export function AppearanceSettings() {
       <View style={{ gap: space[2] }}>
         <Label>Theme</Label>
         <Segmented<ThemePref>
-          options={[{ key: 'system', label: 'System' }, { key: 'light', label: 'Light' }, { key: 'dark', label: 'Dark' }]}
+          options={[{ key: 'light', label: 'Light' }, { key: 'dark', label: 'Evening' }, { key: 'system', label: 'Match phone' }]}
           value={prefs.theme}
           onChange={(theme) => setPrefs({ theme })}
         />

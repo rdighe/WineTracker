@@ -148,6 +148,24 @@ export interface Recommendation {
   reasons: string[];
 }
 
+/** A bottle in the person's cellar, scored for an occasion (GET /api/cellar/picks). */
+export interface CellarPick {
+  wineId: number;
+  displayName: string;
+  region: string;
+  style: RecStyle | '';
+  imageUrl: string | null;
+  /** Vintages held, newest first. */
+  vintages: string[];
+  bottles: number;
+  /** Where the bottles are, as written when they were added. */
+  location: string;
+  medianCents: number | null;
+  myRating: number | null;
+  score: number;
+  reasons: string[];
+}
+
 /** What suggestions are based on: the rated wines' styles, usual price band and leading flavors. */
 export interface TasteSummary {
   rated: number;

@@ -1,388 +1,296 @@
 /**
- * Wines picked from the user's ratings, a few of every style they've liked,
- * with a filter for each style. Refresh re-reads the ratings (styles, prices,
- * tasting notes); Find wines searches by price, style, region, tasting notes
- * and food, and a search can be saved as a view to come back to. Nothing is
- * suggested until there are enough ratings to be personal.
+ * Home: where the app opens. The name, one question for right now ("What would
+ * you like to drink today?", "tonight" from 5 pm), the way in to wine-list and
+ * shelf picks for when you're out, what's in your cellar, what's worth buying
+ * near you, and your saved lists. The tour (components/Tour.tsx) runs here the
+ * first time, and again from Settings › Show the tour (?tour=1).
  */
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ExpandingSheet, measure, type Rect } from '../../components/ExpandingSheet';
-import { Glass } from '../../components/Glass';
-import { PinIcon, RefreshIcon, SearchIcon, SparkleIcon } from '../../components/icons';
-import { RecSearchForm, describeSearch } from '../../components/RecSearchForm';
-import { Bone, Skeleton } from '../../components/Skeleton';
-import { WinePhoto } from '../../components/WineThumb';
-import { Button, Card, Chip, ErrorText, Field, Heading, Label, Muted, Title, radius, space, type, useTheme, wineStyleOf } from '../../components/ui';
-import type { WineStyle } from '../../components/theme';
-import { dollars } from '../../lib/format';
-import type { RecSearch, RecStyle, RecView, Recommendation, RecommendationsResponse, TasteSummary } from '../../lib/types';
-import { useApi } from '../../lib/useApi';
+import { lift } from '../../components/Glass';
+import { ChevronIcon, DocumentIcon, ListIcon, ShelfIcon, SparkleIcon } from '../../components/icons';
+import { nearbyLabel } from '../../components/NearBar';
+import { ProfileButton } from '../../components/ProfileButton';
+import { Tour, useTourTarget } from '../../components/Tour';
+import { WinePhoto, WineThumb } from '../../components/WineThumb';
+import { Button, Card, Chip, Divider, Muted, radius, size, space, type, useTheme, wineStyleOf } from '../../components/ui';
+import { dollars, partOfDay, shortDate, wineTitle } from '../../lib/format';
 import { useLocation } from '../../lib/location';
-import { NearBar, nearNote, nearbyLabel } from '../../components/NearBar';
+import { tour } from '../../lib/tour';
+import type { Recommendation, SavedPick, Tasting } from '../../lib/types';
+import { useApi } from '../../lib/useApi';
 
-type Filter = 'all' | 'value' | RecStyle;
-/** Your picks, or a search (a saved view has its id and name). */
-type View_ = { kind: 'picks' } | { kind: 'search'; criteria: RecSearch; saved?: RecView };
+/** The quick answers under the question; each opens Find a bottle already started that way. */
+const OCCASIONS = [
+  { key: 'dinner', label: { today: 'With lunch', tonight: 'With dinner' } },
+  { key: 'guests', label: { today: 'Having people over', tonight: 'Having people over' } },
+  { key: 'celebrate', label: { today: 'Celebrating', tonight: 'Celebrating' } },
+  { key: 'new', label: { today: 'Something new', tonight: 'Something new' } },
+] as const;
 
-const STYLE_LABEL: Record<RecStyle, string> = { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange', sweet: 'Dessert' };
-/** The color dot for each style (sweet wines share the fortified color). */
-const STYLE_DOT: Record<RecStyle, WineStyle> = { red: 'red', white: 'white', rose: 'rose', sparkling: 'sparkling', orange: 'orange', sweet: 'fortified' };
-const FILTERS: { key: Filter; label: string; dot?: WineStyle }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'value', label: 'Best value' },
-  ...(['red', 'white', 'sparkling', 'sweet'] as const).map((s) => ({ key: s, label: STYLE_LABEL[s], dot: STYLE_DOT[s] })),
-];
+interface Held { wineId: number; wine: Tasting; bottles: number; vintages: string[] }
 
-export default function Recommendations() {
+/** Cellar entries, one per wine, most recently added first. */
+function held(rows: Tasting[]): Held[] {
+  const by = new Map<number, Held>();
+  for (const t of rows) {
+    if (t.kind !== 'cellar') continue;
+    const h = by.get(t.wine_id) ?? { wineId: t.wine_id, wine: t, bottles: 0, vintages: [] };
+    h.bottles += t.bottles ?? 1;
+    const v = t.vintage_key || 'NV';
+    if (!h.vintages.includes(v)) h.vintages.push(v);
+    by.set(t.wine_id, h);
+  }
+  return [...by.values()];
+}
+
+export default function Home() {
   const api = useApi();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
-  const [view, setView] = useState<View_>({ kind: 'picks' });
-  const [filter, setFilter] = useState<Filter>('all');
-  // The answer, and which filter or search it answers: a list never shows under the wrong filter.
-  const [result, setResult] = useState<{ key: string; res: RecommendationsResponse } | null>(null);
-  const [summary, setSummary] = useState<TasteSummary | null>(null);
-  const [saved, setSaved] = useState<RecView[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshed, setRefreshed] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const [sheet, setSheet] = useState<{ origin: Rect; closing: boolean } | null>(null);
-  const findButton = useRef<View>(null);
-  // Near you: on whenever a location is known, unless switched to Anywhere.
   const loc = useLocation();
-  const [anywhere, setAnywhere] = useState(false);
-  const near = anywhere ? undefined : loc.near;
+  const params = useLocalSearchParams<{ tour?: string }>();
+  const scroll = useRef<ScrollView>(null);
+  const when = partOfDay();
+  const [cellar, setCellar] = useState<Held[] | null>(null);
+  const [near, setNear] = useState<Recommendation[] | null>(null);
+  const [lists, setLists] = useState<SavedPick[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [touring, setTouring] = useState(false);
+  const promptTarget = useTourTarget('prompt');
+  const scanTarget = useTourTarget('scan');
 
-  const searching = view.kind === 'search';
-  const listKey = `${searching ? `search-${JSON.stringify(view.criteria)}` : filter}|${near ?? ''}`;
-  // Only the latest request's answer counts: tapping filters quickly never leaves an older list on screen.
-  const latest = useRef(0);
   const load = useCallback(async () => {
-    const mine = ++latest.current;
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.recommendations({
-        ...(view.kind === 'search' ? view.criteria : filter === 'all' || filter === 'value' ? { bestValue: filter === 'value' } : { style: filter }),
-        near,
-      });
-      if (mine !== latest.current) return;
-      setResult({ key: listKey, res });
-      if (res.mode === 'profile' && res.summary) setSummary(res.summary);
-    } catch (e) {
-      if (mine === latest.current) setError(e);
-    } finally {
-      if (mine === latest.current) setLoading(false);
-    }
-  }, [api, filter, view, listKey, near]);
-  const loadSaved = useCallback(() => {
-    api.recViews().then((r) => setSaved(r.views), () => setSaved([]));
-  }, [api]);
-  useFocusEffect(useCallback(() => {
-    void load();
-    loadSaved();
-  }, [load, loadSaved]));
+    // Each section stands on its own: one failing leaves the others.
+    await Promise.all([
+      api.tastings().then((r) => setCellar(held(r.tastings)), () => setCellar([])),
+      loc.near
+        ? api.recommendations({ near: loc.near }).then((r) => setNear(r.mode === 'profile' && r.near?.applied !== false ? r.items.slice(0, 3) : []), () => setNear([]))
+        : Promise.resolve(setNear(null)),
+      api.savedPicks().then((r) => setLists(r.saved.slice(0, 3)), () => setLists([])),
+    ]);
+    setLoading(false);
+  }, [api, loc.near]);
+  useFocusEffect(useCallback(() => void load(), [load]));
 
-  // "Updated" shows for a moment after a refresh.
+  // The tour: once, the first time Home opens; and whenever Settings asks for it.
   useEffect(() => {
-    if (!refreshed) return;
-    const t = setTimeout(() => setRefreshed(false), 2400);
-    return () => clearTimeout(t);
-  }, [refreshed]);
+    let cancelled = false;
+    void tour.done().then((done) => {
+      if (cancelled || (done && params.tour !== '1')) return;
+      scroll.current?.scrollTo({ y: 0, animated: false });
+      setTouring(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.tour]);
+  const tourDone = useCallback(() => {
+    setTouring(false);
+    void tour.finish();
+    if (params.tour) router.setParams({ tour: undefined });
+  }, [params.tour]);
 
-  async function reevaluate() {
-    setView({ kind: 'picks' });
-    setFilter('all');
-    // The view and filter may already be these, so load doesn't change; reload either way.
-    await load();
-    setRefreshed(true);
-  }
-
-  async function openFind() {
-    const origin = (await measure(findButton)) ?? { x: space[4], y: insets.top + 80, width: 140, height: 34 };
-    setSheet({ origin, closing: false });
-  }
-  const closeSheet = () => setSheet((s) => (s ? { ...s, closing: true } : s));
-  const sheetClosed = useCallback(() => setSheet(null), []);
-
-  const data = result?.res ?? null;
-  const locked = data?.mode === 'locked';
-  // A new filter or search: placeholders until its own answer arrives.
-  const current = result?.key === listKey ? data : null;
-  const waiting = !current && !error;
+  const find = (occasion?: string) => router.push(occasion ? `/find?occasion=${occasion}` : '/find');
+  const bottles = cellar?.reduce((s, h) => s + h.bottles, 0) ?? 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <FlatList
+      <ScrollView
+        ref={scroll}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120, gap: space[5] }}
-        columnWrapperStyle={{ gap: space[3] }}
-        numColumns={2}
-        data={current?.items ?? []}
-        // Each filter's or search's list fades in as a new list.
-        key={listKey}
-        keyExtractor={(r) => `${listKey}-${r.wineId}`}
+        contentContainerStyle={{ paddingTop: insets.top + space[2], paddingHorizontal: space[4], paddingBottom: 120, gap: space[6] }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
-        ListHeaderComponent={
-          <View style={{ gap: space[4] }}>
-            <View>
-              <Title>For you</Title>
-              <Muted style={{ marginTop: 2 }}>{summary ? basedOn(summary) : 'From your ratings'}</Muted>
-            </View>
-            {locked ? (
-              <LockedCard rated={data.rated} needed={data.needed} />
-            ) : (
-              <>
-                <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    title={refreshed ? 'Updated' : 'Refresh picks'}
-                    busy={loading && !searching && filter === 'all'}
-                    accessibilityLabel="Refresh picks from your ratings"
-                    icon={(color) => <RefreshIcon color={color} size={15} />}
-                    onPress={reevaluate}
-                  />
-                  <View ref={findButton} collapsable={false}>
-                    <Button size="sm" variant="tinted" title="Find wines" icon={(color) => <SearchIcon color={color} size={15} />} onPress={openFind} />
-                  </View>
-                </View>
-                {saved.length ? (
-                  <View style={{ gap: space[2] }}>
-                    <Label>Saved views</Label>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space[4] }} contentContainerStyle={{ gap: space[2], paddingHorizontal: space[4] }}>
-                      {saved.map((v) => (
-                        <Chip key={v.viewId} small selected={searching && view.saved?.viewId === v.viewId} onPress={() => setView({ kind: 'search', criteria: v.criteria, saved: v })}>
-                          {v.name}
-                        </Chip>
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
-                {searching ? (
-                  <SearchBanner
-                    key={JSON.stringify(view.criteria)}
-                    criteria={view.criteria}
-                    saved={view.saved}
-                    onEdit={openFind}
-                    onClose={() => setView({ kind: 'picks' })}
-                    onSave={async (name) => {
-                      const v = await api.saveRecView(name, view.criteria);
-                      setSaved((s) => [v, ...s]);
-                      setView({ kind: 'search', criteria: v.criteria, saved: v });
-                    }}
-                    onDelete={async (v) => {
-                      await api.deleteRecView(v.viewId);
-                      setSaved((s) => s.filter((x) => x.viewId !== v.viewId));
-                      setView({ kind: 'search', criteria: v.criteria });
-                    }}
-                  />
-                ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space[4] }} contentContainerStyle={{ gap: space[2], paddingHorizontal: space[4] }}>
-                    {FILTERS.map((f) => (
-                      <Chip key={f.key} small dot={f.dot} selected={filter === f.key} onPress={() => setFilter(f.key)}>{f.label}</Chip>
-                    ))}
-                  </ScrollView>
-                )}
-                <NearBar on={!anywhere} onChange={(on) => setAnywhere(!on)} />
-                {current?.mode === 'profile' && nearNote(current.near, 'wines') ? <Muted>{nearNote(current.near, 'wines')}</Muted> : null}
-              </>
-            )}
-            <ErrorText error={error} />
-          </View>
-        }
-        ListEmptyComponent={waiting && !locked ? <CardBones /> : current?.mode === 'profile' && !loading ? (
-          <Muted style={type.subhead}>
-            {searching
-              ? 'No wines in stock match that yet. Try a wider price range or fewer details.'
-              : filter === 'all' || filter === 'value'
-                ? 'Nothing to suggest yet. Rate a few more wines.'
-                : `No ${STYLE_LABEL[filter].toLowerCase()} wines in stock that fit yet.`}
-          </Muted>
-        ) : null}
-        renderItem={({ item: r, index }) => <WineCard r={r} index={index} />}
-      />
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text accessibilityRole="header" style={[type.wordmark, { color: c.accent }]}>WineTracker</Text>
+          <ProfileButton />
+        </View>
 
-      {sheet ? (
-        <ExpandingSheet overTabs origin={sheet.origin} label="Find wines" title="Find wines" closing={sheet.closing} onRequestClose={closeSheet} onClosed={sheetClosed}>
-          <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" bottomOffset={24} contentContainerStyle={{ paddingHorizontal: space[4], paddingTop: space[2], paddingBottom: insets.bottom + space[6] }}>
-            <RecSearchForm
-              initial={searching ? view.criteria : {}}
-              onSubmit={(criteria) => {
-                // Same search as a saved view: show it as that view.
-                const match = saved.find((v) => JSON.stringify(v.criteria) === JSON.stringify(criteria));
-                setView({ kind: 'search', criteria, saved: match });
-                closeSheet();
-              }}
-            />
-          </KeyboardAwareScrollView>
-        </ExpandingSheet>
-      ) : null}
+        <View ref={promptTarget} collapsable={false}>
+          <Card style={{ gap: space[3], padding: space[5] }}>
+            <Text accessibilityRole="header" style={[type.title2, { color: c.ink }]}>{`What would you like to drink ${when}?`}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+              {OCCASIONS.map((o) => <Chip key={o.key} onPress={() => find(o.key)}>{o.label[when]}</Chip>)}
+            </View>
+            <Button title="Find a bottle" icon={(fg) => <SparkleIcon color={fg} size={18} />} onPress={() => find()} />
+            <Muted style={type.footnote}>From your cellar first, then shops near you.</Muted>
+          </Card>
+        </View>
+
+        <View ref={scanTarget} collapsable={false}>
+          <Card style={{ gap: space[3] }}>
+            <View style={{ gap: 2 }}>
+              <Text accessibilityRole="header" style={[type.title3, { color: c.ink }]}>Out and about?</Text>
+              <Muted style={type.footnote}>{'Photograph a wine list or a shelf. We’ll rank it for your taste and flag the good value.'}</Muted>
+            </View>
+            <View style={{ flexDirection: 'row', gap: space[3] }}>
+              <ScanButton title="Wine list" detail="Restaurant or bar" Icon={ListIcon} onPress={() => router.push('/picks?kind=list')} />
+              <ScanButton title="Store shelf" detail="Price tags in view" Icon={ShelfIcon} onPress={() => router.push('/picks?kind=shelf')} />
+            </View>
+            <Button title="Upload a list as a PDF" variant="plain" size="sm" icon={(fg) => <DocumentIcon color={fg} size={16} />} onPress={() => router.push('/picks?kind=list&start=pdf')} />
+          </Card>
+        </View>
+
+        <Section title="In your cellar" meta={cellar?.length ? `${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} · ${cellar.length} ${cellar.length === 1 ? 'wine' : 'wines'}` : undefined} action={cellar?.length ? { label: 'See all', onPress: () => router.navigate('/cellar') } : undefined}>
+          {cellar === null ? null : cellar.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space[4] }} contentContainerStyle={{ paddingHorizontal: space[4], gap: space[3] }}>
+              {cellar.slice(0, 10).map((h) => <Tile key={h.wineId} h={h} />)}
+            </ScrollView>
+          ) : (
+            <Muted style={type.subhead}>No bottles yet. Tap + to scan a label, then choose “In my cellar”.</Muted>
+          )}
+        </Section>
+
+        <Section title="Worth buying near you" meta={loc.here ? `In shops near ${loc.here.label}` : undefined} action={near?.length ? { label: 'More', onPress: () => router.navigate('/discover') } : undefined}>
+          {!loc.near ? (
+            <Card style={{ gap: space[2] }}>
+              <Muted style={type.subhead}>Turn on Location to see what shops near you have that suits your taste.</Muted>
+              <Button title="Location settings" variant="secondary" size="sm" onPress={() => router.push('/settings')} />
+            </Card>
+          ) : near === null ? null : near.length ? (
+            <Card flush>
+              {near.map((r, i) => (
+                <View key={r.wineId}>
+                  {i ? <Divider style={{ marginLeft: space[4] + size.thumbW + space[3] }} /> : null}
+                  <NearRow r={r} />
+                </View>
+              ))}
+            </Card>
+          ) : (
+            <Muted style={type.subhead}>Nothing near you matches yet. Rate a few more wines, or try Discover.</Muted>
+          )}
+        </Section>
+
+        {lists?.length ? (
+          <Section title="Your lists" meta="Reopen one to rank it for your taste now" action={{ label: 'All lists', onPress: () => router.push('/lists') }}>
+            <Card flush>
+              {lists.map((p, i) => (
+                <View key={p.pickId}>
+                  {i ? <Divider style={{ marginLeft: space[4] + 44 + space[3] }} /> : null}
+                  <ListRow p={p} />
+                </View>
+              ))}
+            </Card>
+          </Section>
+        ) : null}
+      </ScrollView>
+      <Tour visible={touring} onDone={tourDone} />
     </View>
   );
+
 }
 
-/** "From 12 rated wines · Red, White · usually $40–$90 · cherry, earthy" */
-function basedOn(s: TasteSummary): string {
-  const price = s.priceLowCents && s.priceHighCents ? `usually ${dollars(s.priceLowCents)}–${dollars(s.priceHighCents)}` : '';
-  return [
-    `From ${s.rated} rated ${s.rated === 1 ? 'wine' : 'wines'}`,
-    s.styles.slice(0, 3).map((k) => STYLE_LABEL[k]).join(', '),
-    price,
-    s.flavors.slice(0, 3).join(', ').toLowerCase(),
-  ].filter(Boolean).join(' · ');
-}
-
-/** What the search asked for, with Edit, Save view (or Delete for a saved one) and close. */
-function SearchBanner({ criteria, saved, onEdit, onClose, onSave, onDelete }: {
-  criteria: RecSearch; saved?: RecView; onEdit: () => void; onClose: () => void;
-  onSave: (name: string) => Promise<void>; onDelete: (v: RecView) => Promise<void>;
-}) {
-  const { c } = useTheme();
-  const [naming, setNaming] = useState(false);
-  const [name, setName] = useState(() => describeSearch(criteria).slice(0, 60));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function run(fn: () => Promise<void>) {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-      setNaming(false);
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+/** One wine on the cellar shelf: the bottle on its wash, how many, the vintages and its value. */
+function Tile({ h }: { h: Held }) {
+  const { c, scheme } = useTheme();
+  const ws = wineStyleOf(h.wine.colour, h.wine.wine_type);
+  const value = h.wine.market_now_cents;
   return (
-    <Animated.View entering={FadeIn.duration(200)}>
-      <Card style={{ gap: space[3] }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space[3] }}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Label style={{ color: c.accent }}>{saved ? 'Saved view' : 'Search'}</Label>
-            <Heading numberOfLines={2}>{saved?.name ?? describeSearch(criteria)}</Heading>
-            {saved ? <Muted numberOfLines={2}>{describeSearch(criteria)}</Muted> : null}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${wineTitle(h.wine.display_name)}, ${h.bottles} ${h.bottles === 1 ? 'bottle' : 'bottles'}`}
+      onPress={() => router.push(`/wine/${h.wineId}`)}
+      style={({ pressed }) => [{ width: 112, gap: space[1] }, pressed && { opacity: 0.85 }]}
+    >
+      <View style={[{ borderRadius: radius.md, backgroundColor: c.wash[ws], padding: space[2] }, lift(scheme, 'card')]}>
+        <WinePhoto uri={h.wine.image_url} wineStyle={ws} style={{ width: '100%', aspectRatio: 3 / 4, borderRadius: radius.sm, backgroundColor: 'transparent' }} padding={6} />
+        {h.bottles > 1 ? (
+          <View style={{ position: 'absolute', top: space[2], right: space[2], paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.xs, backgroundColor: c.surface }}>
+            <Text style={[type.figure, { fontSize: 12, lineHeight: 18, color: c.ink }]}>{`×${h.bottles}`}</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to your picks"
-            onPress={onClose}
-            hitSlop={8}
-            style={({ pressed }) => [{ width: 30, height: 30, borderRadius: 15, backgroundColor: c.fillQuiet, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={[type.headline, { color: c.ink2, lineHeight: 20 }]}>×</Text>
-          </Pressable>
-        </View>
-        {naming ? (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)} style={{ gap: space[2] }}>
-            <Field label="Name this view" value={name} onChangeText={setName} maxLength={60} autoFocus returnKeyType="done" onSubmitEditing={() => name.trim() && run(() => onSave(name.trim()))} />
-            <View style={{ flexDirection: 'row', gap: space[2] }}>
-              <Button size="sm" title="Save" busy={busy} disabled={!name.trim()} onPress={() => run(() => onSave(name.trim()))} />
-              <Button size="sm" variant="plain" title="Cancel" onPress={() => setNaming(false)} />
-            </View>
-          </Animated.View>
-        ) : (
-          <View style={{ flexDirection: 'row', gap: space[2] }}>
-            <Button size="sm" variant="secondary" title="Edit" onPress={onEdit} />
-            {saved ? (
-              <Button size="sm" variant="plain" title="Delete view" busy={busy} onPress={() => run(() => onDelete(saved))} />
-            ) : (
-              <Button size="sm" variant="tinted" title="Save view" onPress={() => setNaming(true)} />
-            )}
-          </View>
-        )}
-        <ErrorText error={error} />
-      </Card>
-    </Animated.View>
-  );
-}
-
-function LockedCard({ rated, needed }: { rated: number; needed: number }) {
-  const { c } = useTheme();
-  return (
-    <Card style={{ gap: 14 }}>
-      <SparkleIcon color={c.accent} size={26} />
-      <Heading style={type.title2}>
-        Rate {needed - rated} more {needed - rated === 1 ? 'wine' : 'wines'} to unlock suggestions
-      </Heading>
-      <Muted style={type.subhead}>Suggestions come from what you like, so we wait until we know a little about your taste.</Muted>
-      <View style={{ flexDirection: 'row', gap: 6 }} accessible accessibilityLabel={`${rated} of ${needed} rated`}>
-        {Array.from({ length: needed }, (_, i) => (
-          <View key={i} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i < rated ? c.accent : c.fillQuiet }} />
-        ))}
+        ) : null}
       </View>
-      <Muted style={type.tabular}>{rated} of {needed} rated</Muted>
-      <Button title="Add a wine" onPress={() => router.push('/add')} />
-    </Card>
+      <Text style={[type.wineTitle, { fontSize: 15, lineHeight: 19, color: c.ink }]} numberOfLines={2}>{wineTitle(h.wine.display_name)}</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Text style={[type.footnote, { color: c.ink2 }]}>{h.vintages.slice(0, 2).join(', ')}</Text>
+        {value ? <Text style={[type.figure, { fontSize: 13, lineHeight: 18, color: c.ink2 }]}>{dollars(value)}</Text> : null}
+      </View>
+    </Pressable>
   );
 }
 
-/** Two rows of card-shaped placeholders while a filter or search loads. */
-function CardBones() {
-  return (
-    <Skeleton label="Finding wines">
-      {[0, 1].map((row) => (
-        <View key={row} style={{ flexDirection: 'row', gap: space[3] }}>
-          {[0, 1].map((col) => (
-            <View key={col} style={{ flex: 1, gap: space[2] }}>
-              <View style={{ aspectRatio: 4 / 5 }}><Bone height="100%" radius={radius.md} /></View>
-              <Bone width="85%" height={16} />
-              <Bone width="55%" />
-            </View>
-          ))}
-        </View>
-      ))}
-    </Skeleton>
-  );
-}
-
-/** Photo-first tile: the bottle, its price in a glass chip, the name and why it was picked. */
-function WineCard({ r, index }: { r: Recommendation; index: number }) {
+/** A wine a shop near you has, with the shop and the price. */
+function NearRow({ r }: { r: Recommendation }) {
   const { c } = useTheme();
-  const style = r.style ? STYLE_DOT[r.style] : wineStyleOf(r.colour, r.wineType);
+  const ws = wineStyleOf(r.colour, r.wineType);
   return (
-    <Animated.View entering={FadeInDown.duration(280).delay(Math.min(index, 8) * 45)} style={{ flex: 1, maxWidth: '50%' }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
-        onPress={() => router.push(`/wine/${r.wineId}`)}
-        style={({ pressed }) => [{ gap: space[2] }, pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] }]}
-      >
-        <WinePhoto uri={r.imageUrl} wineStyle={style} padding={space[3]} style={{ width: '100%', aspectRatio: 4 / 5, borderRadius: radius.md }}>
-          <View style={{ position: 'absolute', left: space[2], bottom: space[2] }}>
-            <Glass style={{ borderRadius: radius.pill }}>
-              <Text style={[type.subhead, type.tabular, { fontWeight: '700', color: c.ink, paddingVertical: 5, paddingHorizontal: space[3] }]}>{dollars(r.medianCents)}</Text>
-            </Glass>
-          </View>
-        </WinePhoto>
-        <View style={{ gap: 2, paddingHorizontal: 2 }}>
-          <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={2}>{r.displayName}</Text>
-          <Muted numberOfLines={1}>
-            {[r.region, r.country].filter(Boolean).join(' · ')}
-            {r.nMerchants ? ` · ${r.nMerchants} ${r.nMerchants === 1 ? 'shop' : 'shops'}` : ''}
-          </Muted>
-          {r.nearby ? (
-            <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
-              <View style={{ marginTop: 2 }}><PinIcon color={c.positive} size={13} /></View>
-              <Text style={[type.footnote, { flex: 1, color: c.positive }]} numberOfLines={1}>{nearbyLabel(r.nearby)}</Text>
-            </View>
-          ) : null}
-          {r.reasons[0] ? (
-            <View style={{ flexDirection: 'row', gap: 4, marginTop: 2 }}>
-              <View style={{ marginTop: 2 }}><SparkleIcon color={c.accent} size={13} /></View>
-              <Text style={[type.footnote, { flex: 1, color: c.accent }]} numberOfLines={2}>{r.reasons[0]}</Text>
-            </View>
-          ) : null}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${r.displayName}, ${dollars(r.medianCents)}. ${r.reasons[0] ?? ''}`}
+      onPress={() => router.push(`/wine/${r.wineId}`)}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
+    >
+      <WineThumb uri={r.imageUrl} wineStyle={ws} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={1}>{wineTitle(r.displayName)}</Text>
+        <Text style={[type.footnote, { color: c.ink2 }]} numberOfLines={1}>{r.nearby ? nearbyLabel(r.nearby) : r.reasons[0] ?? r.region}</Text>
+      </View>
+      <Text style={[type.figure, { color: c.ink }]}>{dollars(r.medianCents)}</Text>
+    </Pressable>
+  );
+}
+
+/** A saved wine list or shelf. */
+function ListRow({ p }: { p: SavedPick }) {
+  const { c } = useTheme();
+  const Icon = p.kind === 'shelf' ? ShelfIcon : ListIcon;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${p.name}, ${p.wines} wines`}
+      onPress={() => router.push(`/picks?id=${p.pickId}`)}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: size.row, paddingVertical: space[2], paddingHorizontal: space[4] }, pressed && { backgroundColor: c.fillQuiet }]}
+    >
+      <View style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: c.fillQuiet, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon color={c.ink2} size={22} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[type.headline, { color: c.ink }]} numberOfLines={1}>{p.name}</Text>
+        <Text style={[type.footnote, { color: c.ink2 }]} numberOfLines={1}>{`${shortDate(p.savedAt)} · ${p.wines} wines${p.topPick ? ` · top pick ${p.topPick}` : ''}`}</Text>
+      </View>
+      <ChevronIcon color={c.ink3} />
+    </Pressable>
+  );
+}
+
+/** Wine list / Store shelf: the two ways in to picks, side by side. */
+function ScanButton({ title, detail, Icon, onPress }: { title: string; detail: string; Icon: (p: { color: string; size?: number }) => ReactElement; onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${detail}`}
+      onPress={onPress}
+      style={({ pressed }) => [{ flex: 1, padding: space[3], gap: space[2], borderRadius: radius.md, backgroundColor: c.fillQuiet }, pressed && { opacity: 0.85 }]}
+    >
+      <View style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon color={c.onAccent} size={22} />
+      </View>
+      <View style={{ gap: 1 }}>
+        <Text style={[type.headline, { color: c.ink }]}>{title}</Text>
+        <Text style={[type.footnote, { color: c.ink2 }]}>{detail}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** A section's title, what it holds, and an optional action on the right. */
+function Section({ title, meta, action, children }: { title: string; meta?: string; action?: { label: string; onPress: () => void }; children: React.ReactNode }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ gap: space[3] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: space[2] }}>
+        <View style={{ flex: 1 }}>
+          <Text accessibilityRole="header" style={[type.title3, { color: c.ink }]}>{title}</Text>
+          {meta ? <Text style={[type.footnote, { color: c.ink2 }]}>{meta}</Text> : null}
         </View>
-      </Pressable>
-    </Animated.View>
+        {action ? <Button title={action.label} variant="plain" size="sm" onPress={action.onPress} /> : null}
+      </View>
+      {children}
+    </View>
   );
 }

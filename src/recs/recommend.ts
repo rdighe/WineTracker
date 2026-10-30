@@ -408,6 +408,75 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
   return { mode: 'profile', items, styles, summary: summarize(profile, styles), ...(near ? { near } : {}) };
 }
 
+/** A wine in the person's cellar, scored for an occasion (Home › Find a bottle). */
+export interface CellarPick {
+  wineId: number;
+  displayName: string;
+  region: string;
+  style: RecStyle | '';
+  imageUrl: string | null;
+  /** The vintages held, newest first ("2019", "NV"). */
+  vintages: string[];
+  bottles: number;
+  /** Where the bottles are, as the person wrote it (the newest entry's location). */
+  location: string;
+  /** Market price per 750 ml now, when known. */
+  medianCents: number | null;
+  myRating: number | null;
+  score: number;
+  reasons: string[];
+}
+
+/**
+ * The person's own bottles, best first for what they asked for: the same
+ * food and tasting-note matching as a search, the taste profile, and their
+ * own past rating of the wine. Unlike recommend() this needs no minimum of
+ * ratings and includes wines they've tasted (they own them, after all).
+ */
+export async function cellarPicks(db: Db, userId: number, opts: { food?: string; notes?: string; styles?: RecStyle[]; limit?: number } = {}): Promise<{ items: CellarPick[] }> {
+  const { rows } = await db.query(
+    `SELECT ${WINE_COLS}, w.image_url, ${NOTES_COLS}, p.median_cents,
+            sum(coalesce(t.bottles, 1))::int AS bottles,
+            array_agg(DISTINCT coalesce(nullif(t.vintage_key, ''), 'NV')) AS vintages,
+            (array_agg(t.location ORDER BY t.tasted_on DESC, t.tasting_id DESC))[1] AS location,
+            (SELECT r.rating::float FROM tastings r WHERE r.user_id = $1 AND r.wine_id = w.wine_id AND r.rating IS NOT NULL
+              ORDER BY r.tasted_on DESC, r.tasting_id DESC LIMIT 1) AS my_rating
+       FROM tastings t JOIN wines w ON w.wine_id = t.wine_id
+       ${NOTES_JOIN}
+       LEFT JOIN wine_prices p ON p.wine_id = w.wine_id AND p.vintage_key = '*' AND p.currency = 'USD'
+      WHERE t.user_id = $1 AND t.kind = 'cellar'
+      GROUP BY ${WINE_COLS}, w.image_url, i.info, p.median_cents`,
+    [userId]
+  );
+  if (!rows.length) return { items: [] };
+  const { profile } = await loadProfile(db, userId);
+  const wanted = wantedTaste(opts.notes);
+  const foods = foodHints(opts.food);
+  const items = rows.map((r): CellarPick | null => {
+    const f = wineFeatures(r as WineRow, notesOf(r));
+    const style = recStyle(f);
+    if (opts.styles?.length && !opts.styles.includes(style as RecStyle)) return null;
+    const pairings: string[] = Array.isArray(r.food_pairings) ? r.food_pairings.map(String) : [];
+    const notes = ` ${normalize([...(Array.isArray(r.descriptors) ? r.descriptors.map(String) : []), r.notes_text ?? ''].join(' '))} `;
+    const s = scoreWine(profile, f, r.median_cents ?? null);
+    const taste = tasteMatch(wanted, f, notes);
+    const food = foodMatch(foods, f, style, pairings.map((text) => ({ text, norm: ` ${normalize(text)} ` })));
+    const myRating = r.my_rating == null ? null : Number(r.my_rating);
+    // Their own verdict on this very wine counts most: a 4.5 they loved beats a profile guess.
+    const own = myRating == null ? 0 : 0.5 * (myRating - 3);
+    const score = 0.6 * s.score + taste.score + food.score + own;
+    const reasons = [...food.reasons, ...taste.reasons, ...(myRating != null && myRating >= 4 ? [`You rated it ${myRating}`] : []), ...explain(s.contributions)].slice(0, 3);
+    const vintages = (r.vintages as string[]).filter(Boolean).sort((a, b) => (a === 'NV' ? 1 : b === 'NV' ? -1 : b.localeCompare(a)));
+    return {
+      wineId: Number(r.wine_id), displayName: r.display_name, region: r.sub_region || r.region, style, imageUrl: r.image_url ?? null,
+      vintages, bottles: Number(r.bottles), location: r.location ?? '', medianCents: r.median_cents ?? null, myRating,
+      score: Math.round(score * 1000) / 1000, reasons,
+    };
+  }).filter((x): x is CellarPick => x !== null && x.bottles > 0);
+  items.sort((a, b) => b.score - a.score);
+  return { items: items.slice(0, Math.min(opts.limit ?? 10, 50)) };
+}
+
 function summarize(p: Profile, styles: RecStyle[]): ProfileSummary {
   const flavors = [...p.flavors.entries()].filter(([, s]) => s.weight > 0).sort((a, b) => b[1].weight - a[1].weight).slice(0, 4).map(([k]) => flavorLabel(k));
   const band = p.price ? [Math.exp(p.price.mu - p.price.sigma), Math.exp(p.price.mu + p.price.sigma)] : null;
@@ -448,9 +517,12 @@ const FOOD_HINTS: { words: string[]; styles: RecStyle[]; flavors: Flavor[] }[] =
   { words: ['fried', 'chips', 'popcorn', 'caviar', 'tempura'], styles: ['sparkling'], flavors: ['fresh', 'yeasty'] },
 ];
 
-function foodHints(food?: string): { words: string[]; hints: typeof FOOD_HINTS } {
+function foodHints(food?: string): { words: string[]; hints: typeof FOOD_HINTS; dish: string } {
   const words = normalize(food ?? '').split(' ').filter((w) => w.length >= 3);
-  return { words, hints: FOOD_HINTS.filter((h) => h.words.some((x) => words.includes(x))) };
+  // The dish as typed, for the reason ("Goes with lamb chops"), kept short.
+  const typed = (food ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const dish = typed.length > 40 ? `${typed.slice(0, 39).replace(/\s\S*$/, '')}…` : typed;
+  return { words, hints: FOOD_HINTS.filter((h) => h.words.some((x) => words.includes(x))), dish };
 }
 
 function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle | '', pairings: Candidate['pairings']) {
@@ -461,7 +533,7 @@ function foodMatch(q: ReturnType<typeof foodHints>, f: Features, style: RecStyle
     if (style && h.styles.includes(style)) score += 0.4;
     score += 0.25 * Math.min(2, h.flavors.filter((k) => (f.flavors?.[k] ?? 0) > 0).length);
   }
-  return { score, reasons: said ? [`Pairs with ${said.toLowerCase()}`] : score > 0.6 ? [`Goes with ${q.words.slice(0, 2).join(' and ')}`] : [] };
+  return { score, reasons: said ? [`Pairs with ${said.toLowerCase()}`] : score > 0.6 ? [`Goes with ${q.dish}`] : [] };
 }
 
 function toRec(r: WineRow & { median_cents: number; n_merchants: number; image_url?: string | null }, style: RecStyle | '', score: number, reasons: string[]): Recommendation {

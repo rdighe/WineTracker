@@ -209,6 +209,39 @@ describe('recommendations API', () => {
     await vi.waitFor(async () => expect((await ids()).sort()).toEqual([first, added].sort()));
   });
 
+  it('picks from the cellar for an occasion: food first, your own rating next, only bottles you hold', async () => {
+    const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
+    const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });
+    const as = (r: request.Test) => r.set('Authorization', 'Dev rohan');
+    const neb = { grape: 'Nebbiolo', region: 'Piedmont', country: 'Italy', colour: 'red', source: 'lwin' as const };
+    const barolo = await priced({ producer: 'Vietti', name: 'Barolo Castiglione', sub_region: 'Barolo', ...neb }, 6000);
+    const chablis = await priced({ producer: 'Raveneau', name: 'Chablis', grape: 'Chardonnay', region: 'Burgundy', country: 'France', colour: 'white', source: 'lwin' }, 9000);
+    const sauternes = await priced({ producer: 'Suduiraut', name: 'Sauternes', region: 'Bordeaux', country: 'France', colour: 'white', wine_type: 'dessert', source: 'lwin' }, 4000);
+    const notMine = await priced({ producer: 'GD Vajra', name: 'Barolo Albe', ...neb }, 5500);
+    const add = (body: object) => as(request(app).post('/api/tastings')).send(body);
+    expect((await add({ wineId: barolo, kind: 'cellar', bottles: 2, vintage: '2019', location: 'Rack A · C2' })).status).toBe(201);
+    expect((await add({ wineId: barolo, kind: 'cellar', bottles: 1, vintage: '2016' })).status).toBe(201);
+    expect((await add({ wineId: chablis, kind: 'cellar', bottles: 1, vintage: '2020' })).status).toBe(201);
+    expect((await add({ wineId: sauternes, kind: 'cellar', bottles: 1, vintage: '2015' })).status).toBe(201);
+    expect((await add({ wineId: notMine, rating: 5 })).status).toBe(201);
+
+    const picks = async (qs = '') => (await as(request(app).get(`/api/cellar/picks${qs}`))).body.items;
+    // Lamb points to the red; dessert to the sweet wine; nothing outside the cellar.
+    const lamb = await picks('?food=lamb%20chops');
+    expect(lamb[0]).toMatchObject({ wineId: barolo, bottles: 3, vintages: ['2019', '2016'], location: expect.any(String), medianCents: 6000 });
+    expect(lamb.map((i: { wineId: number }) => i.wineId)).not.toContain(notMine);
+    expect(lamb[0].reasons).toContain('Goes with lamb chops');
+    expect((await picks('?food=chocolate%20dessert'))[0].wineId).toBe(sauternes);
+    expect((await picks('?styles=white')).map((i: { wineId: number }) => i.wineId)).toEqual([chablis]);
+    expect((await picks('?styles=sweet')).map((i: { wineId: number }) => i.wineId)).toEqual([sauternes]);
+    // A wine you rated highly comes up even with no occasion given, and says why.
+    expect((await add({ wineId: chablis, rating: 5 })).status).toBe(201);
+    const plain = await picks();
+    expect(plain[0]).toMatchObject({ wineId: chablis, myRating: 5, reasons: expect.arrayContaining(['You rated it 5']) });
+    // Someone else's cellar is theirs.
+    expect((await request(app).get('/api/cellar/picks').set('Authorization', 'Dev someone-else')).body.items).toEqual([]);
+  });
+
   it('searches by styles, price, region, tasting notes and food, says what it is based on, and saves views', async () => {
     const fetcher = new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() });
     const app = createApp({ db, provider: new NullProvider(), fetcher, auth: { allowDev: true } });

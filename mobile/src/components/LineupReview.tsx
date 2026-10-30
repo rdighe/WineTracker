@@ -85,7 +85,7 @@ export function LineupReview({ uri, scans, onDone }: { uri: string; scans: ScanR
         throw new Error(`${bad.size} of ${chosen.length} couldn't be added. They're still ticked below; try again.`);
       }
       onDone();
-      router.dismissTo(kind === 'cellar' ? '/wines?mode=cellar' : '/wines?mode=tastings');
+      router.dismissTo(kind === 'cellar' ? '/cellar' : '/journal');
     } catch (e) {
       setError(e);
     } finally {

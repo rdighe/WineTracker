@@ -1,6 +1,6 @@
 /**
- * My wines: the cellar and the tastings in one list, switched with the
- * Cellar / Tasted toggle. One entry per wine, gathering everything the
+ * The Cellar tab (bottles you own, and Saved) and the Journal tab (everything
+ * you've tasted) share this list. One entry per wine, gathering everything the
  * user did with it - bottles added to the cellar and every tasting - each
  * with its date, which can be changed. Cellar entries can be removed (their
  * notes stay as tastings) and tastings deleted.
@@ -16,6 +16,7 @@ import { useApi } from '../lib/useApi';
 import { Section, TastingRow } from './EntryRows';
 import { SavedWines } from './SavedWines';
 import { ChevronIcon } from './icons';
+import { ProfileButton } from './ProfileButton';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
 import { Button, Card, Divider, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
@@ -64,13 +65,13 @@ const groupChange = (g: Group) => {
 };
 
 /** Yes/no question: a native alert, or the browser's confirm on the web. */
-export function MyWines() {
+export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
   const api = useApi();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
-  // ?mode=cellar|tastings: after adding a bottle or logging a tasting elsewhere, show that side.
+  // Cellar tab: ?mode=saved opens Saved. The Journal tab is always the tastings.
   const params = useLocalSearchParams<{ mode?: string }>();
-  const [mode, setModeState] = useState<Mode>(params.mode === 'tastings' || params.mode === 'saved' ? params.mode : 'cellar');
+  const [mode, setModeState] = useState<Mode>(side === 'journal' ? 'tastings' : params.mode === 'saved' ? 'saved' : 'cellar');
   const [rows, setRows] = useState<Tasting[] | null>(null);
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
@@ -89,7 +90,7 @@ export function MyWines() {
   const [seenMode, setSeenMode] = useState(params.mode);
   if (params.mode !== seenMode) {
     setSeenMode(params.mode);
-    if (params.mode === 'cellar' || params.mode === 'tastings' || params.mode === 'saved') setMode(params.mode);
+    if (side === 'cellar' && (params.mode === 'cellar' || params.mode === 'saved')) setMode(params.mode);
   }
 
   const load = useCallback(async () => {
@@ -125,10 +126,10 @@ export function MyWines() {
     ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} in your cellar`
     : `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} tasted`;
 
-  // Cellar / Tasted / Saved: which list, at the top right.
-  const modeSwitch = (
-    <Segmented<Mode> small tinted options={[{ key: 'cellar', label: 'Cellar' }, { key: 'tastings', label: 'Tasted' }, { key: 'saved', label: 'Saved' }]} value={mode} onChange={setMode} />
-  );
+  // Cellar / Saved on the Cellar tab; the Journal has one list.
+  const modeSwitch = side === 'cellar'
+    ? <Segmented<Mode> small tinted options={[{ key: 'cellar', label: 'Bottles' }, { key: 'saved', label: 'Saved' }]} value={mode} onChange={setMode} />
+    : null;
   if (mode === 'saved') return <SavedWines modeSwitch={modeSwitch} />;
 
   return (
@@ -143,9 +144,12 @@ export function MyWines() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
       ListHeaderComponent={
         <View style={{ gap: space[4], marginBottom: space[4] }}>
-          <View>
-            <Title>My wines</Title>
-            <Muted style={{ marginTop: 2 }}>{rows ? countLine : ' '}</Muted>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3] }}>
+            <View style={{ flex: 1 }}>
+              <Title>{side === 'journal' ? 'Journal' : 'Cellar'}</Title>
+              <Muted style={{ marginTop: 2 }}>{rows ? countLine : ' '}</Muted>
+            </View>
+            <ProfileButton />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2] }}>
             <Segmented<Sort>

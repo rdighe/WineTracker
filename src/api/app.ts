@@ -33,7 +33,7 @@ import { createTasting, deleteTasting, listTastings, removeFromCellar, updateTas
 import { maybeQueueWineImage } from '../catalog/images.js';
 import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
-import { recommend } from '../recs/recommend.js';
+import { cellarPicks, recommend } from '../recs/recommend.js';
 import { createPlaces, parseNear, type Places } from '../places/places.js';
 
 export interface AppDeps {
@@ -679,6 +679,20 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
     notes: z.string().trim().max(200).optional(),
     food: z.string().trim().max(200).optional(),
   });
+
+  // Home › Find a bottle: the person's own bottles, best first for the occasion.
+  app.get('/api/cellar/picks', auth.requireUser, wrap(async (req, res) => {
+    const q = parse(
+      z.object({
+        limit: z.coerce.number().int().min(1).max(50).optional(),
+        styles: z.string().max(80).optional().transform((s) => (s ? s.split(',').filter(Boolean) : undefined)).pipe(searchSchema.shape.styles),
+        notes: searchSchema.shape.notes,
+        food: searchSchema.shape.food,
+      }),
+      req.query
+    );
+    res.json(await cellarPicks(db, req.user!.userId, { limit: q.limit, styles: q.styles, notes: q.notes, food: q.food }));
+  }));
 
   app.get('/api/recommendations', auth.requireUser, wrap(async (req, res) => {
     const q = parse(

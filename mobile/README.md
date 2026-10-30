@@ -2,13 +2,25 @@
 
 Expo (SDK 57) + Expo Router app for the WineTracker API in the parent directory.
 
-Screens: three tabs - **For you** (where the app opens: picks from your ratings, filtered by Red / White / Sparkling /
-Dessert or best value; Refresh picks re-reads your ratings; Find wines searches by price range, style, region, tasting
-notes and food, and a search can be saved as a view), **My wines** (Cellar, Tasted and Saved, switched at the top
-right; a cellar or saved row opens the wine page, a tasted row opens in place) and **Settings** - plus a floating
-**+** beside the tab bar that offers Scan a label, Scan a lineup, Choose a photo, or Search or add by hand, each
-opening **Add wine** already started that way. The **wine page** has the market price, your bottles and tastings of
-it, price by vintage, where to buy, background, a bookmark (adds it to Saved), and add to cellar / log a tasting.
+Screens: four tabs, plus a floating **+** beside the tab bar.
+
+- **Home** (where the app opens): "WineTracker", then *What would you like to drink today?* ("tonight" from 5 pm) with
+  quick answers and **Find a bottle** (`app/find.tsx`: occasion, what's on the table, a style; picks from your cellar
+  first, `GET /api/cellar/picks`, then from shops near you). **Out and about?** opens wine-list and shelf picks
+  (`app/picks.tsx`: photograph a list or a shelf, or upload a PDF). Then what's in your cellar, what's worth buying
+  near you, and your saved lists (`app/lists.tsx`).
+- **Cellar**: the bottles you own (and Saved), with cost, value now and change.
+- **Discover**: picks from your ratings, filtered by Red / White / Sparkling / Dessert or best value; Refresh picks
+  re-reads your ratings; Find wines searches by price range, style, region, tasting notes and food, and a search can
+  be saved as a view.
+- **Journal**: everything you've tasted.
+- **+** offers Scan a label, Scan a lineup, Wine list or shelf, Choose a photo, or Search or add by hand.
+- The avatar at the top right of each tab opens **Settings** (appearance, location, account, Vivino import, Show the
+  tour). The **tour** (`components/Tour.tsx`) points at Find a bottle, Out and about?, + and Cellar the first time
+  Home opens.
+
+The **wine page** has the market price, your bottles and tastings of it, price by vintage, where to buy, background,
+a bookmark (adds it to Saved), and add to cellar / log a tasting.
 
 ## Run it
 
@@ -68,12 +80,12 @@ can use your API (and its development sign-in) while the tunnel runs, so stop it
 
 ## Look and feel
 
-The app follows the WineTracker design system (https://claude.ai/artifact/GYN2DuUbpCJ8eqerSf1U1F). Its tokens live
-in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
+The app follows the WineTracker for iPhone design system (https://claude.ai/artifact/U5K56pGs59EFkS96owz4Cy). Its
+tokens live in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
 
-- **Tabs:** Add wine, My wines (the cellar and tastings in one list; the Cellar / Tasted toggle switches them), For you,
-  Settings (appearance, account, Vivino import).
-- **Light and dark** follow the phone, or the Theme choice in Settings › Appearance.
+- **Light** is the default; **Evening** (warm aubergine, never black) and **Match phone** are in Settings › Appearance.
+- **Color is the wine:** a wine's style tints its tile and card (`c.wash`). Wine names are New York and numbers SF
+  Rounded on Apple devices (`type.wineTitle`, `type.figure`).
 - **Liquid glass** (tab bar, wine-page toolbar, buttons over photos) is `src/components/Glass.tsx`: native Liquid Glass
   on iOS 26 (`expo-glass-effect`), a blur elsewhere. It is always Tinted; Reduce Transparency makes it solid and
   Increase Contrast more frosted. `expo-glass-effect` is native code: make a new development or TestFlight build after

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -199,6 +199,13 @@ export function createApi(authHeader: AuthHeader) {
       if (opts.maxPrice) q.set('maxPrice', String(opts.maxPrice));
       for (const k of ['region', 'notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
       return request<RecommendationsResponse>(`/api/recommendations?${q}`);
+    },
+    /** Home › Find a bottle: the person's own bottles, best first for the occasion. */
+    cellarPicks: (opts: { food?: string; notes?: string; styles?: RecStyle[] } = {}) => {
+      const q = new URLSearchParams();
+      if (opts.styles?.length) q.set('styles', opts.styles.join(','));
+      for (const k of ['notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
+      return request<{ items: CellarPick[] }>(`/api/cellar/picks?${q}`);
     },
     recViews: () => request<{ views: RecView[] }>('/api/rec-views'),
     saveRecView: (name: string, criteria: RecSearch) => request<RecView>('/api/rec-views', json('POST', { name, criteria })),

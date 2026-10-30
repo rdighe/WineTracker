@@ -34,3 +34,9 @@ export function shortDate(iso: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
   return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : '';
 }
+
+/** "tonight" from 5 pm until 4 am, else "today": how Home asks what you'd like to drink. */
+export function partOfDay(d = new Date()): 'today' | 'tonight' {
+  const h = d.getHours();
+  return h >= 17 || h < 4 ? 'tonight' : 'today';
+}

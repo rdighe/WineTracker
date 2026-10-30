@@ -320,7 +320,7 @@ function Review({ uri, scan, onDone }: { uri: string; scan: ScanResult; onDone: 
       if (confirmedId !== selected.wineId) await api.confirmScan(scan.scanId, { wineId: selected.wineId });
       await api.addTasting({ wineId: selected.wineId, scanId: scan.scanId, ...tasting });
       onDone();
-      router.dismissTo(tasting.kind === 'cellar' ? '/wines?mode=cellar' : '/wines?mode=tastings');
+      router.dismissTo(tasting.kind === 'cellar' ? '/cellar' : '/journal');
     } catch (e) {
       setError(e);
     } finally {

@@ -1,8 +1,10 @@
 /**
- * The WineTracker design system: light and dark tokens, the type scale, and
- * the person's display choices. Theme follows the phone (or the in-app
- * Light/Dark choice); glass is always tinted, except that Reduce Transparency
- * makes it solid and Increase Contrast makes it more frosted.
+ * The WineTracker for iPhone design system
+ * (https://claude.ai/artifact/U5K56pGs59EFkS96owz4Cy): light and evening
+ * tokens, the type scale, and the person's display choices. Light is the
+ * default; Settings › Appearance can follow the phone or choose Evening.
+ * Glass is always tinted, except that Reduce Transparency makes it solid and
+ * Increase Contrast makes it more frosted.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Appearance, Platform, useColorScheme, type TextStyle } from 'react-native';
@@ -19,6 +21,8 @@ export interface Palette {
   positive: string; negative: string; caution: string; focus: string;
   glassFill: string; glassFillTinted: string; glassStroke: string; glassSelected: string; glassTint: string; scrim: string;
   style: Record<WineStyle, string>;
+  /** A wine's style as a soft tint behind its card, tile and photo, so color always means "this wine". */
+  wash: Record<WineStyle, string>;
 }
 
 export const palettes: Record<Scheme, Palette> = {
@@ -31,21 +35,24 @@ export const palettes: Record<Scheme, Palette> = {
     glassFill: 'rgba(250, 248, 247, 0.58)', glassFillTinted: 'rgba(250, 248, 247, 0.86)', glassStroke: 'rgba(255, 255, 255, 0.8)',
     glassSelected: 'rgba(28, 26, 27, 0.08)', glassTint: 'rgba(123, 30, 58, 0.88)', scrim: 'rgba(20, 12, 15, 0.32)',
     style: { red: '#8c2340', white: '#9a7a14', rose: '#c4506f', sparkling: '#3f7a8c', orange: '#b05a1c', fortified: '#5e3b28' },
+    wash: { red: '#f7e9ec', white: '#f6f0dc', rose: '#fbe9ee', sparkling: '#e4f0f3', orange: '#f9ebdf', fortified: '#f0e7e0' },
   },
+  // Evening: warm aubergine grounds with clearly stacked surfaces, never black.
   dark: {
-    bg: '#0e0c0d', surface: '#1a1718', surfaceRaised: '#252123', surfaceSunken: '#131011', fillQuiet: '#2b2628',
-    hairline: '#2e292b', borderControl: '#7a7274',
-    ink: '#f4f0ee', ink2: '#b3abab', ink3: '#9b9395',
-    accent: '#e88ca3', accentHover: '#f2a9bb', onAccent: '#2a0a14', accentSoft: '#3b1b26', onAccentSoft: '#f4b9c7',
-    positive: '#5fcca6', negative: '#ff8f86', caution: '#f2b85c', focus: '#86adff',
-    glassFill: 'rgba(33, 29, 31, 0.66)', glassFillTinted: 'rgba(33, 29, 31, 0.86)', glassStroke: 'rgba(255, 255, 255, 0.14)',
-    glassSelected: 'rgba(255, 255, 255, 0.12)', glassTint: 'rgba(232, 140, 163, 0.9)', scrim: 'rgba(0, 0, 0, 0.56)',
+    bg: '#1e191c', surface: '#2a2327', surfaceRaised: '#352d32', surfaceSunken: '#171316', fillQuiet: '#3a3237',
+    hairline: '#40363c', borderControl: '#8e8287',
+    ink: '#f7f2ee', ink2: '#cdc2c0', ink3: '#ab9fa2',
+    accent: '#ef9bb1', accentHover: '#f6b6c7', onAccent: '#2a0a14', accentSoft: '#4a2633', onAccentSoft: '#f8c3d0',
+    positive: '#6bd3ad', negative: '#ff978e', caution: '#f4be66', focus: '#8fb4ff',
+    glassFill: 'rgba(42, 35, 39, 0.7)', glassFillTinted: 'rgba(42, 35, 39, 0.9)', glassStroke: 'rgba(255, 255, 255, 0.16)',
+    glassSelected: 'rgba(255, 255, 255, 0.12)', glassTint: 'rgba(239, 155, 177, 0.92)', scrim: 'rgba(0, 0, 0, 0.5)',
     style: { red: '#dc6a84', white: '#e3c76c', rose: '#f2a2b6', sparkling: '#8cc6d6', orange: '#ee9f62', fortified: '#c9a084' },
+    wash: { red: '#3b252c', white: '#36301f', rose: '#422832', sparkling: '#213439', orange: '#3c2c1f', fortified: '#33271f' },
   },
 };
 
 export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40 } as const;
-export const radius = { xs: 6, sm: 10, md: 16, lg: 24, xl: 40, pill: 999 } as const;
+export const radius = { xs: 6, sm: 10, md: 18, lg: 28, xl: 40, pill: 999 } as const;
 export const size = { controlSm: 34, controlMd: 44, controlLg: 50, tapMin: 44, row: 64, rowPhoto: 76, thumbW: 44, thumbH: 56, photoHero: 420 } as const;
 
 /**
@@ -58,21 +65,29 @@ export const WORDMARK_FONT = 'PerfectDOSVGA437';
 export const wordmarkFont: TextStyle = { fontFamily: WORDMARK_FONT };
 
 const tabular: TextStyle = { fontVariant: ['tabular-nums'] };
+/** Numbers in SF Rounded on Apple devices: friendly, tabular figures for prices, counts and ratings. */
+const rounded: TextStyle = Platform.OS === 'ios' ? { fontFamily: 'ui-rounded' } : {};
+/** Wine names in New York on Apple devices, so a wine reads as a name, not a label. */
+const serif: TextStyle = Platform.OS === 'ios' ? { fontFamily: 'ui-serif' } : {};
 
-/** Text styles. Sizes follow Apple's text styles; all of them are the system font. */
+/** Text styles. Sizes follow Apple's text styles: SF Pro for the interface, New York for wine names, SF Rounded for numbers. */
 export const type = {
   largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: '700', letterSpacing: -0.4 },
   title2: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
+  title3: { fontSize: 20, lineHeight: 25, fontWeight: '600' },
   headline: { fontSize: 17, lineHeight: 22, fontWeight: '600' },
   body: { fontSize: 17, lineHeight: 24 },
   callout: { fontSize: 16, lineHeight: 21 },
   subhead: { fontSize: 15, lineHeight: 20 },
   footnote: { fontSize: 13, lineHeight: 18 },
   caption: { fontSize: 11, lineHeight: 13, fontWeight: '600' },
-  wineDisplay: { fontSize: 28, lineHeight: 34, fontWeight: '700', letterSpacing: -0.4 },
-  wineTitle: { fontSize: 17, lineHeight: 22, fontWeight: '600' },
-  figureLg: { ...tabular, fontSize: 34, lineHeight: 38, fontWeight: '700', letterSpacing: -0.3 },
-  figure: { ...tabular, fontSize: 17, lineHeight: 22, fontWeight: '600' },
+  wineDisplay: { ...serif, fontSize: 30, lineHeight: 34, fontWeight: '600', letterSpacing: -0.3 },
+  wineTitle: { ...serif, fontSize: 17, lineHeight: 22, fontWeight: '600' },
+  figureHero: { ...tabular, ...rounded, fontSize: 44, lineHeight: 48, fontWeight: '700', letterSpacing: -0.3 },
+  figureLg: { ...tabular, ...rounded, fontSize: 34, lineHeight: 38, fontWeight: '700', letterSpacing: -0.3 },
+  figure: { ...tabular, ...rounded, fontSize: 17, lineHeight: 22, fontWeight: '600' },
+  /** "WineTracker" at the top of Home. */
+  wordmark: { fontFamily: Platform.OS === 'web' ? 'Georgia, serif' : 'Georgia', fontSize: 30, lineHeight: 36 },
   tabular,
 } satisfies Record<string, TextStyle>;
 
@@ -141,7 +156,8 @@ const ThemeContext = createContext<Theme | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme();
   const a11y = useA11y();
-  const [prefs, setPrefsState] = useState<Theme['prefs']>({ theme: 'system' });
+  // Light is the hero theme: the default until someone chooses otherwise.
+  const [prefs, setPrefsState] = useState<Theme['prefs']>({ theme: 'light' });
 
   useEffect(() => {
     storage.get(PREFS_KEY).then((raw) => {

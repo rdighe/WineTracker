@@ -13,6 +13,7 @@ import { useApi } from '../lib/useApi';
 import { SearchBar } from './AddSearch';
 import { BookmarkIcon, ChevronIcon } from './icons';
 import { WineThumb } from './WineThumb';
+import { ProfileButton } from './ProfileButton';
 import { Divider, ErrorText, Muted, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
 type Sort = 'recent' | 'price';
@@ -62,9 +63,12 @@ export function SavedWines({ modeSwitch }: { modeSwitch: ReactNode }) {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.ink3} />}
       ListHeaderComponent={
         <View style={{ gap: space[4], marginBottom: space[4] }}>
-          <View>
-            <Title>My wines</Title>
-            <Muted style={{ marginTop: 2 }}>{rows ? `${rows.length} saved ${rows.length === 1 ? 'wine' : 'wines'}` : ' '}</Muted>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3] }}>
+            <View style={{ flex: 1 }}>
+              <Title>Cellar</Title>
+              <Muted style={{ marginTop: 2 }}>{rows ? `${rows.length} saved ${rows.length === 1 ? 'wine' : 'wines'}` : ' '}</Muted>
+            </View>
+            <ProfileButton />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2] }}>
             <Segmented<Sort> small options={[{ key: 'recent', label: 'Recent' }, { key: 'price', label: 'Price' }]} value={sort} onChange={setSort} />
