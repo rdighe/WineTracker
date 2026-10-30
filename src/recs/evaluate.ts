@@ -21,7 +21,7 @@ import type { Features } from './features.js';
 import { buildProfile, scoreWine } from './profile.js';
 import { ratedWine, type OwnFlavors, type RatedTasting } from './recommend.js';
 import { ENJOY_MID } from './jevPredict.js';
-import { calibrate, enjoyed, fitOf, type FitBand } from './fit.js';
+import { calibrate, enjoyed, fitOf, jevAgrees, type FitBand } from './fit.js';
 
 export const LIKED = 4;
 
@@ -199,9 +199,11 @@ export function evaluateFit(rated: RatedTasting[], jevByWine?: Map<number, numbe
     n++;
     bands[fit.band].n++;
     if (y) bands[fit.band].enjoyed++;
-    if (fit.jev) {
-      jev[fit.jev].n++;
-      if ((p >= 0.5) === y) jev[fit.jev].right++;
+    const agrees = jevAgrees(p, jevByWine?.get(held.wineId));
+    if (agrees !== null) {
+      const k = agrees ? 'agrees' : 'unsure';
+      jev[k].n++;
+      if ((p >= 0.5) === y) jev[k].right++;
     }
   }
   return { wines: n, brier: n ? sq / n : null, bands, ...(jevByWine ? { jev } : {}) };

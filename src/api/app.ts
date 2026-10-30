@@ -3,11 +3,13 @@
  * require a signed-in user (see src/auth/auth.ts; Google sign-in in src/auth/google.ts, Apple in src/auth/apple.ts); catalog and price
  * routes are public reads. Scans attach to the user when one is signed in.
  */
+import { timingSafeEqual } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import multer from 'multer';
 import { z } from 'zod';
+import { config } from '../config.js';
 import type pg from 'pg';
 import { createWine, getWine } from '../catalog/wines.js';
 import { matchWine } from '../match/matcher.js';
@@ -35,6 +37,7 @@ import { getPhoto } from '../catalog/photos.js';
 import { importVivino } from '../imports/vivino.js';
 import { cellarPicks, recommend } from '../recs/recommend.js';
 import { ARCHETYPE_KEYS, ARCHETYPES, loadPrefs, savePrefs } from '../recs/archetypes.js';
+import { jevReport } from '../recs/jevLog.js';
 import {
   acceptInvite, CellarError, createCellar, createInvite, createRack, deleteCellar, deleteRack, listCellars, listRacks, previewInvite, removeMember,
   renameCellar, setMemberRole, setPlaces, updateRack,
@@ -64,6 +67,10 @@ export interface AppDeps {
   pickJev?: PickJev;
   /** Whether the server is ready for traffic (health check); always, when absent. */
   isReady?: () => boolean;
+  /** The admin report's token (default: ADMIN_TOKEN); the report is off without one. */
+  adminToken?: string;
+  /** Tests: keep which reader read something, and Jev's scores, in responses. Never in production. */
+  exposeInternals?: boolean;
   /** What reads wine lists and shelf photos, in order (default: OpenRouter's free models, then `provider`). */
   pickReaders?: LlmProvider[];
   /** Fetches shop images for /api/photo (tests pass a fake). */
@@ -82,6 +89,13 @@ class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
+}
+
+/** A copy without `source` (the reader's name) and `jevScore` fields, at any depth. */
+function stripInternals<T>(x: T): T {
+  if (Array.isArray(x)) return x.map(stripInternals) as T;
+  if (!x || typeof x !== 'object' || Buffer.isBuffer(x)) return x;
+  return Object.fromEntries(Object.entries(x).filter(([k]) => k !== 'source' && k !== 'jevScore').map(([k, v]) => [k, stripInternals(v)])) as T;
 }
 
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) =>
@@ -123,7 +137,12 @@ const tastingBody = z.object({
   noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, apple, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, apple, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep, adminToken = config.adminToken, exposeInternals = false }: AppDeps) {
+  /**
+   * People never see which model or service read a label, a list or a receipt,
+   * nor Jev's scores: `source` and `jevScore` are taken out of what's sent.
+   */
+  const publicBody = <T>(body: T): T => (exposeInternals ? body : stripInternals(body));
   const research = infoResearcher ?? createInfoResearcher(db, provider);
   const jevFlavors = createJev('flavors');
   const noteReader = noteReaderDep ?? createNoteFlavorReader(db, [jevFlavors && jevNoteReader(jevFlavors), createNoteProvider()]);
@@ -188,7 +207,8 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   // Not ready (503) until the server says so: Render keeps sending traffic to the old instance meanwhile.
   app.get('/api/health', (_req, res) => {
     if (isReady && !isReady()) return res.status(503).json({ ok: false, starting: true });
-    res.json({ ok: true, provider: provider.name, signIn });
+    // Whether labels can be read by a model here; never which one.
+    res.json({ ok: true, reads: provider.name !== 'none', signIn });
   });
 
   if (google && authOptions.sessionSecret) {
@@ -285,7 +305,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
       if (req.user) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = $2', [req.user.userId, r.scanId]);
       return r;
     });
-    res.status(201).json(result);
+    res.status(201).json(publicBody(result));
   }));
 
   // A photo of several bottles: one scan per label read, left to right.
@@ -296,7 +316,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
       if (req.user && scans.length) await db.query('UPDATE scans SET user_id = $1 WHERE scan_id = ANY($2)', [req.user.userId, scans.map((x) => x.scanId)]);
       return { scans };
     });
-    res.status(201).json(result);
+    res.status(201).json(publicBody(result));
   }));
 
   // How a tagged scan came out: pending, done (with the same body the scan request would have answered), or failed.
@@ -305,7 +325,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
     const { rows: [job] } = await db.query('SELECT user_id, status, result, error, http_status FROM scan_jobs WHERE ref = $1', [ref]);
     // Someone else's scan reads as not found.
     if (!job || (job.user_id !== null && Number(job.user_id) !== req.user?.userId)) throw new HttpError(404, 'scan not found');
-    res.json({ status: job.status, result: job.result ?? undefined, error: job.error ?? undefined, httpStatus: job.http_status ?? undefined });
+    res.json({ status: job.status, result: publicBody(job.result ?? undefined), error: job.error ?? undefined, httpStatus: job.http_status ?? undefined });
   }));
 
   app.post('/api/scans/:id/confirm', wrap(async (req, res) => {
@@ -636,7 +656,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
     // With a ref: a job, answered at once (202) and collected from GET /api/scans/jobs/:ref. Without: answered when done.
     const run = () => pickFromRequest(b, userId);
     if (b.ref) return res.status(202).json(await startJob(b.ref, userId, 'picks', run));
-    res.json(await run());
+    res.json(publicBody(await run()));
   }));
 
   async function pickFromRequest(
@@ -672,7 +692,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   app.get('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
     const r = await openPick(db, req.user!.userId, parse(idParam, req.params.id), pickJev);
     if (!r) throw new HttpError(404, 'not found');
-    res.json(r);
+    res.json(publicBody(r));
   }));
 
   app.patch('/api/picks/:id', auth.requireUser, wrap(async (req, res) => {
@@ -816,7 +836,7 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
       return read;
     };
     if (b.ref) return res.status(202).json(await startJob(b.ref, req.user!.userId, 'picks', run));
-    res.json(await run());
+    res.json(publicBody(await run()));
   }));
 
   const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -971,6 +991,15 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, ap
   }));
 
   // ── Errors ───────────────────────────────────────────────────────────────
+  // ── Admin: is Jev right? (X-Admin-Token; anyone else gets a plain 404) ──
+  app.get('/api/admin/jev', wrap(async (req, res) => {
+    const given = String(req.headers['x-admin-token'] ?? '');
+    const ok = adminToken.length >= 16 && given.length === adminToken.length && timingSafeEqual(Buffer.from(given), Buffer.from(adminToken));
+    if (!ok) throw new HttpError(404, 'not found');
+    const q = parse(z.object({ user: z.coerce.number().int().positive().optional(), days: z.coerce.number().int().min(1).max(3650).optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }), req.query);
+    res.set('Cache-Control', 'no-store').json(await jevReport(db, { userId: q.user, days: q.days, limit: q.limit }));
+  }));
+
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError || err instanceof ScanError || err instanceof CellarError) return void res.status(err.status).json({ error: err.message });
     if (err instanceof ProviderUnavailableError) return void res.status(503).json({ error: err.message });

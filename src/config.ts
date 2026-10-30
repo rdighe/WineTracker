@@ -14,6 +14,8 @@ export const config = {
   // comma separated: match (settle uncertain wine-list matches), flavors (tasting notes), predict.
   jevFeatures: new Set((process.env.JEV_FEATURES ?? '').split(',').map((s) => s.trim()).filter(Boolean)),
   jevModel: process.env.JEV_MODEL ?? '',
+  // The admin report on whether Jev is right (GET /api/admin/jev with an X-Admin-Token header); off when empty.
+  adminToken: process.env.ADMIN_TOKEN ?? '',
   // Price refreshes also ask the LLM to search the web (Gemini: needs a
   // billed key for search grounding). false = re-check known shop pages only.
   priceWebSearch: process.env.PRICE_WEB_SEARCH !== 'false',

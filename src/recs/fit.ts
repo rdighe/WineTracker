@@ -10,10 +10,12 @@
  * above their usual, 3.5 to 4). With few ratings the curve stays near a
  * cautious prior; under MIN_FOR_PERCENT ratings only the band is given.
  *
- * Jev (src/recs/jevPredict.ts), where it runs, is an independent check: its
- * enjoyment level is compared with the match, and the app says whether it
- * agrees. Agreement is what a match is worth leaning on; disagreement is
- * shown, not hidden.
+ * Jev (src/recs/jevPredict.ts), where it runs, is an independent check that
+ * only sets how confident the fit is: agreeing with it (and enough ratings)
+ * makes it high; disagreeing makes it low, softens the band one step toward
+ * "could go either way" and drops the percentage. People never see Jev, its
+ * score, or that a second opinion exists; each check is logged (jev_checks,
+ * src/recs/jevLog.ts) for the admin report on whether Jev is right.
  */
 import { buildProfile, scoreWine, type RatedWine } from './profile.js';
 
@@ -25,8 +27,8 @@ export interface Fit {
   band: FitBand;
   /** Ratings (and taste-quiz answers) it rests on. */
   basis: number;
-  /** Jev's independent read, when it was asked: agrees (within JEV_AGREE) or not. */
-  jev?: 'agrees' | 'unsure';
+  /** How far to lean on it: ratings it rests on, and the independent check where it ran. */
+  confidence: 'high' | 'medium' | 'low';
 }
 
 export const MIN_FOR_PERCENT = 6;
@@ -84,16 +86,29 @@ export function calibrate(wines: RatedWine[]): Calibration {
 
 export const bandOf = (p: number): FitBand => (p >= 0.75 ? 'strong' : p >= 0.55 ? 'good' : p >= 0.35 ? 'maybe' : 'unlikely');
 
-/** The match for a wine with this taste-profile score; jevScore 0..4 when Jev was asked. */
+/** Ratings that make a fit high-confidence on their own, and with the independent check agreeing. */
+const HIGH_ALONE = 25;
+const HIGH_AGREED = 10;
+const SOFTER: Record<FitBand, FitBand> = { strong: 'good', good: 'maybe', maybe: 'maybe', unlikely: 'maybe' };
+
+/** The chance (0..1) the calibrated profile gives, before any check. */
+export const fitProbability = (cal: Calibration, score: number) => sigmoid(cal.a * score + cal.b);
+
+/** Whether Jev's enjoyment level (0..4) agrees with a fit's chance; null when it wasn't asked. */
+export const jevAgrees = (p: number, jevScore?: number | null) => (jevScore == null ? null : Math.abs(jevScore / 4 - p) <= JEV_AGREE);
+
+/** The fit for a wine with this taste-profile score; jevScore 0..4 when Jev was asked (it only sets the confidence). */
 export function fitOf(cal: Calibration, score: number, jevScore?: number | null): Fit {
-  const p = sigmoid(cal.a * score + cal.b);
-  const m: Fit = {
-    percent: cal.n >= MIN_FOR_PERCENT ? Math.min(95, Math.max(5, Math.round((p * 100) / 5) * 5)) : null,
-    band: bandOf(p),
+  const p = fitProbability(cal, score);
+  const agrees = jevAgrees(p, jevScore);
+  const confidence = cal.n < MIN_FOR_PERCENT || agrees === false ? 'low'
+    : cal.n >= HIGH_ALONE || (agrees && cal.n >= HIGH_AGREED) ? 'high' : 'medium';
+  return {
+    percent: confidence === 'low' ? null : Math.min(95, Math.max(5, Math.round((p * 100) / 5) * 5)),
+    band: agrees === false ? SOFTER[bandOf(p)] : bandOf(p),
     basis: cal.n,
+    confidence,
   };
-  if (jevScore != null) m.jev = Math.abs(jevScore / 4 - p) <= JEV_AGREE ? 'agrees' : 'unsure';
-  return m;
 }
 
 /** Calibrations by person and what they've rated, so a list of picks doesn't refit it. */

@@ -22,7 +22,7 @@ Screens: four tabs, plus a floating **+** beside the tab bar.
 - Someone new starts at **Welcome** (`app/welcome.tsx`): import from Vivino, then a skippable 90-second taste quiz
   (styles, a quick answer for ten kinds of wine, budget) and their first picks; then the tour.
 - Suggestions carry a **fit** (`components/FitBadge.tsx`): how likely you are to enjoy the wine, in steps of 5% with a
-  band, and whether Jev agrees. Never a predicted star rating.
+  band and a confidence. Never a predicted star rating, and never which model worked it out.
 - The avatar at the top right of each tab opens **Settings** (appearance, location, account, Vivino import, the taste
   quiz, Show the tour). The **tour** (`components/Tour.tsx`) points at Find a bottle, Out and about?, + and Cellar the first time
   Home opens.

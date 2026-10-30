@@ -19,7 +19,8 @@
  * On a shelf the same ratio says how the store's price compares with typical
  * retail (below 1 is a good deal).
  */
-import { calibrationFor, fitOf, type Fit } from '../recs/fit.js';
+import { calibrationFor, fitOf, fitProbability, type Fit } from '../recs/fit.js';
+import { logJevChecks } from '../recs/jevLog.js';
 import { createHash } from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import { ProviderUnavailableError, type ListEntry, type LlmProvider } from '../llm/types.js';
@@ -218,7 +219,7 @@ export interface PickItem {
   /** List (or shelf) price over retail, per bottle and per glass; matched wines only. */
   markup: number | null;
   glassMarkup: number | null;
-  /** Jev's prediction, 0 (would dislike) to 4 (would love), when that prototype is on; already blended into score. */
+  /** Jev's prediction, 0 (would dislike) to 4 (would love), when that prototype is on; already blended into score. Never sent to the app (src/api/app.ts). */
   jevScore?: number | null;
   /** How likely they are to enjoy it, checked against Jev where it ran (src/recs/fit.ts); null until the profile is unlocked. */
   fit?: Fit | null;
@@ -456,7 +457,7 @@ export function startMatching(db: Db, entries: ListEntry[], jev: PickJev = {}, t
 
 /** The entries identified and scored for the person, best first. */
 export async function scorePicks(
-  db: Db, userId: number | null, entries: ListEntry[], jev: PickJev = {}, times: MatchTimes = newMatchTimes()
+  db: Db, userId: number | null, entries: ListEntry[], jev: PickJev = {}, times: MatchTimes = newMatchTimes(), kind: PickKind = 'list'
 ): Promise<Pick<PickResult, 'mode' | 'rated' | 'items'>> {
   // 1. Identify (the same wine twice on a list is looked up once; taking turns, MATCH_CONCURRENCY at once).
   const t0 = Date.now();
@@ -545,6 +546,9 @@ export async function scorePicks(
   if (profile && prof && userId) {
     const cal = calibrationFor(userId, prof.wines);
     for (const x of items) x.fit = taste.has(x.index) ? fitOf(cal, taste.get(x.index)!, x.jevScore) : null;
+    // Jev's reads, kept for the admin report only (src/recs/jevLog.ts).
+    void logJevChecks(db, userId, kind, items.flatMap((x) => (x.wineId && x.jevScore != null && taste.has(x.index)
+      ? [{ wineId: x.wineId, p: fitProbability(cal, taste.get(x.index)!), jevScore: x.jevScore, basis: cal.n }] : [])));
   }
 
   // Best fit first; without a profile, the best value (lowest markup) first, then as listed.
@@ -559,7 +563,7 @@ export async function scorePicks(
 export async function pickWines(
   db: Db, userId: number | null, kind: PickKind, entries: ListEntry[], source: string, sha: string, jev: PickJev = {}, times?: MatchTimes
 ): Promise<PickResult> {
-  const scored = await scorePicks(db, userId, entries, jev, times);
+  const scored = await scorePicks(db, userId, entries, jev, times, kind);
   const { rows: [row] } = await db.query(
     'INSERT INTO pick_scans (user_id, kind, source, input_sha, entries) VALUES ($1, $2, $3, $4, $5) RETURNING pick_id',
     [userId, kind, source, sha, JSON.stringify(entries)]
@@ -628,7 +632,7 @@ export async function openPick(db: Db, userId: number, pickId: number, jev: Pick
     [pickId, userId]
   );
   if (!p) return null;
-  return { pickId, kind: p.kind, source: p.source, name: p.name, saved: p.saved, photos: p.photos, ...(await scorePicks(db, userId, p.entries, jev)) };
+  return { pickId, kind: p.kind, source: p.source, name: p.name, saved: p.saved, photos: p.photos, ...(await scorePicks(db, userId, p.entries, jev, undefined, p.kind)) };
 }
 
 export async function pickPhoto(db: Db, userId: number, pickId: number, n: number): Promise<{ contentType: string; bytes: Buffer } | null> {

@@ -94,7 +94,7 @@ describe('Jev in picks', () => {
       const key = Object.entries(q.criteria).find(([, d]) => d.includes('Rocche'))?.[0] ?? 'none';
       return { type: 'choice', choice: key, confidence: 0.9, probabilities: { [key]: 0.9 } };
     });
-    const app = createApp({ db, provider: new NullProvider(), pickJev: { match }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider: new NullProvider(), pickJev: { match }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const r = await as(request(app).post('/api/picks')).send({ kind: 'list', entries: [
       { producer: 'Vietti', name: 'Barolo', bottleCents: 30000 },
       { producer: 'Vietti', name: 'Barbaresco Masseria', bottleCents: 20000 },
@@ -116,7 +116,7 @@ describe('Jev in picks', () => {
       produttori: await priced({ producer: 'Produttori del Barbaresco', name: 'Barbaresco', sub_region: 'Barbaresco', ...neb }, 5000),
       sb: await priced({ producer: 'Kim Crawford', name: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white', source: 'crawl' }, 1500),
     };
-    const app0 = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app0 = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     for (const [wineId, rating] of [[ids.vietti, 5], [ids.produttori, 4.5], [ids.sb, 2]] as const) await as(request(app0).post('/api/tastings')).send({ wineId, rating });
     // Jev is sure they'd love the Sancerre and dislike the Nebbiolo: enough to swap them.
     const predict = fakeJev((q, _n, state) => {
@@ -124,7 +124,7 @@ describe('Jev in picks', () => {
       expect(state).toContain('Vietti Barolo Castiglione');
       return { type: 'score', score: q.instructions.includes('Sancerre') ? 4 : 0, confidence: 0.9, probabilities: {} };
     });
-    const app = createApp({ db, provider: new NullProvider(), pickJev: { predict }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider: new NullProvider(), pickJev: { predict }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const list = { kind: 'list', entries: [{ producer: 'Domaine Vacheron', name: 'Sancerre', grape: 'Sauvignon Blanc', colour: 'white', bottleCents: 9000 }, { producer: 'Cascina Fontana', name: 'Langhe Nebbiolo', grape: 'Nebbiolo', colour: 'red', bottleCents: 7000 }] };
     const before = await as(request(app0).post('/api/picks')).send(list);
     expect(before.body.items[0].entry.producer).toBe('Cascina Fontana');
@@ -147,13 +147,43 @@ describe('Jev in picks', () => {
       await priced({ producer: 'Produttori del Barbaresco', name: 'Barbaresco', sub_region: 'Barbaresco', ...neb }, 5000),
       await priced({ producer: 'Kim Crawford', name: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white', source: 'crawl' }, 1500),
     ];
-    const app0 = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app0 = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     for (const [i, wineId] of ids.entries()) await as(request(app0).post('/api/tastings')).send({ wineId, rating: 5 - i });
     const predict = fakeJev((q) => (q.type === 'score' ? { type: 'score', score: 3, confidence: 0.8, probabilities: {} } : undefined));
-    const app = createApp({ db, provider: new NullProvider(), pickJev: { predict }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider: new NullProvider(), pickJev: { predict }, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const sancerre = { producer: 'Domaine Vacheron', name: 'Sancerre', grape: 'Sauvignon Blanc', colour: 'white' };
     const r = await as(request(app).post('/api/picks')).send({ kind: 'list', entries: [{ ...sancerre, glassCents: 2200 }, { ...sancerre, bottleCents: 9000 }] });
     expect(r.body.items.map((i: { jevScore?: number }) => i.jevScore)).toEqual([3, 3]);
+  });
+
+  it('only sets confidence; people see no Jev score or reader; the admin report sees every check', async () => {
+    const vietti = await priced({ producer: 'Vietti', name: 'Barolo Castiglione', sub_region: 'Barolo', ...neb }, 6000);
+    const produttori = await priced({ producer: 'Produttori del Barbaresco', name: 'Barbaresco', sub_region: 'Barbaresco', ...neb }, 5000);
+    const sb = await priced({ producer: 'Kim Crawford', name: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white', source: 'crawl' }, 1500);
+    const vajra = await priced({ producer: 'GD Vajra', name: 'Barolo Albe', sub_region: 'Barolo', ...neb }, 5500);
+    const predict = fakeJev((q) => (q.type === 'score' ? { type: 'score', score: 4, confidence: 0.9, probabilities: {} } : undefined));
+    const token = 'admin-token-0123456789';
+    const app = createApp({ db, provider: new NullProvider(), pickJev: { predict }, adminToken: token, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    for (const [wineId, rating] of [[vietti, 5], [produttori, 4.5], [sb, 2]] as const) await as(request(app).post('/api/tastings')).send({ wineId, rating });
+
+    const r = await as(request(app).post('/api/picks')).send({ kind: 'list', entries: [{ producer: 'GD Vajra', name: 'Barolo Albe', vintage: '2020', colour: 'red', bottleCents: 9000 }] });
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.body)).not.toMatch(/jev|source|gemini|openrouter/i);
+    expect(r.body.items[0]).toMatchObject({ wineId: vajra, fit: { band: expect.any(String), confidence: expect.stringMatching(/high|medium|low/) } });
+    const recs = await as(request(app).get('/api/recommendations'));
+    expect(JSON.stringify(recs.body)).not.toMatch(/jev/i);
+
+    // The report: hidden from everyone without the token.
+    expect((await request(app).get('/api/admin/jev')).status).toBe(404);
+    expect((await as(request(app).get('/api/admin/jev')).set('X-Admin-Token', 'wrong-token-0123456789')).status).toBe(404);
+    const before = (await request(app).get('/api/admin/jev').set('X-Admin-Token', token)).body;
+    expect(before).toMatchObject({ rated: 0 });
+    expect(before.recent.find((c: { wineId: number; context: string }) => c.wineId === vajra && c.context === 'list')).toMatchObject({ jevScore: 4, outcome: null });
+    // They try it and love it: both called it right.
+    await as(request(app).post('/api/tastings')).send({ wineId: vajra, rating: 4.5 });
+    const after = (await request(app).get('/api/admin/jev').set('X-Admin-Token', token)).body;
+    expect(after.recent.find((c: { wineId: number; context: string }) => c.wineId === vajra && c.context === 'list')).toMatchObject({ ratingAfter: 4.5, outcome: 'enjoyed' });
+    expect(after.accuracy.jev).toBe(1);
   });
 });
 

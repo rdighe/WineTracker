@@ -28,15 +28,19 @@ describe('fit', () => {
 
   it('gives only a band with too few ratings, and stays near the prior', () => {
     const cal = calibrate(rated.slice(0, MIN_FOR_PERCENT - 1));
-    expect(fitOf(cal, 0.5)).toMatchObject({ percent: null, basis: MIN_FOR_PERCENT - 1 });
+    expect(fitOf(cal, 0.5)).toMatchObject({ percent: null, basis: MIN_FOR_PERCENT - 1, confidence: 'low' });
     expect(calibrate([]).n).toBe(0);
   });
 
-  it('says whether Jev agrees', () => {
+  it('uses the independent check only for confidence, and never says so', () => {
     const cal = calibrate(rated);
-    const f = fitOf(cal, 0.8);
-    expect(fitOf(cal, 0.8, 3.8).jev).toBe(f.percent! >= 65 ? 'agrees' : 'unsure');
-    expect(fitOf(cal, 0.8, 0.2).jev).toBe('unsure');
-    expect(fitOf(cal, 0.8).jev).toBeUndefined();
+    const plain = fitOf(cal, 0.8);
+    expect(plain).not.toHaveProperty('jev');
+    expect(plain.confidence).toBe('medium');
+    const agreed = fitOf(cal, 0.8, 4 * Math.min(1, (plain.percent! / 100)));
+    expect(agreed.confidence).toBe('medium'); // 8 ratings: not enough for high even when it agrees
+    const doubted = fitOf(cal, 0.8, 0);
+    expect(doubted).toMatchObject({ confidence: 'low', percent: null });
+    expect(['good', 'maybe']).toContain(doubted.band);
   });
 });

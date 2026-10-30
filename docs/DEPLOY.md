@@ -147,3 +147,16 @@ DATABASE_URL="$RENDER_DB?sslmode=require" npm run dedupe -- auto-merge --dry-run
 (LWIN) entry when there is one, and moves prices, tastings and saved wines along. Read the `--dry-run` output in
 `data/review/` before running `auto-merge` for real: it uses the matcher, so check a sample.
 
+
+## Is Jev right? (admin only)
+
+With Jev's `predict` on (`JEV_FEATURES`), each time it's asked about a wine for someone its read is kept beside the
+fit the app showed. People never see it: it only makes a fit more or less confident. To see how both held up against
+what people rated afterwards, take `ADMIN_TOKEN` from **winetracker-api → Environment** in Render and run:
+
+```sh
+curl -s -H "X-Admin-Token: $ADMIN_TOKEN" "https://api.foodscape.wine/api/admin/jev?days=90" | jq '{rated, accuracy, brier, agreementRate}'
+```
+
+`?user=<id>` narrows it to one person (your own user id is in `/api/me`); `recent` lists the checks. Without the
+token the address answers 404, like any address that doesn't exist.

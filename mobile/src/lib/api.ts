@@ -14,8 +14,8 @@ export class ApiError extends Error {
 type AuthHeader = () => Promise<string | null>;
 
 export interface ServerInfo {
-  /** LLM provider for label reading ("none" = off). */
-  provider: string;
+  /** Whether the server can read labels with a model. */
+  reads: boolean;
   /** Sign-in methods the server offers: "google", "dev". */
   signIn: string[];
 }
@@ -26,7 +26,7 @@ export async function checkServer(url: string): Promise<ServerInfo> {
   const body = await res.json().catch(() => null);
   if (!res.ok || !body?.ok) throw new Error(`No WineTracker API at ${url} (HTTP ${res.status})`);
   // Servers from before Google sign-in only offered development sign-in.
-  return { provider: String(body.provider ?? ''), signIn: Array.isArray(body.signIn) ? body.signIn.map(String) : ['dev'] };
+  return { reads: Boolean(body.reads ?? body.provider !== 'none'), signIn: Array.isArray(body.signIn) ? body.signIn.map(String) : ['dev'] };
 }
 
 /** Longest wait for an answer; long work (scans, wine lists) runs as jobs the app collects instead. */

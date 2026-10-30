@@ -214,7 +214,7 @@ export function WineAbout({ res }: { res: InfoResponse | null }) {
       ) : null}
       {hasMore ? <Button title={more ? 'Show less' : 'Producer, vineyards & specs'} variant="secondary" size="sm" onPress={() => setMore(!more)} /> : null}
       <Muted style={{ fontSize: 12 }}>
-        {i.grounded ? 'Researched by AI from the web pages listed.' : "From the AI's general knowledge, not checked against the web: it can be wrong."}
+        {i.grounded ? 'Gathered from the web pages listed.' : 'Not checked against the web yet: it can be wrong.'}
       </Muted>
     </Card>
   );

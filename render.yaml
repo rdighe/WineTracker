@@ -52,6 +52,10 @@ services:
       # separated - match (settle uncertain wine-list matches), flavors (tasting notes), predict. Off when empty.
       - key: JEV_FEATURES
         value: ""
+      # The admin report on whether Jev is right: GET /api/admin/jev with an X-Admin-Token header
+      # (docs/DEPLOY.md). Off when empty; at least 16 characters.
+      - key: ADMIN_TOKEN
+        generateValue: true
       # Google sign-in: an OAuth "Web application" client with the redirect URI
       # https://api.foodscape.wine/api/auth/google/callback (and the .onrender.com one; docs/DEPLOY.md).
       - key: GOOGLE_CLIENT_ID

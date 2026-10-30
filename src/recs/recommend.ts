@@ -18,7 +18,8 @@ import { archetype, BUDGET_CENTS, loadPrefs, REACTION_RATING } from './archetype
 import { recStyle, wineCategory, wineFeatures, type Features, type RecStyle, type WineNotes, type WineRow } from './features.js';
 import { flavorLabel, mergeFlavors, textFlavors, type Flavor, type FlavorProfile } from './flavors.js';
 import { buildProfile, explain, scoreWine, type Profile, type RatedWine } from './profile.js';
-import { calibrationFor, fitOf, type Fit } from './fit.js';
+import { calibrationFor, fitOf, fitProbability, type Fit } from './fit.js';
+import { logJevChecks } from './jevLog.js';
 import { predictEnjoyment } from './jevPredict.js';
 import type { JevClient } from '../llm/jev.js';
 import { currentNoteFlavors, noteHash, ownFlavorWeights, type NoteFlavorReader } from '../tastings/noteFlavors.js';
@@ -452,6 +453,11 @@ export async function recommend(db: Db, userId: number, opts: RecOptions = {}): 
   const photo = new Map(photos.map((p) => [Number(p.wine_id), p]));
   const cal = calibrationFor(userId, wines);
   const jev = opts.jev ? await jevCheck(db, opts.jev, rated, picked.slice(0, JEV_CHECKED).map((x) => ({ key: String(x.r.wine_id), label: wineLabel(x.r, x.f) }))) : new Map<string, number>();
+  // Jev's reads, kept for the admin report only (src/recs/jevLog.ts).
+  void logJevChecks(db, userId, 'suggestions', picked.flatMap((x) => {
+    const j = jev.get(String(x.r.wine_id));
+    return j == null ? [] : [{ wineId: Number(x.r.wine_id), p: fitProbability(cal, x.taste), jevScore: j, basis: cal.n }];
+  }));
   const items = picked.map((x) => {
     const now = photo.get(Number(x.r.wine_id)) ?? x.r;
     // No photo yet: look for one in the background, so it shows next time.

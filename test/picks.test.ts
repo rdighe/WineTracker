@@ -110,7 +110,7 @@ describe('picks API', () => {
   const entry = (o: Record<string, unknown>) => ({ producer: '', name: '', text: '', ...o });
 
   it('ranks a list for the palate, flags markup, and leaves unknown wines as best guesses', async () => {
-    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const vietti = await priced({ producer: 'Vietti', name: 'Barolo Castiglione', sub_region: 'Barolo', ...neb }, 6000);
     const produttori = await priced({ producer: 'Produttori del Barbaresco', name: 'Barbaresco', sub_region: 'Barbaresco', ...neb }, 5000);
     const sb = await priced({ producer: 'Kim Crawford', name: 'Sauvignon Blanc', region: 'Marlborough', country: 'New Zealand', colour: 'white', source: 'crawl' }, 1500);
@@ -151,7 +151,7 @@ describe('picks API', () => {
       { producer: 'Clape', name: 'Cornas', vintage: '2019', region: 'Cornas', country: 'France', grape: 'Syrah', colour: 'red', style: 'still', section: 'Red', glassCents: 3400, bottleCents: null, bottleMl: null, text: 'Clape, Cornas 2019 34' },
     ]);
     const provider = Object.assign(new NullProvider(), { name: 'gemini', readWineList });
-    const app = createApp({ db, provider, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const text = 'RED\nClape, Cornas 2019 34';
     const a = await as(request(app).post('/api/picks')).send({ kind: 'list', text });
     expect(a.body).toMatchObject({ source: 'gemini', items: [{ entry: { producer: 'Clape', glassCents: 3400 }, match: 'guess' }] });
@@ -177,7 +177,7 @@ describe('picks API', () => {
       { producer: 'GD Vajra', name: 'Barolo Albe', vintage: '2019', region: 'Barolo', country: '', grape: '', colour: 'red', style: '', section: '', glassCents: null, bottleCents: 3600, bottleMl: null, text: 'VAJRA BAROLO ALBE 36.00' },
     ]);
     const provider = Object.assign(new NullProvider(), { name: 'gemini', readShelf });
-    const app = createApp({ db, provider, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider, fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const vajra = await priced({ producer: 'GD Vajra', name: 'Barolo Albe', sub_region: 'Barolo', ...neb }, 4000);
     const photo = { kind: 'shelf', imageBase64: Buffer.from('shelf photo').toString('base64'), mimeType: 'image/jpeg', text: 'VAJRA BAROLO ALBE 36.00' };
 
@@ -195,7 +195,7 @@ describe('picks API', () => {
     readShelf.mockRejectedValue(new Error('model down'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect((await as(request(app).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('another').toString('base64') })).status).toBe(502);
-    const none = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const none = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     expect((await as(request(none).post('/api/picks')).send({ ...photo, imageBase64: Buffer.from('third').toString('base64') })).status).toBe(503);
   });
 
@@ -231,7 +231,7 @@ describe('picks API', () => {
       }),
     });
     const backup = Object.assign(new NullProvider(), { name: 'openrouter', readWineList: vi.fn(async (text: string) => [wine(`free ${text.split('\n')[0]}`)]) });
-    const app = createApp({ db, provider: main, pickReaders: [main, backup], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider: main, pickReaders: [main, backup], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const page1 = [...Array(130)].map((_, i) => (i === 0 ? 'REDS' : i === 70 ? 'Busy line 90' : `Wine ${i} 90`)).join('\n');
     const a = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: [page1] });
     expect(a.status).toBe(200);
@@ -248,7 +248,7 @@ describe('picks API', () => {
   });
 
   it('saves a list with its photos, lists it, opens it scored afresh, and deletes it', async () => {
-    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider: new NullProvider(), fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const other = (r: request.Test) => r.set('Authorization', 'Dev someone-else');
     await priced({ producer: 'Clape', name: 'Cornas', colour: 'red', grape: 'Syrah', source: 'lwin' }, 9000);
     const scan = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: ['RED\nClape, Cornas 2019 34 / 160'] });
@@ -283,7 +283,7 @@ describe('picks API', () => {
       return [{ producer: 'Clape', name: 'Cornas', vintage: '2019', region: '', country: '', grape: 'Syrah', colour: 'red', style: '', section: '', glassCents: 3400, bottleCents: null, bottleMl: null, text: '' }];
     });
     const provider = Object.assign(new NullProvider(), { name: 'gemini', readWineList });
-    const app = createApp({ db, provider, pickReaders: [provider], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true } });
+    const app = createApp({ db, provider, pickReaders: [provider], fetcher: new PoliteFetcher({ userAgent: 'x', fetch: vi.fn() }), auth: { allowDev: true }, exposeInternals: true });
     const ref = 'list-job-0123456789abcdef';
     const a = await as(request(app).post('/api/picks')).send({ kind: 'list', pages: ['RED\nClape, Cornas 2019 34'], ref });
     expect(a.status).toBe(202);

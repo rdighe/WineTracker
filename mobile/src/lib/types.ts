@@ -393,7 +393,7 @@ export interface Onboarding extends TastePrefs { tastings: number; rated: number
 
 /**
  * How likely they are to enjoy a wine (server: src/recs/fit.ts): a percentage
- * in steps of 5 (null with too few ratings), a band, what it rests on, and
- * whether Jev agrees where it was asked.
+ * in steps of 5 (null when confidence is low), a band, what it rests on, and
+ * how confident it is.
  */
-export interface Fit { percent: number | null; band: 'strong' | 'good' | 'maybe' | 'unlikely'; basis: number; jev?: 'agrees' | 'unsure' }
+export interface Fit { percent: number | null; band: 'strong' | 'good' | 'maybe' | 'unlikely'; basis: number; confidence: 'high' | 'medium' | 'low' }
