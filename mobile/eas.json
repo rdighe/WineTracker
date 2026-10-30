@@ -8,7 +8,7 @@
       "environment": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://winetracker-api.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://api.foodscape.wine"
       }
     }
   },

@@ -55,7 +55,7 @@ EAS builds in the cloud (no Mac needed), asks for your Apple ID once, and manage
 `--auto-submit` it uploads the build to App Store Connect; it appears in TestFlight 10-15 minutes later. Add
 yourself as an internal tester (App Store Connect -> your app -> TestFlight) and install it with the TestFlight app.
 
-Production builds use the Render API (`EXPO_PUBLIC_API_URL` in `eas.json`; `mobile/.env` isn't uploaded to EAS).
+Production builds use the Render API at `https://api.foodscape.wine` (`EXPO_PUBLIC_API_URL` in `eas.json`; `mobile/.env` isn't uploaded to EAS).
 It can be changed in the app (sign-in screen -> **Server**). An iPhone build can only reach `https://` addresses, so
 for testing against the API on your computer run a tunnel next to it:
 

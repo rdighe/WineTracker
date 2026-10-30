@@ -53,7 +53,7 @@ services:
       - key: JEV_FEATURES
         value: ""
       # Google sign-in: an OAuth "Web application" client with the redirect URI
-      # https://<this service>.onrender.com/api/auth/google/callback (docs/DEPLOY.md).
+      # https://api.foodscape.wine/api/auth/google/callback (and the .onrender.com one; docs/DEPLOY.md).
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
