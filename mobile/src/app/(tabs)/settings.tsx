@@ -1,10 +1,9 @@
-/** Settings: appearance, location, account, importing from Vivino, and which server the app talks to. */
+/** Settings: appearance, location, account, and importing from Vivino. */
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { View } from 'react-native';
 import { AppearanceSettings } from '../../components/Appearance';
 import { LocationSettings } from '../../components/LocationSettings';
-import { ServerSettings } from '../../components/ServerSettings';
 import { VivinoImport } from '../../components/VivinoImport';
 import { Button, Card, Heading, Muted, Screen, Title, space, type } from '../../components/ui';
 import { useAuth } from '../../lib/auth';
@@ -24,7 +23,6 @@ export default function Settings() {
         </View>
       </Card>
       <VivinoImport />
-      <ServerSettings />
       <Muted style={{ textAlign: 'center' }}>WineTracker {Constants.expoConfig?.version ?? ''}</Muted>
     </Screen>
   );

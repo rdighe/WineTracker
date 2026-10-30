@@ -5,7 +5,6 @@ import { Button, Card, ErrorText, Field, Heading, Muted, Screen, space, type, us
 import { checkServer, type ServerInfo } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { getApiUrl } from '../lib/config';
-import { ServerSettings } from '../components/ServerSettings';
 
 export default function SignIn() {
   const auth = useAuth();
@@ -17,8 +16,13 @@ export default function SignIn() {
   // How the current server signs people in; null while checking or unreachable.
   const [info, setInfo] = useState<ServerInfo | null>(null);
 
+  const connect = () => checkServer(getApiUrl()).then(setInfo, setServerError);
+  const retry = () => {
+    setServerError(null);
+    connect();
+  };
   useEffect(() => {
-    checkServer(getApiUrl()).then(setInfo, setServerError);
+    connect();
   }, []);
 
   const run = async (fn: () => Promise<void>) => {
@@ -46,7 +50,14 @@ export default function SignIn() {
 
       <Card>
         {!info ? (
-          <Muted style={type.subhead}>{serverError ? 'Can\'t reach the server below. Check its address.' : 'Connecting…'}</Muted>
+          serverError ? (
+            <>
+              <Muted style={type.subhead}>Can&apos;t reach WineTracker. Check your connection and try again.</Muted>
+              <Button title="Try again" variant="secondary" size="md" onPress={retry} />
+            </>
+          ) : (
+            <Muted style={type.subhead}>Connecting…</Muted>
+          )
         ) : (
           <>
             {info.signIn.includes('google') ? (
@@ -65,8 +76,6 @@ export default function SignIn() {
         )}
         <ErrorText error={error} />
       </Card>
-
-      <ServerSettings onChecking={() => { setInfo(null); setServerError(null); }} onConnected={setInfo} />
     </Screen>
   );
 }

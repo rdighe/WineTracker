@@ -8,7 +8,7 @@
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { getApiUrl, loadApiUrl } from './config';
+import { getApiUrl } from './config';
 import { storage } from './storage';
 
 const SESSION_KEY = 'wt.session';
@@ -35,8 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [devUser, setDevUser] = useState<string | null>(null);
 
   useEffect(() => {
-    // The saved API address must be loaded before any screen calls the API.
-    Promise.all([storage.get(SESSION_KEY), storage.get(EMAIL_KEY), storage.get(DEV_KEY), loadApiUrl()]).then(([token, email, dev]) => {
+    Promise.all([storage.get(SESSION_KEY), storage.get(EMAIL_KEY), storage.get(DEV_KEY)]).then(([token, email, dev]) => {
       setSession(token ? { token, email: email ?? '' } : null);
       setDevUser(dev);
       setReady(true);

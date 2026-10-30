@@ -55,15 +55,15 @@ EAS builds in the cloud (no Mac needed), asks for your Apple ID once, and manage
 `--auto-submit` it uploads the build to App Store Connect; it appears in TestFlight 10-15 minutes later. Add
 yourself as an internal tester (App Store Connect -> your app -> TestFlight) and install it with the TestFlight app.
 
-Production builds use the Render API at `https://api.foodscape.wine` (`EXPO_PUBLIC_API_URL` in `eas.json`; `mobile/.env` isn't uploaded to EAS).
-It can be changed in the app (sign-in screen -> **Server**). An iPhone build can only reach `https://` addresses, so
-for testing against the API on your computer run a tunnel next to it:
+The app talks to one API, fixed when it's built: `EXPO_PUBLIC_API_URL` (`eas.json` for TestFlight builds, `mobile/.env`
+for `npx expo start`; `.env` isn't uploaded to EAS), else `https://api.foodscape.wine`. It can't be changed in the app.
+A phone can only reach `https://` addresses, so for testing against the API on your computer run a tunnel next to it:
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:5050   # prints https://<random>.trycloudflare.com
 ```
 
-and enter that address under **Server**. The address changes each time the tunnel restarts. Anyone who has it
+and set that address as `EXPO_PUBLIC_API_URL` in `mobile/.env` (then `npx expo start -c`). The address changes each time the tunnel restarts. Anyone who has it
 can use your API (and its development sign-in) while the tunnel runs, so stop it when you're done.
 
 ## Look and feel
@@ -72,7 +72,7 @@ The app follows the WineTracker design system (https://claude.ai/artifact/GYN2Du
 in `src/components/theme.tsx`; the shared parts are in `src/components/ui.tsx`.
 
 - **Tabs:** Add wine, My wines (the cellar and tastings in one list; the Cellar / Tasted toggle switches them), For you,
-  Settings (appearance, account, Vivino import, server).
+  Settings (appearance, account, Vivino import).
 - **Light and dark** follow the phone, or the Theme choice in Settings › Appearance.
 - **Liquid glass** (tab bar, wine-page toolbar, buttons over photos) is `src/components/Glass.tsx`: native Liquid Glass
   on iOS 26 (`expo-glass-effect`), a blur elsewhere. It is always Tinted; Reduce Transparency makes it solid and
