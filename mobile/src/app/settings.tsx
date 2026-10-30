@@ -32,6 +32,11 @@ export default function Settings() {
       </Card>
       <VivinoImport />
       <Card>
+        <Heading>Taste quiz</Heading>
+        <Muted style={type.subhead}>{"90 seconds on the wines you like and what you spend. It shapes your picks until you've rated 15 wines."}</Muted>
+        <Button title="Retake the taste quiz" variant="secondary" size="sm" onPress={() => router.push('/welcome?redo=1')} />
+      </Card>
+      <Card>
         <Heading>The tour</Heading>
         <Muted style={type.subhead}>A one-minute look at Home, wine lists and shelves, adding bottles and your cellar.</Muted>
         <Button title="Show the tour" variant="secondary" size="sm" onPress={async () => { await tour.reset(); router.dismissTo('/?tour=1'); }} />

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail, Onboarding, TastePrefs, Budget, Reaction } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -207,6 +207,10 @@ export function createApi(authHeader: AuthHeader) {
       for (const k of ['notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
       return request<{ items: CellarPick[] }>(`/api/cellar/picks?${q}`);
     },
+    /** Welcome: the taste quiz, and whether it's been done. */
+    onboarding: () => request<Onboarding>('/api/onboarding'),
+    saveOnboarding: (p: { styles?: RecStyle[]; budget?: Budget | null; seeds?: Partial<Record<string, Reaction>>; done?: boolean; skipped?: boolean }) =>
+      request<TastePrefs>('/api/onboarding', json('PUT', p)),
     // ── Cellars, sharing, racks, receipts ──
     cellars: () => request<{ cellars: Cellar[] }>('/api/cellars'),
     createCellar: (name: string) => request<{ cellarId: number }>('/api/cellars', json('POST', { name })),

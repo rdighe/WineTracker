@@ -54,6 +54,7 @@ function Navigator() {
         <Stack.Screen name="join" />
         <Stack.Screen name="racks" />
         <Stack.Screen name="receipts" />
+        <Stack.Screen name="welcome" options={{ animation: 'fade', gestureEnabled: false }} />
       </Stack>
       {intro ? <SplashIntro onDone={introDone} /> : null}
     </View>

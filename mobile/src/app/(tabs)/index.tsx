@@ -76,18 +76,24 @@ export default function Home() {
   }, [api, loc.near]);
   useFocusEffect(useCallback(() => void load(), [load]));
 
+  // Someone new goes to Welcome first (Vivino, then the taste quiz), which comes back here for the tour.
   // The tour: once, the first time Home opens; and whenever Settings asks for it.
   useEffect(() => {
     let cancelled = false;
-    void tour.done().then((done) => {
+    void tour.done().then(async (done) => {
       if (cancelled || (done && params.tour !== '1')) return;
+      if (params.tour !== '1') {
+        const o = await api.onboarding().catch(() => null);
+        if (cancelled) return;
+        if (o && !o.doneAt && o.tastings === 0) return void router.push('/welcome');
+      }
       scroll.current?.scrollTo({ y: 0, animated: false });
       setTouring(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [params.tour]);
+  }, [api, params.tour]);
   const tourDone = useCallback(() => {
     setTouring(false);
     void tour.finish();

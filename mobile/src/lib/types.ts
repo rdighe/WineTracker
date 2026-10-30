@@ -381,3 +381,9 @@ export interface PickJob {
   ref: string;
   status: 'pending' | 'done' | 'failed';
 }
+
+export type Reaction = 'love' | 'fine' | 'dislike' | 'unknown';
+export type Budget = 'under20' | '20to40' | '40to80' | 'over80';
+export interface Archetype { key: string; title: string; detail: string; style: RecStyle }
+export interface TastePrefs { styles: RecStyle[]; budget: Budget | null; seeds: Partial<Record<string, Reaction>>; doneAt: string | null; skipped: boolean }
+export interface Onboarding extends TastePrefs { tastings: number; rated: number; archetypes: Archetype[] }
