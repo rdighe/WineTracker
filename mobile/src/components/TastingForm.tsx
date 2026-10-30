@@ -64,7 +64,7 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
         value={draft.kind}
         onChange={draft.setKind}
       />
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <View style={{ gap: space[2] }}>
         <Label>{draft.kind === 'cellar' ? 'Rating (optional)' : 'Your rating'}</Label>
         <Rating value={draft.rating} onChange={draft.setRating} size="lg" />
       </View>

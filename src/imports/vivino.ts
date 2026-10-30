@@ -121,7 +121,7 @@ export function readRows(csv: string): { rows: VivinoRow[]; columns: Partial<Rec
     const v = get(r, 'vintage');
     const vintage = /^n\.?v\.?$/i.test(v) ? 'NV' : (v.match(/\b(1[89]\d\d|20\d\d)\b/)?.[1] ?? null);
     const rawRating = Number(get(r, 'rating').replace(',', '.'));
-    const rating = rawRating >= 0.5 ? Math.min(5, Math.max(0.5, Math.round(rawRating * 2) / 2)) : null;
+    const rating = rawRating >= 0.1 ? Math.min(5, Math.max(0.1, Math.round(rawRating * 10) / 10)) : null;
     const bottles = Number.parseInt(get(r, 'cellar'), 10);
     const typeText = get(r, 'type');
     const colour = COLOUR.find(([re]) => re.test(typeText))?.[1] ?? '';

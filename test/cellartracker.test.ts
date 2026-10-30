@@ -41,7 +41,7 @@ const fakeCt = (tables: Record<string, string>) => vi.fn(async (url: string | UR
 
 describe('CellarTracker import', () => {
   it('maps scores to stars and tells tables apart by their columns', () => {
-    expect([starsFromScore('96'), starsFromScore('92'), starsFromScore('88'), starsFromScore('70'), starsFromScore('')]).toEqual([5, 4, 3.5, 1.5, null]);
+    expect([starsFromScore('96'), starsFromScore('92'), starsFromScore('88'), starsFromScore('80'), starsFromScore('70'), starsFromScore('4.3'), starsFromScore('')]).toEqual([5, 4.2, 3.8, 3, 1, 4.3, null]);
     expect([detectPart(INVENTORY), detectPart(NOTES), detectPart(CONSUMED), detectPart(TAGS), detectPart('a,b\n1,2')]).toEqual(['collection', 'notes', 'history', 'wishlist', null]);
   });
 
@@ -65,7 +65,7 @@ describe('CellarTracker import', () => {
     const ridge = t.find((x: { kind: string; bottles: number }) => x.kind === 'cellar' && x.bottles === 2);
     expect(ridge).toMatchObject({ vintage_key: '2019', location: 'Home · A3', price_paid_cents: 4500, tasted_on: '2024-09-14' });
     expect(t.find((x: { kind: string; bottle_ml: number }) => x.kind === 'cellar' && x.bottle_ml === 1500)).toMatchObject({ location: 'Locker · B1', bottles: 1 });
-    expect(t.find((x: { rating: number | null }) => x.rating !== null)).toMatchObject({ rating: 4, notes: 'Brambly, peppery; great with ribs.', tasted_on: '2025-03-02' });
+    expect(t.find((x: { rating: number | null }) => x.rating !== null)).toMatchObject({ rating: 4.2, notes: 'Brambly, peppery; great with ribs.', tasted_on: '2025-03-02' });
     // The Ridge drunk the day it was noted isn't logged twice; the Sancerre is.
     expect(t.filter((x: { kind: string }) => x.kind === 'tasted')).toHaveLength(2);
     expect((await request(app).get('/api/saved').set(as)).body.saved).toHaveLength(1);

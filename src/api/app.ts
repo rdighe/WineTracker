@@ -125,7 +125,8 @@ async function priceSummary(db: pg.Pool, wineId: number) {
 
 const tastingBody = z.object({
   vintage: vintageSchema,
-  rating: z.number().min(0.5).max(5).multipleOf(0.5).nullable().optional(),
+  // 0.1 to 5 in tenths (4.3); checked on the tenths, since 0.1 isn't exact in binary.
+  rating: z.number().min(0.1).max(5).refine((r) => Math.abs(r * 10 - Math.round(r * 10)) < 1e-6, 'rating: one decimal at most').nullable().optional(),
   notes: z.string().max(4000).optional(),
   tags: z.array(z.string().max(60)).max(30).optional(),
   pricePaid: z.number().positive().max(100000).nullable().optional(),

@@ -69,9 +69,14 @@ describe('tastings API', () => {
     expect((await request(a).get('/api/tastings').set('Authorization', 'Dev r')).body.tastings[0]).toMatchObject({ setting: 'restaurant', rating: 3.5 });
   });
 
-  it('validates ratings in half steps', async () => {
+  it('takes ratings in tenths, 0.1 to 5', async () => {
     const wineId = await createWine(db, { producer: 'X', name: 'Y', source: 'user' });
-    expect((await request(app()).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, rating: 4.3 })).status).toBe(400);
+    const a = app();
+    const ok = await request(a).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, rating: 4.3 });
+    expect(ok.status).toBe(201);
+    expect((await request(a).get('/api/tastings').set('Authorization', 'Dev r')).body.tastings[0].rating).toBe(4.3);
+    for (const rating of [4.35, 0, 5.1]) expect((await request(a).post('/api/tastings').set('Authorization', 'Dev r').send({ wineId, rating })).status).toBe(400);
+    expect((await request(a).patch(`/api/tastings/${ok.body.tastingId}`).set('Authorization', 'Dev r').send({ rating: 0.1 })).status).toBe(200);
   });
 
   it('saves wines to a watch list', async () => {

@@ -30,7 +30,7 @@ describe('CSV parsing', () => {
     expect(parseCsv('Winery;Wine name\nRidge;Monte Bello\n')).toEqual([['Winery', 'Wine name'], ['Ridge', 'Monte Bello']]);
   });
 
-  it('finds columns by name, rounds ratings to half points, and ignores the community average', () => {
+  it('finds columns by name, keeps ratings to a tenth, and ignores the community average', () => {
     const csv = [
       'Wine name,Winery,Average rating,Vintage,Your rating,Your review,Scan date,Wine type',
       'Monte Bello,Ridge Vineyards,4.6,2018,4.2,"Cassis, graphite",2024-05-01 19:20:00,Red wine',
@@ -40,7 +40,7 @@ describe('CSV parsing', () => {
     const { rows, total } = readRows(csv);
     expect(total).toBe(2); // the all-empty row isn't a row
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ producer: 'Ridge Vineyards', name: 'Monte Bello', vintage: '2018', rating: 4, review: 'Cassis, graphite', tastedOn: '2024-05-01', colour: 'red' });
+    expect(rows[0]).toMatchObject({ producer: 'Ridge Vineyards', name: 'Monte Bello', vintage: '2018', rating: 4.2, review: 'Cassis, graphite', tastedOn: '2024-05-01', colour: 'red' });
     expect(rows[1]).toMatchObject({ vintage: 'NV', rating: null });
   });
 });

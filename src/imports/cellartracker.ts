@@ -80,12 +80,14 @@ function rowsOf(csv: string): Row[] {
   return body.slice(0, MAX_ROWS).map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? '').trim()])));
 }
 
-/** A CellarTracker score (50-100) as stars in half steps. */
+/** A CellarTracker score (50-100) as stars, in tenths: 92 -> 4.2, 96+ -> 5. Five-star scores stay as they are. */
 export function starsFromScore(raw: string): number | null {
   const n = Number(raw.replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return null;
-  if (n <= 5) return Math.max(0.5, Math.round(n * 2) / 2);
-  return n >= 96 ? 5 : n >= 93 ? 4.5 : n >= 90 ? 4 : n >= 87 ? 3.5 : n >= 84 ? 3 : n >= 80 ? 2.5 : n >= 75 ? 2 : 1.5;
+  if (n <= 5) return Math.max(0.1, Math.round(n * 10) / 10);
+  // 80 points is 3 stars, 90 is 4, 96 and up 5; under 80 falls away faster (a flawed wine).
+  const stars = n >= 96 ? 5 : n >= 80 ? 3 + (n - 80) / 10 : Math.max(0.5, 3 - (80 - n) / 5);
+  return Math.round(Math.min(5, stars) * 10) / 10;
 }
 
 const vintageOf = (v: string) => (/^(1[89]\d\d|20\d\d)$/.test(v) ? v : /^(nv|n\.v\.|1001)$/i.test(v) ? 'NV' : null);

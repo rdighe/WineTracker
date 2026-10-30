@@ -4,7 +4,7 @@
  * system font with a serif for wine names, tabular figures for prices, and
  * liquid glass only for controls that float over content.
  */
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -302,48 +302,109 @@ export function StyleDot({ wineStyle, size: d = 10, ring }: { wineStyle: WineSty
 
 const STAR = 'M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2 6.3 20.3l1.2-6.4L2.8 9.5l6.4-.8z';
 
-function Star({ fill, d, id }: { fill: 0 | 0.5 | 1; d: number; id: string }) {
+/** One star, filled from the left by `fill` (0..1). */
+function Star({ fill, d, id }: { fill: number; d: number; id: string }) {
   const { c } = useTheme();
+  // The star's path spans about x 2.8..21.2 of 24: fill across that, so 0.3 looks like 30% of the star.
+  const w = fill >= 1 ? 24 : 2.8 + 18.4 * fill;
   return (
     <Svg width={d} height={d} viewBox="0 0 24 24">
       <Defs>
-        <ClipPath id={id}><Rect x="0" y="0" width="12" height="24" /></ClipPath>
+        <ClipPath id={id}><Rect x="0" y="0" width={w} height="24" /></ClipPath>
       </Defs>
-      <Path d={STAR} fill="none" stroke={fill ? c.accent : c.borderControl} strokeWidth={1.6} strokeLinejoin="round" />
-      {fill ? <Path d={STAR} fill={c.accent} stroke={c.accent} strokeWidth={1.6} strokeLinejoin="round" clipPath={fill === 0.5 ? `url(#${id})` : undefined} /> : null}
+      <Path d={STAR} fill="none" stroke={fill > 0 ? c.accent : c.borderControl} strokeWidth={1.6} strokeLinejoin="round" />
+      {fill > 0 ? <Path d={STAR} fill={c.accent} stroke={c.accent} strokeWidth={1.6} strokeLinejoin="round" clipPath={fill < 1 ? `url(#${id})` : undefined} /> : null}
     </Svg>
   );
 }
 
+/** A rating in tenths, 0.1 to 5. */
+const tenth = (v: number) => Math.min(5, Math.max(0.1, Math.round(v * 10) / 10));
+
 /**
- * Five stars in half steps. As an input, the left half of a star gives n - 0.5
- * and the right half n.
+ * Five stars, filled to the tenth (4.3 is four stars and a third). As an
+ * input: tap or drag across the stars for the nearest tenth, and − / + to
+ * fine-tune by 0.1; VoiceOver adjusts it by 0.1 too.
  */
 export function Rating({ value, onChange, size: s = 'sm', showValue }: { value: number | null; onChange?: (v: number) => void; size?: 'sm' | 'md' | 'lg'; showValue?: boolean }) {
   const { c } = useTheme();
   const id = useId().replace(/[^a-zA-Z0-9]/g, '');
+  // While dragging across the stars: what it would be, saved (onChange) when the finger lifts.
+  const [dragging, setDragging] = useState<number | null>(null);
+  // Where the stars start on screen: touches are placed against it (a touch's own x is relative to whatever it landed on).
+  const row = useRef<View>(null);
+  const left = useRef(0);
+  const measure = () => row.current?.measureInWindow((x) => { left.current = x; });
   const d = s === 'lg' ? 30 : s === 'md' ? 20 : 14;
+  const gap = onChange ? space[1] : 1;
+  const shown = dragging ?? value;
+  const stars = [1, 2, 3, 4, 5].map((n) => (
+    <View key={n} pointerEvents="none">
+      <Star fill={shown == null ? 0 : Math.max(0, Math.min(1, shown - (n - 1)))} d={d} id={`h${id}${n}`} />
+    </View>
+  ));
+  if (!onChange) {
+    return (
+      <View accessible accessibilityRole="image" accessibilityLabel={value == null ? 'Not rated' : `Rated ${value} of 5`} style={{ flexDirection: 'row', alignItems: 'center', gap }}>
+        {stars}
+        {showValue && value != null ? <Text style={[type.footnote, type.tabular, { marginLeft: 6, fontWeight: '600', color: c.ink2 }]}>{value.toFixed(1)}</Text> : null}
+      </View>
+    );
+  }
+  // Where a touch is along the stars, as a rating: whole stars passed, plus how far into this one.
+  const at = (x: number) => {
+    const step = d + gap;
+    const i = Math.max(0, Math.min(4, Math.floor(x / step)));
+    return tenth(i + Math.max(0, Math.min(1, (x - i * step) / d)));
+  };
+  const nudge = (by: number) => onChange(tenth((value ?? (by > 0 ? 0 : 0.1)) + by));
   return (
     <View
-      accessible={!onChange}
-      accessibilityRole={onChange ? undefined : 'image'}
-      accessibilityLabel={onChange ? undefined : value == null ? 'Not rated' : `Rated ${value} of 5`}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: onChange ? space[1] : 1 }}
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel="Your rating"
+      accessibilityValue={{ text: shown == null ? 'Not rated' : `${shown.toFixed(1)} of 5` }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(e) => nudge(e.nativeEvent.actionName === 'increment' ? 0.1 : -0.1)}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}
     >
-      {[1, 2, 3, 4, 5].map((n) => {
-        const fill = value == null ? 0 : value >= n ? 1 : value >= n - 0.5 ? 0.5 : 0;
-        const star = <Star fill={fill} d={d} id={`h${id}${n}`} />;
-        return onChange ? (
-          <View key={n} style={{ width: d, height: d }}>
-            {star}
-            <Pressable accessibilityRole="button" accessibilityLabel={`Rate ${n - 0.5}`} hitSlop={{ top: 8, bottom: 8, left: 2 }} onPress={() => onChange(n - 0.5)} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: d / 2 }} />
-            <Pressable accessibilityRole="button" accessibilityLabel={`Rate ${n}`} hitSlop={{ top: 8, bottom: 8, right: 2 }} onPress={() => onChange(n)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: d / 2 }} />
-          </View>
-        ) : (
-          <View key={n}>{star}</View>
-        );
-      })}
-      {showValue && value != null ? <Text style={[type.footnote, type.tabular, { marginLeft: 6, fontWeight: '600', color: c.ink2 }]}>{value}</Text> : null}
+      <View
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderTerminationRequest={() => false}
+        ref={row}
+        onLayout={measure}
+        onResponderGrant={(e) => {
+          const x = e.nativeEvent.pageX;
+          setDragging(at(x - left.current));
+          // It may have moved (scrolled) since it was laid out: measure again, then place the touch.
+          row.current?.measureInWindow((l) => {
+            left.current = l;
+            setDragging(at(x - l));
+          });
+        }}
+        onResponderMove={(e) => setDragging(at(e.nativeEvent.pageX - left.current))}
+        onResponderRelease={(e) => {
+          setDragging(null);
+          onChange(at(e.nativeEvent.pageX - left.current));
+        }}
+        onResponderTerminate={() => setDragging(null)}
+        hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap }}
+      >
+        {stars}
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Pressable accessible={false} hitSlop={6} onPress={() => nudge(-0.1)} disabled={value == null || value <= 0.1}
+          style={({ pressed }) => [{ width: 26, height: 30, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.6 }]}>
+          <Text style={[type.headline, { color: value == null || value <= 0.1 ? c.ink3 : c.accent }]}>−</Text>
+        </Pressable>
+        <Text style={[type.headline, type.tabular, { minWidth: 30, textAlign: 'center', color: shown == null ? c.ink3 : c.ink }]}>{shown == null ? '–' : shown.toFixed(1)}</Text>
+        <Pressable accessible={false} hitSlop={6} onPress={() => nudge(0.1)} disabled={value != null && value >= 5}
+          style={({ pressed }) => [{ width: 26, height: 30, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.6 }]}>
+          <Text style={[type.headline, { color: value != null && value >= 5 ? c.ink3 : c.accent }]}>+</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
