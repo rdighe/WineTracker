@@ -1,0 +1,66 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.96471,0.95686,0.94902,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.05490,0.04706,0.05098,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "name": "outline",
+          "image-name-specializations": [
+            {
+              "value": "outline-light.png"
+            },
+            {
+              "appearance": "dark",
+              "value": "outline-dark.png"
+            }
+          ],
+          "glass": false
+        },
+        {
+          "name": "wine",
+          "image-name": "wine.png",
+          "glass": true
+        },
+        {
+          "name": "glass",
+          "image-name-specializations": [
+            {
+              "value": "glass-light.png"
+            },
+            {
+              "appearance": "dark",
+              "value": "glass-dark.png"
+            }
+          ],
+          "glass": true,
+          "opacity": 0.9
+        }
+      ],
+      "lighting": "individual",
+      "specular": true,
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.4
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
