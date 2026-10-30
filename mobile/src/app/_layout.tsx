@@ -50,6 +50,10 @@ function Navigator() {
         <Stack.Screen name="find" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="settings" />
         <Stack.Screen name="lists" />
+        <Stack.Screen name="cellars" />
+        <Stack.Screen name="join" />
+        <Stack.Screen name="racks" />
+        <Stack.Screen name="receipts" />
       </Stack>
       {intro ? <SplashIntro onDone={introDone} /> : null}
     </View>

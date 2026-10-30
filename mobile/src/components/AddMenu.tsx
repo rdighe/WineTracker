@@ -10,14 +10,15 @@ import { Modal, Pressable, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { lift } from './Glass';
-import { BottleIcon, ListIcon, PhotosIcon, ScanIcon, SearchIcon } from './icons';
+import { BottleIcon, DocumentIcon, ListIcon, PhotosIcon, ScanIcon, SearchIcon } from './icons';
 import { radius, space, type, useTheme } from './theme';
 
-type Start = 'camera' | 'lineup' | 'list' | 'library' | 'search';
+type Start = 'camera' | 'lineup' | 'receipt' | 'list' | 'library' | 'search';
 
 const CHOICES: { key: Start; title: string; detail: string; Icon: (p: { color: string; size?: number }) => ReactElement }[] = [
   { key: 'camera', title: 'Scan a label', detail: 'Photograph the front label', Icon: ScanIcon },
   { key: 'lineup', title: 'Scan a lineup', detail: 'Several bottles in one photo', Icon: BottleIcon },
+  { key: 'receipt', title: 'Receipt or invoice', detail: 'Add the bottles you bought, at what they cost', Icon: DocumentIcon },
   { key: 'list', title: 'Wine list or shelf', detail: 'Rank it for your taste', Icon: ListIcon },
   { key: 'library', title: 'Choose a photo', detail: 'A label photo you already took', Icon: PhotosIcon },
   { key: 'search', title: 'Search or add by hand', detail: 'Type the producer or wine', Icon: SearchIcon },
@@ -55,8 +56,8 @@ export function AddMenu({ open, closing, onClosed, onRequestClose, bottom, right
 
   function choose(k: Start) {
     onRequestClose();
-    // A wine list or shelf goes to its own flow (app/picks.tsx); the rest start Add wine.
-    router.push(k === 'list' ? '/picks?kind=list' : `/add?start=${k}`);
+    // A wine list or shelf (app/picks.tsx) and a receipt (app/receipts.tsx) have their own flows; the rest start Add wine.
+    router.push(k === 'list' ? '/picks?kind=list' : k === 'receipt' ? '/receipts?new=1' : `/add?start=${k}`);
   }
 
   return (

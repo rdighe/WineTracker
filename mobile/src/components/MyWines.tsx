@@ -1,6 +1,8 @@
 /**
  * The Cellar tab (bottles you own, and Saved) and the Journal tab (everything
- * you've tasted) share this list. One entry per wine, gathering everything the
+ * you've tasted) share this list. The Cellar shows one cellar or all of them
+ * (yours and those shared with you), what they cost and are worth now, and
+ * leads to its racks, receipts and sharing. One entry per wine, gathering everything the
  * user did with it - bottles added to the cellar and every tasting - each
  * with its date, which can be changed. Cellar entries can be removed (their
  * notes stay as tastings) and tastings deleted.
@@ -11,15 +13,15 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'rea
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dollars, shortDate, wineTitle } from '../lib/format';
-import type { Tasting } from '../lib/types';
+import type { Cellar, Tasting } from '../lib/types';
 import { useApi } from '../lib/useApi';
 import { Section, TastingRow } from './EntryRows';
 import { SavedWines } from './SavedWines';
-import { ChevronIcon } from './icons';
+import { ChevronIcon, DocumentIcon, PeopleIcon, RackIcon } from './icons';
 import { ProfileButton } from './ProfileButton';
 import { WineFilters, activeCount, applyFilters, type Filters } from './WineFilters';
 import { WineThumb } from './WineThumb';
-import { Button, Card, Divider, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
+import { Button, Card, Chip, Divider, ErrorText, Muted, PriceDelta, Rating, Segmented, Title, radius, size, space, type, useTheme, wineStyleOf } from './ui';
 
 export type Mode = 'cellar' | 'tastings' | 'saved';
 type Sort = 'recent' | 'value' | 'rating';
@@ -73,6 +75,9 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
   const params = useLocalSearchParams<{ mode?: string }>();
   const [mode, setModeState] = useState<Mode>(side === 'journal' ? 'tastings' : params.mode === 'saved' ? 'saved' : 'cellar');
   const [rows, setRows] = useState<Tasting[] | null>(null);
+  const [cellars, setCellars] = useState<Cellar[] | null>(null);
+  // Which cellar the list shows: one, or all of them.
+  const [cellarId, setCellarId] = useState<number | 'all'>('all');
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState<Filters>({});
@@ -97,16 +102,23 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
     setLoading(true);
     setError(null);
     try {
-      setRows((await api.tastings()).tastings);
+      const [t, cs] = await Promise.all([api.tastings(), side === 'cellar' ? api.cellars() : null]);
+      setRows(t.tastings);
+      if (cs) {
+        setCellars(cs.cellars);
+        // A cellar that's gone (left, deleted): back to all.
+        setCellarId((cur) => (cur !== 'all' && !cs.cellars.some((x) => x.cellarId === cur) ? 'all' : cur));
+      }
     } catch (e) {
       setError(e);
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, side]);
   useFocusEffect(useCallback(() => void load(), [load]));
 
-  const groups = useMemo(() => group(rows ?? []).filter((g) => (mode === 'cellar' ? g.cellar.length > 0 : g.notes.length > 0)), [rows, mode]);
+  const inCellar = useMemo(() => (rows ?? []).filter((t) => t.kind !== 'cellar' || cellarId === 'all' || t.cellar_id === cellarId), [rows, cellarId]);
+  const groups = useMemo(() => group(inCellar).filter((g) => (mode === 'cellar' ? g.cellar.length > 0 : g.notes.length > 0)), [inCellar, mode]);
   const narrowed = Boolean(query.trim()) || activeCount(filters) > 0;
   const visible = useMemo(() => {
     // A wine shows when anything recorded about it matches.
@@ -117,14 +129,23 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
     return list;
   }, [groups, query, filters, sort]);
 
-  // Cellar totals: what the bottles cost and are worth now (per bottle x bottles), where both are known.
+  // Cellar totals: the server's for the cellar(s) shown (sizes and unpriced bottles accounted for);
+  // narrowed by a search or filter, the bottles listed that have both prices.
+  const shown = (cellars ?? []).filter((x) => cellarId === 'all' || x.cellarId === cellarId);
   const cellarRows = visible.flatMap((g) => g.cellar).filter((t) => t.paid_750_cents && t.market_now_cents);
-  const paid = cellarRows.reduce((s, t) => s + t.paid_750_cents! * (t.bottles ?? 1), 0);
-  const worth = cellarRows.reduce((s, t) => s + t.market_now_cents! * (t.bottles ?? 1), 0);
+  const paid = narrowed || !cellars ? cellarRows.reduce((s, t) => s + t.paid_750_cents! * (t.bottles ?? 1), 0) : shown.reduce((s, x) => s + x.costCents, 0);
+  const worth = narrowed || !cellars ? cellarRows.reduce((s, t) => s + t.market_now_cents! * (t.bottles ?? 1), 0) : shown.reduce((s, x) => s + x.valueCents, 0);
+  const unpriced = narrowed ? 0 : shown.reduce((s, x) => s + x.unpriced, 0);
+  // The change compares bottles with both prices only.
+  const pairedPaid = narrowed || !cellars ? paid : shown.reduce((s, x) => s + x.pairedCostCents, 0);
+  const pairedNow = narrowed || !cellars ? worth : shown.reduce((s, x) => s + x.pairedValueCents, 0);
   const bottles = visible.reduce((s, g) => s + g.bottles, 0);
+  const here = cellarId === 'all' ? (cellars && cellars.length > 1 ? 'across your cellars' : 'in your cellar') : `in ${shown[0]?.name ?? 'this cellar'}`;
   const countLine = mode === 'cellar'
-    ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} in your cellar`
+    ? `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} · ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'} ${here}`
     : `${visible.length} ${visible.length === 1 ? 'wine' : 'wines'} tasted`;
+  const current = cellarId === 'all' ? null : shown[0] ?? null;
+  const shared = (cellars ?? []).some((x) => x.members.length > 1);
 
   // Cellar / Saved on the Cellar tab; the Journal has one list.
   const modeSwitch = side === 'cellar'
@@ -162,14 +183,34 @@ export function MyWines({ side }: { side: 'cellar' | 'journal' }) {
             />
             {modeSwitch}
           </View>
+          {mode === 'cellar' && cellars && (cellars.length > 1 || shared) ? (
+            <View accessibilityRole="tablist" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              <Chip small selected={cellarId === 'all'} onPress={() => setCellarId('all')}>All cellars</Chip>
+              {cellars.map((x) => (
+                <Chip key={x.cellarId} small selected={cellarId === x.cellarId} onPress={() => setCellarId(x.cellarId)}>
+                  {x.members.length > 1 ? `${x.name} · ${x.members.length} people` : x.name}
+                </Chip>
+              ))}
+            </View>
+          ) : null}
+          {mode === 'cellar' ? (
+            <View style={{ flexDirection: 'row', gap: space[2] }}>
+              <Button title="Racks" variant="secondary" size="sm" style={{ flex: 1 }} icon={(fg) => <RackIcon color={fg} size={18} />}
+                onPress={() => router.push(`/racks?cellar=${current?.cellarId ?? cellars?.[0]?.cellarId ?? ''}`)} />
+              <Button title="Receipts" variant="secondary" size="sm" style={{ flex: 1 }} icon={(fg) => <DocumentIcon color={fg} size={18} />} onPress={() => router.push('/receipts')} />
+              <Button title={shared ? 'Shared' : 'Share'} variant="secondary" size="sm" style={{ flex: 1 }} icon={(fg) => <PeopleIcon color={fg} size={18} />}
+                onPress={() => router.push(current ? `/cellars?id=${current.cellarId}` : '/cellars')} />
+            </View>
+          ) : null}
           {groups.length ? <WineFilters items={groups.flatMap((g) => g.rows)} query={query} onQuery={setQuery} filters={filters} onFilters={setFilters} /> : null}
-          {mode === 'cellar' && cellarRows.length > 0 && (
-            <Animated.View entering={FadeIn.duration(220)}>
+          {mode === 'cellar' && paid > 0 && worth > 0 && (
+            <Animated.View entering={FadeIn.duration(220)} style={{ gap: space[1] }}>
               <Card style={{ flexDirection: 'row', padding: 0, gap: 0 }}>
                 <Stat label="Cost" value={dollars(paid)} />
                 <Stat label="Value now" value={dollars(worth)} />
-                <Stat label="Change" value={<PriceDelta paid={paid} now={worth} percentOnly />} />
+                <Stat label="Change" value={pairedPaid ? <PriceDelta paid={pairedPaid} now={pairedNow} percentOnly /> : '–'} />
               </Card>
+              {unpriced ? <Muted style={{ color: c.ink3 }}>{`${unpriced} ${unpriced === 1 ? 'bottle has' : 'bottles have'} no market price yet; counted at what ${unpriced === 1 ? 'it' : 'they'} cost.`}</Muted> : null}
             </Animated.View>
           )}
           <ErrorText error={error} />
@@ -231,6 +272,13 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
   const firstVintage = (mode === 'cellar' ? g.cellar : g.notes)[0]?.vintage_key ?? '';
   const change = groupChange(g);
   const name = wineTitle(w.display_name, w.sub_region);
+  // Cellar rows: where the bottles sit and who added them, when that's someone else.
+  const placed = g.cellar.flatMap((t) => t.places ?? []);
+  const racks = [...new Set(placed.map((p) => p.rack))];
+  const where = mode !== 'cellar' ? '' : [
+    placed.length === 1 ? `${placed[0]!.rack} · row ${placed[0]!.row + 1}, place ${placed[0]!.col + 1}` : racks.length ? `${placed.length} on ${racks.join(', ')}` : '',
+    g.cellar.find((t) => t.added_by)?.added_by ? `Added by ${g.cellar.find((t) => t.added_by)!.added_by}` : '',
+  ].filter(Boolean).join(' · ');
 
   return (
     <Animated.View
@@ -257,6 +305,7 @@ function WineEntry({ g, mode, index, first, last, open, onToggle, onChanged }: {
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <Text style={[type.wineTitle, { color: c.ink }]} numberOfLines={2}>{name}</Text>
           <Text style={[type.subhead, { color: c.ink2 }]} numberOfLines={1}>{[w.sub_region || w.region, summary].filter(Boolean).join(' · ')}</Text>
+          {where ? <Text style={[type.footnote, { color: c.ink3 }]} numberOfLines={1}>{where}</Text> : null}
         </View>
         <View style={{ alignItems: 'flex-end', gap: 3 }}>
           {market ? <Text style={[type.figure, { color: c.ink }]}>{dollars(market)}</Text> : <Muted style={{ color: c.ink3 }}>No price</Muted>}

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getApiUrl } from './config';
 import { canReadNotesOnDevice, noteText, readNoteFlavorsOnDevice } from './noteFlavors';
-import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick } from './types';
+import type { PricesResponse, RecStyle, RecSearch, RecView, RecommendationsResponse, SavedWine, ScanResult, Tasting, Wine, PriceSummary, Candidate, ImportSummary, TastingSetting, InfoResponse, PickJob, PickResult, SavedPick, CellarPick, Cellar, CellarRole, InvitePreview, Rack, Receipt, ReceiptDetail } from './types';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -144,7 +144,7 @@ export function createApi(authHeader: AuthHeader) {
     addTasting: async (t: {
       wineId: number; vintage?: string | null; rating?: number | null; notes?: string; tags?: string[];
       pricePaid?: number | null; priceContext?: 'retail' | 'restaurant' | null; scanId?: number;
-      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string; bottleMl?: number;
+      kind?: 'tasted' | 'cellar'; bottles?: number | null; setting?: TastingSetting | null; tastedOn?: string; bottleMl?: number; cellarId?: number | null;
     }) => {
       const text = noteText(t.notes, t.tags);
       const onDevice = Boolean(text) && (await canReadNotesOnDevice());
@@ -175,7 +175,7 @@ export function createApi(authHeader: AuthHeader) {
     importVivino: (csv: string) => request<ImportSummary>('/api/import/vivino', json('POST', { csv })),
     /** wineId: move the entry to another wine (it was matched to the wrong one). pricePaid: per bottle, in dollars. */
     /** Notes and tags sent together are read on the phone when it can; notes alone are left to the server, which knows the tags. */
-    updateTasting: async (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null; pricePaid?: number | null; wineId?: number }) => {
+    updateTasting: async (id: number, patch: { rating?: number | null; notes?: string; tags?: string[]; kind?: 'tasted' | 'cellar'; bottles?: number | null; tastedOn?: string; vintage?: string | null; pricePaid?: number | null; wineId?: number; cellarId?: number }) => {
       const text = patch.notes !== undefined && patch.tags !== undefined ? noteText(patch.notes, patch.tags) : '';
       const onDevice = Boolean(text) && (await canReadNotesOnDevice());
       const res = await request<unknown>(`/api/tastings/${id}`, json('PATCH', onDevice ? { ...patch, noteFlavorsPending: true } : patch));
@@ -207,6 +207,32 @@ export function createApi(authHeader: AuthHeader) {
       for (const k of ['notes', 'food'] as const) if (opts[k]?.trim()) q.set(k, opts[k].trim());
       return request<{ items: CellarPick[] }>(`/api/cellar/picks?${q}`);
     },
+    // ── Cellars, sharing, racks, receipts ──
+    cellars: () => request<{ cellars: Cellar[] }>('/api/cellars'),
+    createCellar: (name: string) => request<{ cellarId: number }>('/api/cellars', json('POST', { name })),
+    renameCellar: (id: number, name: string) => request<unknown>(`/api/cellars/${id}`, json('PATCH', { name })),
+    deleteCellar: (id: number) => request<void>(`/api/cellars/${id}`, { method: 'DELETE' }),
+    invite: (id: number, role: 'editor' | 'viewer') => request<{ code: string; expiresAt: string }>(`/api/cellars/${id}/invites`, json('POST', { role })),
+    previewInvite: (code: string) => request<InvitePreview>(`/api/cellar-invites/${encodeURIComponent(code)}`),
+    acceptInvite: (code: string) => request<{ cellarId: number }>(`/api/cellar-invites/${encodeURIComponent(code)}/accept`, json('POST', {})),
+    setMemberRole: (id: number, userId: number, role: CellarRole) => request<unknown>(`/api/cellars/${id}/members/${userId}`, json('PATCH', { role })),
+    removeMember: (id: number, userId: number) => request<void>(`/api/cellars/${id}/members/${userId}`, { method: 'DELETE' }),
+    racks: (cellarId: number) => request<{ racks: Rack[] }>(`/api/cellars/${cellarId}/racks`),
+    createRack: (cellarId: number, r: { name: string; rows: number; cols: number }) => request<{ rackId: number }>(`/api/cellars/${cellarId}/racks`, json('POST', r)),
+    updateRack: (id: number, r: { name?: string; rows?: number; cols?: number }) => request<unknown>(`/api/racks/${id}`, json('PATCH', r)),
+    deleteRack: (id: number) => request<void>(`/api/racks/${id}`, { method: 'DELETE' }),
+    /** Where an entry's bottles sit (replaces its places). */
+    setPlaces: (tastingId: number, places: { rackId: number; row: number; col: number }[]) => request<unknown>(`/api/tastings/${tastingId}/places`, json('PUT', { places })),
+    /** Start reading a receipt (its pages' text, or its photo where the phone can't read text). Collect it with scanAnswer(ref). */
+    readReceipt: (input: { pages?: string[]; imageBase64?: string; mimeType?: string }, ref: string) => request<PickJob>('/api/receipts/read', json('POST', { ...input, ref })),
+    saveReceipt: (r: {
+      cellarId?: number | null; merchant?: string; purchasedOn?: string | null; totalCents?: number | null; photo?: { base64: string; mimeType: string } | null;
+      lines: { wineId?: number | null; producer?: string; name?: string; vintage?: string | null; qty: number; unitCents?: number | null; bottleMl?: number | null }[];
+    }) => request<{ receiptId: number; cellarId: number; tastingIds: number[] }>('/api/receipts', json('POST', r)),
+    receipts: () => request<{ receipts: Receipt[] }>('/api/receipts'),
+    receipt: (id: number) => request<ReceiptDetail>(`/api/receipts/${id}`),
+    deleteReceipt: (id: number) => request<void>(`/api/receipts/${id}`, { method: 'DELETE' }),
+    receiptPhoto: async (id: number) => ({ uri: `${getApiUrl()}/api/receipts/${id}/photo`, headers: { Authorization: (await authHeader()) ?? '' } }),
     recViews: () => request<{ views: RecView[] }>('/api/rec-views'),
     saveRecView: (name: string, criteria: RecSearch) => request<RecView>('/api/rec-views', json('POST', { name, criteria })),
     deleteRecView: (id: number) => request<void>(`/api/rec-views/${id}`, { method: 'DELETE' }),

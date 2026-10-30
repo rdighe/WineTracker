@@ -63,7 +63,9 @@ export async function cellarForNew(db: Db, userId: number, cellarId?: number | n
  * The person's cellars with who's in each, what's in it (bottles, wines),
  * what it cost and what it's worth now (market median per 750 ml for the
  * vintage, else all vintages, scaled to the bottle size; bottles without a
- * market price count at what was paid, and are counted in `unpriced`).
+ * market price count at what was paid, and are counted in `unpriced`). The
+ * change in value compares like with like: paired* covers only bottles with
+ * both a price paid and a market price.
  */
 export async function listCellars(db: Db, userId: number) {
   await defaultCellar(db, userId);
@@ -71,7 +73,8 @@ export async function listCellars(db: Db, userId: number) {
     `SELECT c.cellar_id, c.name, m.role, c.created_at,
             COALESCE(s.bottles, 0)::int AS bottles, COALESCE(s.wines, 0)::int AS wines,
             COALESCE(s.cost_cents, 0)::bigint::float8 AS cost_cents, COALESCE(s.value_cents, 0)::bigint::float8 AS value_cents,
-            COALESCE(s.priced_cost_cents, 0)::bigint::float8 AS priced_cost_cents, COALESCE(s.unpriced, 0)::int AS unpriced,
+            COALESCE(s.paired_cost_cents, 0)::bigint::float8 AS paired_cost_cents, COALESCE(s.paired_value_cents, 0)::bigint::float8 AS paired_value_cents,
+            COALESCE(s.unpriced, 0)::int AS unpriced,
             (SELECT COUNT(*)::int FROM cellar_racks r WHERE r.cellar_id = c.cellar_id) AS racks,
             (SELECT COUNT(*)::int FROM receipts r WHERE r.cellar_id = c.cellar_id) AS receipts,
             (SELECT json_agg(json_build_object('userId', u.user_id, 'name', COALESCE(NULLIF(u.display_name, ''), split_part(u.email, '@', 1)), 'role', cm.role, 'me', u.user_id = $1)
@@ -83,8 +86,8 @@ export async function listCellars(db: Db, userId: number) {
          SELECT SUM(t.bottles) AS bottles, COUNT(DISTINCT t.wine_id) AS wines,
                 SUM(COALESCE(t.price_paid_cents, 0) * t.bottles) AS cost_cents,
                 SUM(COALESCE(round(COALESCE(pv.median_cents, pa.median_cents) * t.bottle_ml / 750.0), t.price_paid_cents, 0) * t.bottles) AS value_cents,
-                -- What the bottles that have a market price cost: the change in value compares like with like.
-                SUM(CASE WHEN COALESCE(pv.median_cents, pa.median_cents) IS NOT NULL THEN COALESCE(t.price_paid_cents, 0) * t.bottles ELSE 0 END) AS priced_cost_cents,
+                SUM(CASE WHEN COALESCE(pv.median_cents, pa.median_cents) IS NOT NULL AND t.price_paid_cents IS NOT NULL THEN t.price_paid_cents * t.bottles ELSE 0 END) AS paired_cost_cents,
+                SUM(CASE WHEN t.price_paid_cents IS NOT NULL THEN round(COALESCE(pv.median_cents, pa.median_cents) * t.bottle_ml / 750.0) * t.bottles ELSE 0 END) AS paired_value_cents,
                 SUM(CASE WHEN COALESCE(pv.median_cents, pa.median_cents) IS NULL THEN t.bottles ELSE 0 END) AS unpriced
            FROM tastings t
            LEFT JOIN wine_prices pv ON pv.wine_id = t.wine_id AND pv.vintage_key = t.vintage_key AND pv.currency = 'USD'
@@ -103,7 +106,8 @@ export async function listCellars(db: Db, userId: number) {
     wines: r.wines as number,
     costCents: Number(r.cost_cents),
     valueCents: Number(r.value_cents),
-    pricedCostCents: Number(r.priced_cost_cents),
+    pairedCostCents: Number(r.paired_cost_cents),
+    pairedValueCents: Number(r.paired_value_cents),
     unpriced: r.unpriced as number,
     racks: r.racks as number,
     receipts: r.receipts as number,

@@ -183,6 +183,36 @@ export function StoreIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
   );
 }
 
+/** A rack seen from the front: bottle ends in a grid. */
+export function RackIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x="3" y="4" width="18" height="16" rx="2" />
+      <Circle cx="8" cy="9" r="1.8" />
+      <Circle cx="16" cy="9" r="1.8" />
+      <Circle cx="8" cy="15" r="1.8" />
+      <Circle cx="16" cy="15" r="1.8" />
+    </Svg>
+  );
+}
+
+export function PeopleIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx="9" cy="8" r="3.2" />
+      <Path d="M3 19.5c.6-3.3 3-5 6-5s5.4 1.7 6 5M15.5 5.2a3 3 0 0 1 0 5.6M17.5 14.8c1.8.6 3 2.2 3.5 4.7" />
+    </Svg>
+  );
+}
+
+export function ShareIcon({ color, size, strokeWidth = 1.6 }: IconProps) {
+  return (
+    <Svg {...base(size)} stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 15V3.5M8 7l4-4 4 4M6 11H5v10h14V11h-1" />
+    </Svg>
+  );
+}
+
 /** Google's "G", in its own colors (for the sign-in button). */
 export function GoogleLogo({ size = 18 }: { size?: number }) {
   return (

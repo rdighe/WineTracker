@@ -1,6 +1,6 @@
 /** Price paid, rating, tags and notes for a tasting; used after a scan and from the wine page. */
-import { useState } from 'react';
-import type { TastingSetting } from '../lib/types';
+import { useEffect, useState } from 'react';
+import type { Cellar, TastingSetting } from '../lib/types';
 import { Text, TextInput, View } from 'react-native';
 import { useApi } from '../lib/useApi';
 import { todayIso } from '../lib/format';
@@ -21,6 +21,8 @@ export function useTastingDraft(initialVintage?: string | null, initialKind: Tas
   const [context, setContext] = useState<PriceContext>('retail');
   const [tags, setTags] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  // Which cellar new bottles go in (null: the person's first).
+  const [cellarId, setCellarId] = useState<number | null>(null);
 
   /** The tasting fields for the API; throws on an invalid vintage or price. */
   function toTasting() {
@@ -35,10 +37,11 @@ export function useTastingDraft(initialVintage?: string | null, initialKind: Tas
     return {
       vintage: v || null, rating, notes: notes.trim(), tags, pricePaid: p, priceContext, kind,
       bottles: kind === 'cellar' ? bottles : null, setting: kind === 'cellar' ? null : setting, tastedOn: date,
+      ...(kind === 'cellar' && cellarId ? { cellarId } : {}),
     };
   }
 
-  return { kind, setKind, date, setDate, bottles, setBottles, setting, setSetting, vintage, setVintage, rating, setRating, price, setPrice, context, setContext, tags, setTags, notes, setNotes, toTasting };
+  return { kind, setKind, date, setDate, bottles, setBottles, setting, setSetting, vintage, setVintage, rating, setRating, price, setPrice, context, setContext, tags, setTags, notes, setNotes, cellarId, setCellarId, toTasting };
 }
 
 export type TastingDraft = ReturnType<typeof useTastingDraft>;
@@ -84,6 +87,7 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
           />
         </View>
       )}
+      {draft.kind === 'cellar' ? <CellarChoice value={draft.cellarId} onChange={draft.setCellarId} /> : null}
       <DateField label={draft.kind === 'cellar' ? 'Added on' : 'Tasted on'} value={draft.date} onChange={draft.setDate} />
       {showVintage ? (
         <Field label="Vintage" numeric value={draft.vintage} onChangeText={draft.setVintage} placeholder="2019 or NV" autoCapitalize="characters" maxLength={4} />
@@ -149,6 +153,35 @@ export function TastingFields({ draft, showVintage, suggestedTags = [] }: { draf
         <Field label="Notes" value={draft.notes} onChangeText={draft.setNotes} placeholder="What stood out?" multiline style={{ height: 110, paddingTop: space[3], textAlignVertical: 'top' }} />
       ) : null}
     </Card>
+  );
+}
+
+/** Which cellar the bottles go in: shown only to people who can add to more than one. */
+function CellarChoice({ value, onChange }: { value: number | null; onChange: (id: number) => void }) {
+  const api = useApi();
+  const [cellars, setCellars] = useState<Cellar[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.cellars().then((r) => {
+      if (cancelled) return;
+      const mine = r.cellars.filter((x) => x.role !== 'viewer');
+      setCellars(mine);
+      if (mine[0] && value === null) onChange(mine[0].cellarId);
+    }, () => {});
+    return () => {
+      cancelled = true;
+    };
+    // Asked once, when the form opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api]);
+  if (cellars.length < 2) return null;
+  return (
+    <View style={{ gap: space[2] }}>
+      <Label>Into</Label>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {cellars.map((x) => <Chip key={x.cellarId} small selected={value === x.cellarId} onPress={() => onChange(x.cellarId)}>{x.name}</Chip>)}
+      </View>
+    </View>
   );
 }
 

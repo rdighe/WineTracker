@@ -178,7 +178,7 @@ function CellarCard({ p }: { p: CellarPick }) {
         <Reasons reasons={p.reasons} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
           <PinIcon color={c.ink} size={16} />
-          <Text style={[type.subhead, { flex: 1, fontWeight: '600', color: c.ink }]} numberOfLines={1}>{`${p.bottles} ${p.bottles === 1 ? 'bottle' : 'bottles'}${p.location ? ` · ${p.location}` : ''}`}</Text>
+          <Text style={[type.subhead, { flex: 1, fontWeight: '600', color: c.ink }]} numberOfLines={2}>{[`${p.bottles} ${p.bottles === 1 ? 'bottle' : 'bottles'}`, p.cellar, p.place ?? p.location].filter(Boolean).join(' · ')}</Text>
           {p.medianCents ? <Text style={[type.figure, { fontSize: 15, color: c.ink2 }]}>{dollars(p.medianCents)}</Text> : null}
         </View>
       </Card>

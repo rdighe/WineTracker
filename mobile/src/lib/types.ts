@@ -112,6 +112,76 @@ export interface Tasting {
   bottles: number | null;
   setting: TastingSetting | null;
   image_url: string | null;
+  /** Cellar entries: which cellar, where on a rack, the receipt, who added it (when not you), and whether you may change it. */
+  cellar_id?: number | null;
+  receipt_id?: number | null;
+  places?: Place[] | null;
+  added_by?: string | null;
+  can_edit?: boolean;
+}
+
+export interface Place { rackId: number; rack: string; row: number; col: number }
+
+export type CellarRole = 'owner' | 'editor' | 'viewer';
+
+export interface Cellar {
+  cellarId: number;
+  name: string;
+  role: CellarRole;
+  bottles: number;
+  wines: number;
+  /** What the bottles cost, and their value now (market, or what was paid where no market price). */
+  costCents: number;
+  valueCents: number;
+  /** Cost and value of the bottles with both prices: the change in value. */
+  pairedCostCents: number;
+  pairedValueCents: number;
+  /** Bottles with no market price. */
+  unpriced: number;
+  racks: number;
+  receipts: number;
+  members: { userId: number; name: string; role: CellarRole; me: boolean }[];
+}
+
+export interface RackSlot { row: number; col: number; tastingId: number; wineId: number; name: string; vintage: string | null; colour: string; wineType: string }
+export interface Rack { rackId: number; name: string; rows: number; cols: number; slots: RackSlot[] }
+
+export interface InvitePreview { cellarName: string; from: string; role: CellarRole; member: boolean }
+
+export interface ReceiptLine {
+  index: number;
+  text: string;
+  producer: string;
+  name: string;
+  vintage: string;
+  qty: number;
+  unitCents: number | null;
+  bottleMl: number | null;
+  match: 'matched' | 'likely' | 'guess';
+  wineId: number | null;
+  displayName: string;
+  region: string;
+  style: string;
+  imageUrl: string | null;
+  retailCents: number | null;
+}
+
+export interface ReceiptRead { merchant: string; purchasedOn: string | null; totalCents: number | null; source: string; lines: ReceiptLine[] }
+
+export interface Receipt {
+  receiptId: number;
+  cellarId: number | null;
+  cellarName: string | null;
+  merchant: string;
+  purchasedOn: string | null;
+  totalCents: number | null;
+  hasPhoto: boolean;
+  bottles: number;
+  lines: number;
+}
+
+export interface ReceiptDetail extends Receipt {
+  entries: { tasting_id: number; wine_id: number; display_name: string; colour: string; wine_type: string; vintage_key: string | null; kind: 'tasted' | 'cellar'; bottles: number | null; price_paid_cents: number | null; bottle_ml: number; image_url: string | null }[];
 }
 
 export type TastingSetting = 'home' | 'restaurant' | 'other';
@@ -160,6 +230,10 @@ export interface CellarPick {
   bottles: number;
   /** Where the bottles are, as written when they were added. */
   location: string;
+  /** Where one sits on a rack ("Kitchen · row 2, place 3"), when placed. */
+  place: string | null;
+  /** The cellar it's in, when the person has more than one. */
+  cellar: string | null;
   medianCents: number | null;
   myRating: number | null;
   score: number;

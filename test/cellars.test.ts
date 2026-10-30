@@ -38,7 +38,7 @@ describe('cellars', () => {
     const { cellars } = (await request(a).get('/api/cellars').set(as('rohan'))).body;
     expect(cellars).toHaveLength(1);
     expect(cellars[0]).toMatchObject({
-      name: 'My cellar', role: 'owner', bottles: 4, wines: 2, costCents: 64000, valueCents: 94000, pricedCostCents: 60000, unpriced: 1,
+      name: 'My cellar', role: 'owner', bottles: 4, wines: 2, costCents: 64000, valueCents: 94000, pairedCostCents: 60000, pairedValueCents: 90000, unpriced: 1,
       members: [{ role: 'owner', me: true }],
     });
     const list = (await request(a).get('/api/tastings').set(as('rohan'))).body.tastings;

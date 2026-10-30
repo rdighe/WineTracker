@@ -4,6 +4,7 @@
  * fix anything entered wrong (vintage, bottles, price, date, notes, or the
  * wine itself). Shown on My wines and on the wine's own page.
  */
+import { router } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -99,6 +100,13 @@ export function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promi
   };
   const n = t.bottles ?? 1;
   const [editing, setEditing] = useState(false);
+  // A shared cellar you can only look at: no changes.
+  const canEdit = t.can_edit !== false;
+  const places = t.places ?? [];
+  const where = [
+    places.length === 1 ? `${places[0]!.rack}, row ${places[0]!.row + 1}, place ${places[0]!.col + 1}` : places.length ? `${places.length} on ${[...new Set(places.map((p) => p.rack))].join(', ')}` : '',
+    t.added_by ? `Added by ${t.added_by}` : '',
+  ].filter(Boolean).join(' · ');
   if (editing) return <EditEntry t={t} onClose={() => setEditing(false)} onChanged={onChanged} />;
   return (
     <View style={{ gap: 6, paddingTop: space[2], borderTopWidth: StyleSheet.hairlineWidth, borderColor: c.hairline }}>
@@ -109,15 +117,21 @@ export function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promi
           {t.paid_750_cents ? <Muted style={type.tabular}>paid {dollars(t.price_paid_cents)}</Muted> : null}
           <PriceDelta paid={t.paid_750_cents} now={t.market_now_cents} percentOnly />
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
-          <Button title="−" variant="secondary" size="sm" accessibilityLabel="One bottle fewer" onPress={() => run(() => (n > 1 ? api.updateTasting(t.tasting_id, { bottles: n - 1 }) : Promise.resolve()))} />
-          <Button title="+" variant="secondary" size="sm" accessibilityLabel="One bottle more" onPress={() => run(() => api.updateTasting(t.tasting_id, { bottles: n + 1 }))} />
-        </View>
+        {canEdit ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
+            <Button title="−" variant="secondary" size="sm" accessibilityLabel="One bottle fewer" onPress={() => run(() => (n > 1 ? api.updateTasting(t.tasting_id, { bottles: n - 1 }) : Promise.resolve()))} />
+            <Button title="+" variant="secondary" size="sm" accessibilityLabel="One bottle more" onPress={() => run(() => api.updateTasting(t.tasting_id, { bottles: n + 1 }))} />
+          </View>
+        ) : null}
       </View>
-      <DateEdit t={t} onChanged={onChanged} label="Added" />
+      {where ? <Muted>{where}</Muted> : null}
+      {canEdit ? <DateEdit t={t} onChanged={onChanged} label="Added" /> : null}
       {t.rating != null || t.notes ? <Muted>{[t.rating != null ? `Rated ${t.rating}` : '', t.notes].filter(Boolean).join(' · ')}</Muted> : null}
-      <View style={{ flexDirection: 'row', gap: space[4] }}>
+      {canEdit ? <View style={{ flexDirection: 'row', gap: space[4], flexWrap: 'wrap' }}>
       <Button title="Edit" variant="plain" size="sm" style={{ paddingHorizontal: 0 }} onPress={() => setEditing(true)} />
+      {t.cellar_id ? (
+        <Button title={places.length ? 'Move on the rack' : 'Put on a rack'} variant="plain" size="sm" style={{ paddingHorizontal: 0 }} onPress={() => router.push(`/racks?cellar=${t.cellar_id}`)} />
+      ) : null}
       <Button
         title="Remove from cellar"
         variant="plain"
@@ -132,7 +146,7 @@ export function CellarRow({ t, onChanged }: { t: Tasting; onChanged: () => Promi
           if (ok) await run(() => api.removeFromCellar(t.tasting_id));
         }}
       />
-      </View>
+      </View> : null}
       <ErrorText error={error} />
     </View>
   );

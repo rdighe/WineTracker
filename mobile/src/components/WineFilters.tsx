@@ -1,4 +1,4 @@
-/** Search box and "Filter by" panel for My wines; filtering happens on the phone. */
+/** Search box and "Filter by" panel for the Cellar and Journal (by style, place, grape, rating, vintage, your tags, rack); filtering happens on the phone. */
 import { useMemo, useState } from 'react';
 import { Platform, TextInput, View } from 'react-native';
 import type { Tasting } from '../lib/types';
@@ -12,7 +12,12 @@ export interface Filters {
   grape?: string;
   rating?: string;
   vintage?: string;
+  tag?: string;
+  /** A rack's name, or NOT_PLACED. */
+  place?: string;
 }
+const NOT_PLACED = 'Not on a rack';
+const placesOf = (t: Tasting) => (t.kind !== 'cellar' ? [] : t.places?.length ? t.places.map((p) => p.rack) : [NOT_PLACED]);
 type Key = keyof Filters;
 
 /** Lowercase without accents, so "chateau" finds "Château". */
@@ -43,6 +48,8 @@ function matches(t: Tasting, f: Filters, words: string[]): boolean {
   if (f.grape && !grapesOf(t).includes(f.grape)) return false;
   if (f.rating && !RATINGS.find((r) => r.key === f.rating)?.test(t.rating)) return false;
   if (f.vintage && vintageBucket(t.vintage_key) !== f.vintage) return false;
+  if (f.tag && !(t.tags ?? []).includes(f.tag)) return false;
+  if (f.place && !placesOf(t).includes(f.place)) return false;
   if (!words.length) return true;
   const hay = fold([t.display_name, t.producer, t.region, t.sub_region, t.country, t.grape, t.vintage_key, t.notes, ...(t.tags ?? [])].filter(Boolean).join(' '));
   return words.every((w) => hay.includes(w));
@@ -77,6 +84,8 @@ export function WineFilters({ items, query, onQuery, filters, onFilters }: {
       ['grape', 'Grape', options(items, grapesOf)],
       ['rating', 'Your rating', RATINGS.filter((r) => items.some((t) => r.test(t.rating))).map(({ key, label }) => ({ key, label }))],
       ['vintage', 'Vintage', decades],
+      ['tag', 'Your tags', options(items, (t) => t.tags ?? [], 20)],
+      ['place', 'Rack', options(items, placesOf)],
     ] as [Key, string, { key: string; label: string }[]][]).filter(([, , opts]) => opts.length > 0);
   }, [items]);
   const n = activeCount(filters);
