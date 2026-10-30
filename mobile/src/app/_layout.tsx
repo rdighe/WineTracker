@@ -3,7 +3,8 @@ import { ShareIntentModule, ShareIntentProvider } from 'expo-share-intent';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AuthProvider } from '../lib/auth';
 import { LocationProvider } from '../lib/location';
@@ -36,10 +37,16 @@ export default function RootLayout() {
 function Navigator() {
   const { c, scheme } = useTheme();
   const [intro, setIntro] = useState(true);
-  const introDone = useCallback(() => setIntro(false), []);
+  // The app settles into place as the opening animation's tunnel opens onto it (SplashIntro).
+  const appIn = useSharedValue(0);
+  const introDone = useCallback(() => {
+    appIn.set(1);
+    setIntro(false);
+  }, [appIn]);
+  const settle = useAnimatedStyle(() => ({ transform: [{ scale: 0.94 + 0.06 * appIn.value }] }));
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+    <Animated.View style={[{ flex: 1, backgroundColor: c.bg }, settle]}>
+      <StatusBar style={intro || scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
@@ -48,7 +55,7 @@ function Navigator() {
         <Stack.Screen name="picks" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="shared" options={{ animation: 'slide_from_bottom' }} />
       </Stack>
-      {intro ? <SplashIntro onDone={introDone} /> : null}
-    </View>
+      {intro ? <SplashIntro onDone={introDone} appIn={appIn} /> : null}
+    </Animated.View>
   );
 }

@@ -49,14 +49,13 @@ export const radius = { xs: 6, sm: 10, md: 16, lg: 24, xl: 40, pill: 999 } as co
 export const size = { controlSm: 34, controlMd: 44, controlLg: 50, tapMin: 44, row: 64, rowPhoto: 76, thumbW: 44, thumbH: 56, photoHero: 420 } as const;
 
 /**
- * The wordmark on the opening animation: Georgia, a classic serif that ships
- * with iOS. Everything else in the app is the system font (San Francisco).
+ * The wordmark on the opening animation: Perfect DOS VGA 437, the pixel face
+ * of foodscape.wine's design (from foodscape.blog), loaded by SplashIntro.
+ * Crisp at multiples of its 16 px grid. Everything else in the app is the
+ * system font (San Francisco).
  */
-export const wordmarkFont: TextStyle = Platform.select<TextStyle>({
-  ios: { fontFamily: 'Georgia' },
-  web: { fontFamily: 'Georgia, "Times New Roman", serif' },
-  default: { fontFamily: 'serif' },
-});
+export const WORDMARK_FONT = 'PerfectDOSVGA437';
+export const wordmarkFont: TextStyle = { fontFamily: WORDMARK_FONT };
 
 const tabular: TextStyle = { fontVariant: ['tabular-nums'] };
 
