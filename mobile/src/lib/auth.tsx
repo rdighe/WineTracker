@@ -1,10 +1,13 @@
 /**
  * Sign-in state. Google sign-in runs through the API (src/auth/google.ts): the
  * app opens /api/auth/google/start in a browser and gets a WineTracker session
- * token back on its own URL, then sends it to the API as a Bearer token. For
+ * token back on its own URL. Sign in with Apple (iOS) is native: Apple's
+ * identity token goes to /api/auth/apple (src/auth/apple.ts), which answers
+ * with a session token. The app sends it to the API as a Bearer token. For
  * local development, servers with ALLOW_DEV_AUTH=true also accept a name, sent
  * as "Authorization: Dev <name>".
  */
+import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -23,6 +26,8 @@ interface AuthState {
   authHeader: () => Promise<string | null>;
   /** Resolves signed in, or false if the user closed the sign-in window. */
   signInGoogle: () => Promise<boolean>;
+  /** iOS only. Resolves signed in, or false if the user cancelled. */
+  signInApple: () => Promise<boolean>;
   signInDev: (name: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -42,8 +47,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const value = useMemo<AuthState>(
-    () => ({
+  const value = useMemo<AuthState>(() => {
+    async function saveSession(token: string, email: string) {
+      await storage.set(SESSION_KEY, token);
+      await storage.set(EMAIL_KEY, email);
+      await storage.remove(DEV_KEY);
+      setDevUser(null);
+      setSession({ token, email });
+    }
+    return {
       ready,
       signedIn: Boolean(session || devUser),
       label: session?.email ?? devUser ?? '',
@@ -60,12 +72,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const params = new URLSearchParams(result.url.split('#')[1] ?? '');
         const token = params.get('token');
         if (!token) throw new Error(params.get('error') ?? 'Sign-in failed');
-        const email = params.get('email') ?? '';
-        await storage.set(SESSION_KEY, token);
-        await storage.set(EMAIL_KEY, email);
-        await storage.remove(DEV_KEY);
-        setDevUser(null);
-        setSession({ token, email });
+        await saveSession(token, params.get('email') ?? '');
+        return true;
+      },
+      async signInApple() {
+        let credential: AppleAuthentication.AppleAuthenticationCredential;
+        try {
+          credential = await AppleAuthentication.signInAsync({ requestedScopes: [AppleAuthentication.AppleAuthenticationScope.EMAIL] });
+        } catch (e) {
+          if ((e as { code?: string }).code === 'ERR_REQUEST_CANCELED') return false;
+          throw e;
+        }
+        if (!credential.identityToken) throw new Error('Apple sign-in failed; try again');
+        const res = await fetch(`${getApiUrl()}/api/auth/apple`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ identityToken: credential.identityToken }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body?.token) throw new Error(body?.error ?? 'Apple sign-in failed; try again');
+        await saveSession(body.token, body.email ?? '');
         return true;
       },
       async signInDev(name) {
@@ -79,9 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setDevUser(null);
       },
-    }),
-    [ready, session, devUser]
-  );
+    };
+  }, [ready, session, devUser]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

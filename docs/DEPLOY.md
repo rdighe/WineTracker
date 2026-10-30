@@ -93,6 +93,11 @@ The production API only accepts Google sign-ins (the "Dev" sign-in is turned off
 Sign-in returns to the app through its own address: `winetracker://` in TestFlight builds, `exp://` in Expo Go
 (allowed by `AUTH_APP_SCHEMES=winetracker,exp`), and the `ALLOWED_ORIGINS` addresses for the web version.
 
+**Sign in with Apple** (iPhone builds) needs no secrets: the API accepts Apple identity tokens issued to the app's
+bundle ID (`APPLE_BUNDLE_IDS`, default `com.rohanatstanford.winetracker`; empty turns it off), and the next EAS build
+turns on the Sign in with Apple capability for that bundle ID (`ios.usesAppleSignIn` in `mobile/app.json`). It
+doesn't work in Expo Go, whose bundle ID differs.
+
 ## 5. Copy your tastings from the Mac
 
 Your tastings, cellar, saved wines and learned labels are in your Mac's local database. This copies them to your new

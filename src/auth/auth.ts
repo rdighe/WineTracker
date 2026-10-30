@@ -2,7 +2,8 @@
  * Request authentication.
  *
  * Production: "Authorization: Bearer <WineTracker session token>", issued
- * after Google sign-in (src/auth/google.ts) and signed with sessionSecret.
+ * after Google or Apple sign-in (src/auth/google.ts, src/auth/apple.ts) and
+ * signed with sessionSecret.
  * Development (ALLOW_DEV_AUTH=true, never in production): "Authorization: Dev
  * <name>" acts as that user, so the API and app can be exercised without
  * Google sign-in.

@@ -12,7 +12,8 @@
       "bundleIdentifier": "com.rohanatstanford.winetracker",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -80,7 +81,8 @@
         {
           "name": "WineTracker"
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "scheme": "winetracker",
     "experiments": {

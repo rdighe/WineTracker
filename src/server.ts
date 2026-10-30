@@ -27,6 +27,7 @@ const server = createApp({
     config.googleClientId && config.googleClientSecret
       ? { clientId: config.googleClientId, clientSecret: config.googleClientSecret, appSchemes: config.authAppSchemes, publicUrl: config.publicUrl }
       : undefined,
+  apple: config.appleBundleIds.length ? { bundleIds: config.appleBundleIds } : undefined,
   allowedOrigins: config.allowedOrigins,
   trustProxy: config.trustProxy,
 }).listen(config.port, () => {

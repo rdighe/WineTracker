@@ -25,6 +25,8 @@ export const config = {
   authSessionSecret: process.env.AUTH_SESSION_SECRET ?? '',
   // Custom URL schemes Google sign-in may return to: the app's own, and "exp" for Expo Go.
   authAppSchemes: (process.env.AUTH_APP_SCHEMES ?? 'winetracker').split(',').map((s) => s.trim()).filter(Boolean),
+  // Sign in with Apple: the iOS bundle IDs Apple identity tokens may be issued to. Empty turns it off.
+  appleBundleIds: (process.env.APPLE_BUNDLE_IDS ?? 'com.rohanatstanford.winetracker').split(',').map((s) => s.trim()).filter(Boolean),
   // The API's public URL, if the callback address can't be worked out from requests.
   publicUrl: process.env.PUBLIC_URL ?? '',
   // Development only: accept "Authorization: Dev <name>" as that user.

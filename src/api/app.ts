@@ -1,6 +1,6 @@
 /**
  * REST API. User-specific routes (tastings, saved wines, recommendations)
- * require a signed-in user (see src/auth/auth.ts; Google sign-in in src/auth/google.ts); catalog and price
+ * require a signed-in user (see src/auth/auth.ts; Google sign-in in src/auth/google.ts, Apple in src/auth/apple.ts); catalog and price
  * routes are public reads. Scans attach to the user when one is signed in.
  */
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -27,6 +27,7 @@ import type { PoliteFetcher } from '../prices/fetcher.js';
 import { refreshPrices } from '../prices/refresh.js';
 import { aggregateWines } from '../prices/aggregate.js';
 import { createAuthenticator, type AuthOptions } from '../auth/auth.js';
+import { appleRoutes, type AppleOptions } from '../auth/apple.js';
 import { googleRoutes, type GoogleOptions } from '../auth/google.js';
 import { createTasting, deleteTasting, listTastings, removeFromCellar, updateTasting } from '../tastings/tastings.js';
 import { maybeQueueWineImage } from '../catalog/images.js';
@@ -42,6 +43,8 @@ export interface AppDeps {
   auth: AuthOptions;
   /** Google sign-in; off when absent. allowedOrigins comes from AppDeps. */
   google?: Omit<GoogleOptions, 'allowedOrigins' | 'sessionSecret'>;
+  /** Sign in with Apple; off when absent. */
+  apple?: Omit<AppleOptions, 'sessionSecret'>;
   allowedOrigins?: string[];
   /** Number of proxies in front of the app (Render: 1), so rate limits see the client IP. */
   trustProxy?: number;
@@ -112,7 +115,7 @@ const tastingBody = z.object({
   noteFlavorsPending: z.boolean().optional(),
 });
 
-export function createApp({ db, provider, fetcher, auth: authOptions, google, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep }: AppDeps) {
+export function createApp({ db, provider, fetcher, auth: authOptions, google, apple, allowedOrigins = [], trustProxy = 0, limits = {}, infoResearcher, photoFetch, places: placesDep, noteReader: noteReaderDep, pickReaders: pickReadersDep, isReady, pickJev: pickJevDep }: AppDeps) {
   const research = infoResearcher ?? createInfoResearcher(db, provider);
   const jevFlavors = createJev('flavors');
   const noteReader = noteReaderDep ?? createNoteFlavorReader(db, [jevFlavors && jevNoteReader(jevFlavors), createNoteProvider()]);
@@ -169,7 +172,11 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
   const importLimit = limiter(60 * 60_000, 20);
 
   // Sign-in methods this server offers, so the app shows the right sign-in screen.
-  const signIn = [...(google && authOptions.sessionSecret ? ['google'] : []), ...(authOptions.allowDev ? ['dev'] : [])];
+  const signIn = [
+    ...(google && authOptions.sessionSecret ? ['google'] : []),
+    ...(apple && authOptions.sessionSecret ? ['apple'] : []),
+    ...(authOptions.allowDev ? ['dev'] : []),
+  ];
   // Not ready (503) until the server says so: Render keeps sending traffic to the old instance meanwhile.
   app.get('/api/health', (_req, res) => {
     if (isReady && !isReady()) return res.status(503).json({ ok: false, starting: true });
@@ -178,6 +185,9 @@ export function createApp({ db, provider, fetcher, auth: authOptions, google, al
 
   if (google && authOptions.sessionSecret) {
     app.use('/api/auth/google', googleRoutes({ ...google, allowedOrigins, sessionSecret: authOptions.sessionSecret }, auth.userFor));
+  }
+  if (apple && authOptions.sessionSecret) {
+    app.use('/api/auth/apple', appleRoutes({ ...apple, sessionSecret: authOptions.sessionSecret }, auth.userFor));
   }
 
   // ── Label scans ──────────────────────────────────────────────────────────
